@@ -1,3 +1,5 @@
+import { arrivalStrings } from './arrivalStrings';
+import { selectionStrings } from './selectionStrings';
 import { liveStrings } from './liveStrings';
 import { journeyStrings, confidenceStrings } from './journeyStrings';
 import type { UncertainReason } from '../domain/rideGuide';
@@ -13,6 +15,8 @@ const tidy = (text: string) => text.replace(/\.\.(?=\s|$)/g, '.');
 
 const en = {
   live: liveStrings.en,
+  selection: selectionStrings.en,
+  arrival: arrivalStrings.en,
   journey: journeyStrings.en,
   confidence: confidenceStrings.en,
   appTagline: 'When you ride NJ Transit, you need all the help you can get.',
@@ -598,6 +602,8 @@ export type Strings = typeof en;
 
 const es: Strings = {
   live: liveStrings.es,
+  selection: selectionStrings.es,
+  arrival: arrivalStrings.es,
   journey: journeyStrings.es,
   confidence: confidenceStrings.es,
   appTagline: 'Cuando viajas en NJ Transit, necesitas toda la ayuda posible.',

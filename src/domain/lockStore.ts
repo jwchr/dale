@@ -1,3 +1,4 @@
+import { validDestinationArrival } from './destinationArrival';
 // Bus Lock on this phone across a refresh or a closed app (issue #53). The saved lock keeps its
 // original timestamps, so a report from 8:10 still reads 8:10 after reopening, and GPS ages honestly.
 // A saved lock is only offered back (never resumed silently) and only while it still matches the
@@ -64,6 +65,7 @@ function validFor<L>(ds: Dataset, s: SavedLock<L>, now: number): boolean {
   if (!['viewing', 'waiting', 'arrived', 'onboard'].includes(session.phase) || session.lock.tripInstanceId !== dep.tripInstanceId) return false;
   if (!['scheduled_only', 'tracked', 'stale', 'vanished', 'needs_confirmation', 'cancelled'].includes(session.lock.status)) return false;
   const position = (p: NonNullable<BusSession['lock']['last']>) => p && typeof p.vehicleId === 'string' && typeof p.tripInstanceId === 'string'
+    && (p.stopCall === undefined || (p.stopCall.status === 'stopped_at' && Number.isInteger(p.stopCall.stopIndex) && p.stopCall.stopIndex >= 0 && typeof p.stopCall.stopId === 'string'))
     && Number.isFinite(p.observedAt) && Number.isFinite(p.lat) && Math.abs(p.lat) <= 90 && Number.isFinite(p.lon) && Math.abs(p.lon) <= 180;
   if (session.lock.last && !position(session.lock.last) || session.lock.pending && !position(session.lock.pending)) return false;
   const record = (p: NonNullable<BusSession['pendingPosition']>) => position(p) && ['demo', 'official'].includes(p.source) && Number.isFinite(p.receivedAt);
@@ -73,6 +75,7 @@ function validFor<L>(ds: Dataset, s: SavedLock<L>, now: number): boolean {
     && Number.isInteger(r.stopIndex) && r.stopId === dep.pattern.stopIds[r.stopIndex] && r.tripInstanceId === dep.tripInstanceId
     && (r.kind !== 'capacity' || ['seats', 'standing', 'full'].includes(r.capacity ?? '')))) return false;
   const leg = s.leg as { fromStopId?: unknown; toStopId?: unknown; routeIds?: unknown } | null;
+  if (session.destinationArrival && (!validDestinationArrival(session.destinationArrival) || session.destinationArrival.tripInstanceId !== dep.tripInstanceId || session.destinationArrival.stopId !== leg?.toStopId || dep.pattern.stopIds[session.destinationArrival.stopIndex] !== session.destinationArrival.stopId || session.destinationArrival.at < session.lock.lockedAt || session.destinationArrival.recordedAt > now)) return false;
   if (!leg || typeof leg.fromStopId !== 'string' || typeof leg.toStopId !== 'string' || !Array.isArray(leg.routeIds)
     || !leg.routeIds.every((id) => typeof id === 'string') || leg.fromStopId !== dep.pattern.stopIds[dep.stopIndex]) return false;
   const trip = ds.trips.find((t) => t.id === dep.tripId);

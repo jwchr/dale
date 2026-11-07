@@ -25,7 +25,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       }
       const t = lang === 'es'
         ? { find: /Buscar parada/i, save: /Guardar/, reverse: /Invertir/, allDay: /Todo el día/, settings: 'Ajustes', back: 'Atrás', guide: '¿Primera vez? Cómo funciona' }
-        : { find: /Find a stop/i, save: 'Save to my commutes', reverse: /Reverse/, allDay: /All day/, settings: 'Settings', back: 'Back', guide: 'First time riding? How it works' };
+        : { find: /Find a stop/i, save: 'Save trip', reverse: /Reverse/, allDay: /All day/, settings: 'Settings', back: 'Back', guide: 'First time riding? How it works' };
       await audit(page, 'home (empty)');
       await page.getByRole('button', { name: t.find }).first().click();
       await page.getByRole('searchbox').fill('irvington');
@@ -33,7 +33,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
       await audit(page, 'destinations');
       await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-      await page.getByRole('button', { name: t.save }).click();
+      await page.getByRole('button', { name: t.save }).first().click();
       await page.getByRole('button', { name: t.reverse }).click();
       await audit(page, 'home (commute, from Port Authority)');
       await page.locator('.dep').first().click();
@@ -60,7 +60,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await audit(page, 'demo wrong-side warning');
     await page.getByRole('button', { name: 'Use that stop' }).click();
     await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-    await page.getByRole('button', { name: 'Save to my commutes' }).click();
+    await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /Reverse/ }).click();
     await audit(page, 'demo home');
     await page.locator('.dep').first().click();
@@ -83,12 +83,12 @@ for (const [skin, colorScheme] of [['clean', 'light'], ['clean', 'dark'], ['park
     await page.addInitScript((s) => { try { localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: s })); } catch { /* ignore */ } }, skin);
     await page.goto('/?now=2026-11-04T17:10');
     await expect(page.locator('html')).toHaveAttribute('data-skin', skin);
-    await expect(page.locator('.skin-backdrop')).toHaveCount(skin === 'clean' ? 0 : 1);
+    await expect(page.locator('.skin-backdrop')).toHaveCount(1);
     await page.getByRole('button', { name: /Find a stop/i }).first().click();
     await page.getByRole('searchbox').fill('irvington');
     await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
     await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-    await page.getByRole('button', { name: 'Save to my commutes' }).click();
+    await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await audit(page, `${skin} home`);
     await page.locator('.dep').first().click();
     await audit(page, `${skin} trip`);

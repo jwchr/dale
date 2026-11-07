@@ -1,3 +1,4 @@
+import { parseGtfsTime as strictGtfsTime } from '../src/domain/time.ts';
 // Build Dale's compact corridor dataset from an NJ Transit GTFS feed (zip or folder).
 // Pure functions; scripts/build-gtfs.mjs handles files. No route tables are typed by hand.
 
@@ -78,9 +79,7 @@ export function filterCsvByColumn(text, column, keep) {
 }
 
 export function parseGtfsTime(s) {
-  if (!s) return undefined;
-  const [h, m, sec] = s.split(':').map(Number);
-  return h * 3600 + m * 60 + (sec || 0);
+  return !s?.trim() ? undefined : strictGtfsTime(s);
 }
 
 /**
@@ -160,6 +159,11 @@ export function buildDataset(files, { routeShortNames, feedVersion = 'unknown', 
     }
     const given = sts.map((s) => parseGtfsTime(s.departure_time || s.arrival_time));
     const trip = { id: t.trip_id, patternId: p.id, serviceId: t.service_id, times: interpolate(given) };
+    // Keep explicit scheduled ARRIVAL separately: departure/dwell is not arrival.
+    trip.arrivals = sts.map((s, i) => {
+      const at = parseGtfsTime(s.arrival_time);
+      return Number.isSafeInteger(at) && at >= 0 && at <= trip.times[i] && (i === 0 || at >= trip.times[i - 1]) ? at : null;
+    });
     const estimated = given.flatMap((v, i) => (v === undefined ? [i] : []));
     if (estimated.length) trip.estimated = estimated;
     outTrips.push(trip);
@@ -189,6 +193,8 @@ export function buildDataset(files, { routeShortNames, feedVersion = 'unknown', 
       if (!s.stop_lat || !s.stop_lon || !Number.isFinite(Number(s.stop_lat)) || !Number.isFinite(Number(s.stop_lon)) || Math.abs(Number(s.stop_lat)) > 90 || Math.abs(Number(s.stop_lon)) > 180) throw new Error('invalid GTFS stop coordinates');
       const o = { id: s.stop_id, name: s.stop_name, lat: Number(s.stop_lat), lon: Number(s.stop_lon) };
       if (s.stop_code) o.code = s.stop_code;
+      // Owner-verified display correction only; retain the provider's spelling and canonical IDs.
+      if (s.stop_code === '32728' && s.stop_name === 'STATE ST AT LAWERENCE ST') { o.sourceName = s.stop_name; o.name = 'STATE ST AT LAWRENCE ST'; }
       if (/PORT AUTHORITY/i.test(s.stop_name)) o.terminal = 'PABT';
       return o;
     });

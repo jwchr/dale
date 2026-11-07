@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { hasStopLocations, nearbyStops } from '../domain/direction';
 import type { Dataset, Stop } from '../domain/types';
+import { StopChoice } from './StopChoice';
 import type { Strings } from './i18n';
 
 const RADIUS_M = 500;
@@ -64,7 +65,7 @@ export function NearMe({ ds, t, onPick }: { ds: Dataset; t: Strings; onPick: (s:
       {state.status === 'done' && state.results.length > 0 && (
         <ul className="results">
           {state.results.map(({ stop, distanceM }) => (
-            <li key={stop.id}><button onClick={() => onPick(stop)}><strong>{stop.name}</strong><span className="muted"> · {n.distance(distanceM)}</span></button></li>
+            <li key={stop.id}><StopChoice ds={ds} stop={stop} t={t} onPick={onPick} distance={n.distance(distanceM)} /></li>
           ))}
         </ul>
       )}

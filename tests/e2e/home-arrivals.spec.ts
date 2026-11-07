@@ -48,7 +48,9 @@ test('normal upcoming home shows official estimates automatically, retaining sch
   await expect(row.locator('.badge-live')).toHaveText('LIVE ESTIMATE');
   await expect(row.locator('.dep-time')).toHaveText('7:25 AM');
   await expect(row.locator('.dep-original')).toContainText('7:20 AM');
-  await expect(row.locator('.dep-sub')).toHaveText('Live arrival 8:00 AM');
+  await expect(row.locator('.destination-clock .dep-place')).toHaveText('Port Authority');
+  await expect(row.locator('.dep-arrival-time')).toHaveText('8:00 AM');
+  await expect(row.locator('.destination-clock .badge-destination-live')).toHaveText('LIVE ESTIMATE');
   await expect(row.locator('.dep-evidence')).toContainText('NJ Transit · reported 20s ago');
   expect(state.trackerCalls).toBe(0); expect(state.calls).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).toBeNull();
@@ -100,9 +102,10 @@ test('Spanish normal arrivals fit320px and pass accessibility without selecting 
 
 test('normal-home refresh stops in the background and resumes with bounded batches', async ({ page }) => {
   const state = await setup(page); await expect(current(page).locator('.badge-live')).toBeVisible();
-  const calls = state.calls;
+  const calls = state.calls, beforeHidden = await current(page).locator('.dep-evidence').textContent();
   await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
   state.now += 90_000; await page.clock.fastForward(90_000); expect(state.calls).toBe(calls);
+  expect(await current(page).locator('.dep-evidence').textContent()).toBe(beforeHidden);
   await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' }); document.dispatchEvent(new Event('visibilitychange')); });
   await expect(current(page).locator('.badge-live')).toBeVisible(); expect(state.calls).toBeGreaterThan(calls);
   // A foreground event can precede React committing the newly changed departure selectors;
@@ -119,5 +122,20 @@ test('a street-stop arrival is visible when NJ Transit has no departure estimate
   await page.clock.fastForward(31_000);
   await expect(current(page).locator('.badge-live')).toHaveText('LIVE ARRIVAL');
   await expect(current(page).locator('.dep-time')).toHaveText('7:25 AM');
-  await expect(current(page).locator('.dep-sub')).toContainText('Scheduled arrival');
+  await expect(current(page).locator('.destination-clock .badge-sched')).toHaveText('Scheduled only');
+  await expect(current(page).locator('.dep-arrival-time')).toHaveCount(0);
+});
+
+for (const lang of ['en', 'es'] as const) test(`paired clocks qualify both locations independently and remain side by side at320px (${lang})`, async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 }); await setup(page, { lang });
+  const row = current(page), board = row.locator('.dep-time'), arrival = row.locator('.dep-arrival-time');
+  await expect(row.locator('.boarding-clock .dep-place')).toHaveText(lang === 'en' ? 'Your stop' : 'Tu parada');
+  await expect(row.locator('.destination-clock .dep-place')).toHaveText('Port Authority');
+  await expect(board).toHaveText(lang === 'en' ? '7:25 AM' : '7:25 a.m.'); await expect(arrival).toHaveText(lang === 'en' ? '8:00 AM' : '8:00 a.m.');
+  await expect(row.locator('.dep-original')).toContainText(lang === 'en' ? '7:20 AM' : '7:20 a.m.');
+  await expect(row.locator('.dep-destination-original')).toContainText(lang === 'en' ? '7:40 AM' : '7:40 a.m.');
+  const a = (await board.boundingBox())!, b = (await arrival.boundingBox())!;
+  expect(Math.abs(a.y - b.y)).toBeLessThan(2); expect(b.x).toBeGreaterThan(a.x);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (lang === 'en') await row.screenshot({ path: 'test-results/paired-live-clocks.png' });
 });

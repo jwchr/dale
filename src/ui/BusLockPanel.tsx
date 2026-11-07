@@ -1,3 +1,4 @@
+import { DestinationArrival } from './DestinationArrival';
 import { WaitingMap } from './WaitingMap';
 import { gpsLost, offerAlternatives } from '../domain/alternatives';
 import { Alternatives } from './Alternatives';
@@ -107,6 +108,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
       </p>
       {!ds.meta.demo && !ds.meta.realtime && <p className="muted small">{b.liveUnavailable}</p>}
 
+      {session.phase !== 'onboard' && <DestinationArrival ds={ds} session={session} index={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} />}
       <SignalWarning session={session} now={now} t={t} estimated={!terminal && !passed && ['scheduled_only', 'stale', 'vanished'].includes(lock.status) && showScheduleMarker} />
       {offerAlternatives(session, now) && <Alternatives t={t} onBuses={onAlternatives} onGuide={onPenn} />}
       <div className="lock-waiting">

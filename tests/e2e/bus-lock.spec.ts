@@ -15,7 +15,7 @@ async function selectDemoTrip(page: Page, estimatedBoarding = false) {
   await page.getByRole('searchbox').fill('90002');
   await page.getByRole('button', { name: /Maple Ave & Main St \(to NYC\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
 }
@@ -98,7 +98,7 @@ test('printed timetable never exposes invented GPS controls or claims community 
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await expect(page.locator('.bus-lock')).toContainText('live tracking is not connected yet');
@@ -112,7 +112,7 @@ test('printed last return includes its next-day date, earlier option, following 
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').filter({ has: page.locator('.route-badge', { hasText: /^165$/ }) }).first().click();
   const card = page.locator('.last-return');
   await expect(card).toContainText('Route 165 · operating day 11/4/2026');
@@ -189,7 +189,7 @@ test('ride mode on the printed timetable gives scheduled times only, never a sto
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();
@@ -251,7 +251,7 @@ test('a lock survives a reload: offered back, never resumed silently, original t
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();
@@ -305,7 +305,7 @@ test('full screen on the printed timetable omits the retired top notice', async 
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();
@@ -364,7 +364,7 @@ test('trip update on the printed timetable has no DEMO mark, and reads in Spanis
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Guardar en mis viajes' }).click();
+  await page.getByRole('button', { name: 'Guardar viaje', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: /Seguir este autobús/ }).click();
   await page.getByRole('button', { name: 'Compartir cómo va el viaje' }).click();
@@ -457,7 +457,7 @@ test('report history: last week’s own reports show for the same bus, labeled a
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await expect(page.locator('.past-reports')).toHaveCount(0);
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
@@ -541,7 +541,7 @@ test('ride progress on the printed timetable: no stop locations, so taps only, s
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();

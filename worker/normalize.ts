@@ -58,7 +58,13 @@ export function createNormalizer(ds: Dataset) {
           if (!match || !observedAt || observedAt > now || !validVehicleId(vehicle.vehicle?.id) || !pos
             || !Object.hasOwn(pos, 'latitude') || !Object.hasOwn(pos, 'longitude') || !Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)
             || Math.abs(pos.latitude) > 90 || Math.abs(pos.longitude) > 180 || (vehicle.trip?.scheduleRelationship ?? 0) !== 0) continue;
-          output.observations.push({ tripInstanceId: match.id, vehicleId: vehicle.vehicle.id, observedAt, lat: pos.latitude, lon: pos.longitude });
+          const candidates = match.pattern.stopIds.flatMap((id, i) => (!vehicle.stopId || vehicle.stopId === id)
+            && (!Object.hasOwn(vehicle, 'currentStopSequence') || vehicle.currentStopSequence === match.pattern.stopSequences?.[i]) ? [i] : []);
+          const index = candidates.length === 1 ? candidates[0]! : undefined;
+          const stopCall = Object.hasOwn(vehicle, 'currentStatus') && vehicle.currentStatus === 1 && index !== undefined
+            && (!!vehicle.stopId || Object.hasOwn(vehicle, 'currentStopSequence'))
+            ? { stopId: match.pattern.stopIds[index]!, stopIndex: index, status: 'stopped_at' as const } : undefined;
+          output.observations.push({ tripInstanceId: match.id, vehicleId: vehicle.vehicle.id, observedAt, lat: pos.latitude, lon: pos.longitude, ...(stopCall ? { stopCall } : {}) });
         }
         if (kind === 'updates' && entity.tripUpdate) {
           const update = entity.tripUpdate, observedAt = seconds(update.timestamp), match = identify(update.trip, observedAt);

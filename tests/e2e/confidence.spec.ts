@@ -8,7 +8,7 @@ async function demoTrip(page: Page) {
   await page.getByRole('searchbox').fill('90002');
   await page.getByRole('button', { name: /Maple Ave & Main St \(to NYC\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
 }
@@ -84,7 +84,7 @@ test('malformed saved lock is removed and does not blank the app', async ({ page
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
-  await page.getByRole('button', { name: 'Save to my commutes' }).click();
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('arriba.lock.v1')!); s.dep.pattern.stopIds = null; localStorage.setItem('arriba.lock.v1', JSON.stringify(s)); });

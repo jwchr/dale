@@ -136,3 +136,51 @@ for (const offset of [-86_400_000, 86_400_000]) test(`live reports use the app c
   expect((await saved(page)).session.lock.status).toBe('tracked');
   expect((await saved(page)).session.history).toHaveLength(1);
 });
+
+
+test('destination arrival requires an exact official stopped-at report and retains the first time through ride end', async ({ page }) => {
+  let body = packet(); await setup(page, () => body);
+  await page.getByRole('button', { name: 'I’m waiting at this stop', exact: true }).click();
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click();
+  await expect(page.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  await page.getByRole('button', { name: 'I boarded', exact: true }).click();
+  const dialog = page.getByRole('dialog'), result = dialog.locator('.destination-arrival');
+  const stop = liveDataset.stops.find(s => s.id === '3')!;
+  const next = NOW + 31000;
+  body = packet(next, { observations: [{ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: next - 15000, lat: stop.lat!, lon: stop.lon!, stopCall: { stopId: '3', stopIndex: 2, status: 'stopped_at' } }] });
+  await page.clock.fastForward(31000);
+  await expect(result).toContainText('NJ Transit observed the bus stopped');
+  await expect(result).toContainText('The bus may have arrived before this GPS report');
+  const arrival = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.arrival.v1.g2')!));
+  expect(arrival.at).toBe(next - 15000); expect(arrival.source).toBe('njt_stopped_at'); expect(arrival.scheduledAt).toBeDefined();
+  expect(arrival).not.toHaveProperty('lat');
+  body = packet(next + 31000); await page.clock.fastForward(31000);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.arrival.v1.g2')!).at)).toBe(arrival.at);
+  await dialog.getByRole('button', { name: 'I got off', exact: true }).click();
+  await expect(page.locator('.bus-lock .destination-arrival')).toContainText('NJ Transit observed the bus stopped');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.locator('.last-arrival summary').click(); await expect(page.locator('.last-arrival')).toContainText('NJ Transit observed the bus stopped');
+  await page.reload(); await page.locator('.last-arrival summary').click(); await expect(page.locator('.last-arrival')).toContainText('NJ Transit observed the bus stopped');
+});
+
+test('manual destination confirmation has its own source and is distinct from ending a ride', async ({ page }) => {
+  await setup(page, () => null);
+  await page.getByRole('button', { name: 'I’m waiting at this stop', exact: true }).click();
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click(); await page.getByRole('button', { name: 'I boarded', exact: true }).click();
+  const dialog = page.getByRole('dialog'); await expect(dialog.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  await dialog.getByRole('button', { name: 'I’ve reached PORT AUTHORITY BUS TERMINAL', exact: true }).click();
+  await expect(dialog.locator('.destination-arrival')).toContainText('Arrival you reported');
+  await expect(dialog.locator('.destination-arrival')).toContainText('not an NJ Transit observation');
+  await dialog.getByRole('button', { name: 'I got off', exact: true }).click();
+  await expect(page.locator('.bus-lock .destination-arrival')).toContainText('Arrival you reported');
+});
+
+for (const cancelled of [false, true]) test(`same-packet ${cancelled ? 'cancellation' : 'destination skip'} blocks stopped-at arrival confirmation`, async ({ page }) => {
+  let body = packet(); await setup(page, () => body);
+  const stop = liveDataset.stops.find(s => s.id === '3')!, at = NOW + 31000;
+  body = packet(at, { observations: [{ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: at - 15000, lat: stop.lat!, lon: stop.lon!, stopCall: { stopId: '3', stopIndex: 2, status: 'stopped_at' } }],
+    ...(cancelled ? { cancelledAt: at - 20000 } : { skippedStops: [2] }) });
+  await page.clock.fastForward(31000);
+  await expect(page.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  expect(await page.evaluate(() => localStorage.getItem('arriba.arrival.v1.g2'))).toBeNull();
+});

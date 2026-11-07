@@ -108,7 +108,8 @@ export function formatTime12(instant: number, timeZone: string, lang: 'en' | 'es
 
 /** "HH:MM:SS" (possibly >= 24) to seconds. */
 export function parseGtfsTime(s: string): number {
-  const [h, m, sec] = s.trim().split(':').map(Number);
-  if (h === undefined || m === undefined || Number.isNaN(h) || Number.isNaN(m)) throw new Error(`bad GTFS time: ${s}`);
-  return h * 3600 + m * 60 + (sec ?? 0);
+  const match = /^(\d+):([0-5]\d):([0-5]\d)$/.exec(s.trim());
+  const seconds = match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : NaN;
+  if (!Number.isSafeInteger(seconds)) throw new Error('Invalid GTFS time');
+  return seconds;
 }

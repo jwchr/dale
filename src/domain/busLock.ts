@@ -1,5 +1,6 @@
 // Bus Lock keeps three kinds of evidence separate: the published trip, actual vehicle
 // observations, and a rider's explicit reports. A timer or phone location never creates a report.
+import { validDestinationArrival, type DestinationArrival } from './destinationArrival';
 import { createLock, reduceLock, type TripLock, type VehicleObservation } from './lock';
 import type { Departure, TripInstanceId } from './types';
 
@@ -49,6 +50,8 @@ export interface BusSession {
   officialFeed?: { state: 'ok' | 'missing' | 'ambiguous'; checkedAt: number };
   /** Source and receipt time for the pending identity change, which is not accepted history. */
   pendingPosition?: PositionRecord;
+  /** First supported destination event, retained through ride completion. */
+  destinationArrival?: DestinationArrival;
 }
 
 /** A bounded in-memory history, not an archive or a promise of pre-lock coverage. */
@@ -71,6 +74,7 @@ export function createBusSession(dep: Departure, now: number, sessionId?: string
 }
 
 export type BusSessionEvent =
+  | { type: 'destination_arrival'; arrival: DestinationArrival; now: number }
   | { type: 'start_waiting' | Exclude<RiderReportKind, 'capacity'> | 'end' | 'tick' | 'confirm_pending' | 'reject_pending'; now: number }
   | { type: 'capacity'; level: CapacityLevel; now: number }
   | { type: 'observation'; obs: VehicleObservation; source: PositionSource; receivedAt: number }
@@ -119,12 +123,21 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
   if (!finiteTime(now) || now < session.lock.lockedAt) return session;
 
   switch (event.type) {
+    case 'destination_arrival': {
+      const a = event.arrival, dep = session.departure;
+      return !session.destinationArrival && validDestinationArrival(a) && a.tripInstanceId === dep.tripInstanceId
+        && a.stopIndex > dep.stopIndex && dep.pattern.stopIds[a.stopIndex] === a.stopId && !dep.pattern.noDropOff?.includes(a.stopIndex)
+        && a.recordedAt === now && a.at >= session.lock.lockedAt && a.at <= now && session.lock.status !== 'needs_confirmation'
+        && session.lock.status !== 'cancelled' && (a.source !== 'rider' || session.phase === 'onboard')
+        ? { ...session, destinationArrival: { ...a } } : session;
+    }
     case 'observation': {
       if (!validObservation(event.obs, now) || (event.source !== 'official' && event.source !== 'demo')) return session;
       if (session.lastReceivedAt !== undefined && now < session.lastReceivedAt) return session;
       const o: VehicleObservation = {
         tripInstanceId: event.obs.tripInstanceId, vehicleId: event.obs.vehicleId,
         observedAt: event.obs.observedAt, lat: event.obs.lat, lon: event.obs.lon,
+        ...(event.obs.stopCall ? { stopCall: { ...event.obs.stopCall } } : {}),
       };
       if (o.tripInstanceId !== session.departure.tripInstanceId && o.vehicleId !== session.lock.vehicleId) return session;
       // An old vehicle reassignment must not displace a more recent pending match or observation.

@@ -122,3 +122,18 @@
   .highway-sign::after, .highway-sign::before, .commute-places::before, .commute-place::before { display: none; }
   .route-badge { clip-path: none !important; border: 1px solid CanvasText; }
 }
+
+/* Blur/dim only the decorative photo. Foreground surfaces and glyphs stay crisp. */
+.photo-backdrop { position: absolute; inset: -6px; background-size: cover; background-position: center; filter: blur(3px) brightness(.62); }
+.photo-backdrop[data-photo='new-jersey-september-sunset'] { background-size: auto 350%; background-position: 50% 25%; }
+:root[data-skin='clean'] { background: var(--bg); }
+:root[data-skin='clean'] body { background: transparent; }
+:root[data-skin] main > .trip-selection { background: var(--surface); border-radius: 16px; padding: 12px; }
+:root[data-skin='clean'] .foot { background: var(--surface); border-radius: 12px; padding: 10px; }
+
+/* Clean's plain controls also need solid contrast when the owner photo is visible. */
+:root[data-skin='clean'] { --glass: var(--surface); --glass-strong: var(--surface); }
+:root[data-skin='clean'] main > section:not(.card), :root[data-skin='clean'] main > .row-between,
+:root[data-skin='clean'] main > button, :root[data-skin='clean'] main > aside {
+  background: var(--surface); border-radius: 14px; padding: 8px 12px;
+}

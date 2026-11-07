@@ -26,6 +26,17 @@ export function tripTimeAt(ds: Dataset, trip: Trip, serviceDate: string, i: numb
   return serviceTimeToInstant(serviceDate, first, tz, 'wall') + (secs - first) * 1000;
 }
 
+/** Explicit scheduled arrival at the selected stop; unknown is not a departure time. */
+export function tripArrivalAt(ds: Dataset, trip: Trip, serviceDate: string, index: number): number | undefined {
+  const seconds = trip.arrivals?.[index];
+  if (seconds !== undefined && seconds !== null) {
+    return timeBaseOf(ds) === 'gtfs' ? serviceTimeToInstant(serviceDate, seconds, ds.meta.timezone)
+      : tripTimeAt(ds, trip, serviceDate, 0) + (seconds - (trip.times[0] ?? 0)) * 1000;
+  }
+  // The existing demo/printed timepoints have no separate arrival/departure fields.
+  return ds.meta.demo || ds.meta.transcribed ? tripTimeAt(ds, trip, serviceDate, index) : undefined;
+}
+
 export interface DepartureQuery {
   stopId: string;
   /** Local calendar date YYYYMMDD whose departures we want (midnight to midnight). */
