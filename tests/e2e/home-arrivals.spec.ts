@@ -139,3 +139,19 @@ for (const lang of ['en', 'es'] as const) test(`paired clocks qualify both locat
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   if (lang === 'en') await row.screenshot({ path: 'test-results/paired-live-clocks.png' });
 });
+
+
+test('live icons reflect each source, respect reduced motion, and can be paused in Settings', async ({ page }) => {
+  const state = await setup(page), row = current(page), icon = row.locator('.boarding-clock .live-symbol');
+  await expect(icon).toHaveAttribute('data-live', 'true');
+  expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('live-broadcast');
+  await page.emulateMedia({ reducedMotion: 'reduce' }); expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  state.mode = 'failed'; state.now += 31000; await page.clock.fastForward(31000);
+  await expect(row.locator('.boarding-clock .live-symbol')).toHaveAttribute('data-live', 'false');
+  await expect(row.locator('.boarding-clock .badge-sched')).toHaveText('Scheduled only');
+  expect(await row.locator('.boarding-clock .live-symbol').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+});

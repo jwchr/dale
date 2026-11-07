@@ -13,6 +13,9 @@ Scope: owner-authorized #89/D54 release and focused review of the surrounding cu
 
 - **Photo changed during initial loading.** Browser testing exposed a separate loading/main remount choosing a different background. The selection now belongs to the app opening and is reused across those views, including retries.
 
+- **Map clutter and needless redraws.** The tracker previously fitted the entire route and labeled every stop at low zoom. It now starts near the marker, lets riders select the whole route or pan without being forced back, limits low-zoom labels, and offers a transit-style geographic view with major roads/towns plus a stop-order diagram. Identical positions/stop data no longer resend map updates. Geography remains the existing local OpenStreetMap extract; stop-to-stop lines still do not assert the exact bus street path.
+- **Subtle source states.** Fresh live states now have decorative broadcast icons with a gentle pulse; unavailable states have a crossed-out marker. Both retain explicit text, respect reduced motion and have an animation-off setting. No help title or stale/demo observation receives an official-live animation.
+
 ## Product improvements still worth doing
 
 1. **Complete the household bus-versus-train comparison (#80).** Compare catchable door-to-Penn journeys on every service day, including walks, waiting and the Secaucus connection. Use current effective rail schedules and explicit transfer/ticket steps. Rail live access and current timetable validation remain dependencies; do not publish superseded connections.
@@ -21,6 +24,8 @@ Scope: owner-authorized #89/D54 release and focused review of the surrounding cu
 4. **Connection confidence without promises.** In the guide, make the transfer location, next action, ticket coverage and missed-connection recovery explicit. Any suggested margin must be described as planning tolerance, never a guaranteed connection.
 5. **Physical stop matching (#94).** Current release supplies verified public numbers and boardable headsigns. Sign photos/scanning should add a user-confirmed match, without uploading private location or inventing a stop number from an internal ID.
 6. **Measure before adding more tracking.** Real rides and bounded M0 evidence are needed to quantify forecast errors, missing date coverage and whether NJ Transit actually supplies STOPPED_AT. One latest local result is not a route reliability dataset or actual-arrival archive.
+
+7. **Optional Tour guide and town Welcome cards (#99).** Owner wants entertaining sourced facts, opt-in local phone GPS, verified town-entry triggers, relevant pictures and a five-second welcome card. Its current remaining-stop count and destination ETA must preserve their separate evidence/unknown states. Town boundaries, source verification, photo rights, repetition suppression, dismissal/pause and stop-alert priority require a separately claimed/tested slice. Research sources are linked on #99; no automatic tour is shipped here.
 
 ## Engineering/model efficiency
 

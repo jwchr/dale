@@ -1,3 +1,4 @@
+import { LiveIndicator } from './LiveIndicator';
 import { DestinationArrival } from './DestinationArrival';
 import { WaitingMap } from './WaitingMap';
 import { gpsLost, offerAlternatives } from '../domain/alternatives';
@@ -102,7 +103,8 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
       <p className="lock-route">{dep.pattern.headsign}</p>
       <p className="small">{b.schedule(dateText, `${dep.estimated ? '~' : ''}${clock(dep.departs)}`, stopName(dep.pattern.stopIds[dep.stopIndex]!))}</p>
       {dep.estimated && <p className="muted small">{t.estimatedNote}</p>}
-      <p className="lock-status" data-status={lock.status}>
+      <p className={`lock-status ${lock.status === 'tracked' && lastRecord?.source === 'official' ? 'live-glow' : ''}`} data-status={lock.status}>
+        {lastRecord?.source !== 'demo' && !terminal && <LiveIndicator live={lock.status === 'tracked' && lastRecord?.source === 'official'} />}
         {lock.status === 'tracked' && !lastRecord ? b.sourceUnknown
           : lock.status === 'tracked' && lastRecord?.source === 'demo' ? b.demoLive : t.lockStatus[lock.status]}
       </p>

@@ -40,7 +40,7 @@ import { LastReturnCard } from './LastReturnCard';
 import { PastReports } from './PastReports';
 
 type Theme = 'system' | 'light' | 'dark';
-interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin }
+interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean }
 interface Leg { fromStopId: string; toStopId: string; routeIds: string[] }
 interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
@@ -81,8 +81,8 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'turnpike' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'turnpike' }; }
+    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'turnpike' };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'turnpike', liveMotion: true }; }
 };
 
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
@@ -97,6 +97,7 @@ function useNow(tz: string, intervalMs = 30_000): number {
     let id: ReturnType<typeof setInterval> | undefined;
     const visible = () => {
       clearInterval(id);
+      document.documentElement.dataset.pageVisible = document.visibilityState === 'hidden' ? 'false' : 'true';
       if (document.visibilityState === 'hidden') return;
       setNow(Date.now());
       id = setInterval(() => setNow(Date.now()), intervalMs);
@@ -163,6 +164,7 @@ function useSettings() {
     if (settings.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.skin = settings.skin;
+    document.documentElement.dataset.liveMotion = settings.liveMotion ? 'on' : 'off';
   }, [settings]);
   return [settings, setSettings] as const;
 }
@@ -1034,6 +1036,8 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
   return (
     <section>
       <h1>{t.settings}</h1>
+      <label className="lock-toggle"><input type="checkbox" checked={settings.liveMotion} onChange={e => setSettings({ ...settings, liveMotion: e.currentTarget.checked })} />{t.live.motion}</label>
+      <p className="small muted">{t.live.motionNote}</p>
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
       <h2>{t.skin}</h2>
@@ -1062,7 +1066,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <h2>{t.dataSource}</h2>
       <p className="small">{ds.meta.source} · {ds.meta.feedVersion}</p>
       {ds.meta.transcribed && <p className="small">{t.transcribedBanner(fmtYmd(ds.meta.transcribed.issued, settings.lang))}</p>}
-      {ds.meta.stopCities && <p className="small">{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</p>}
+      {ds.meta.stopCities && <p className="small">{ds.meta.stopCities.state === 'verified' ? <>{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</> : t.selection.cityUnavailable}</p>}
       <p className="small muted">{dataNotice(ds, t)}</p>
       <p className="small muted">{t.appTagline}</p>
     </section>

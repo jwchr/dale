@@ -1,3 +1,4 @@
+import { LiveIndicator } from './LiveIndicator';
 import { LIVE_MAX_AGE_MS, type LiveBusSnapshot } from '../domain/liveBus';
 import type { Departure } from '../domain/types';
 import type { Strings, Lang } from './i18n';
@@ -14,7 +15,7 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
   const skipped = skippedKnown || (updateFresh && snapshot.updatedAt && now - snapshot.updatedAt <= LIVE_MAX_AGE_MS && snapshot.skippedStops.includes(dep.stopIndex));
   return <aside className={`card live-bus-status ${['missing', 'ambiguous', 'confirmation', 'cancelled'].includes(shown) ? 'warn' : ''}`} data-testid="live-bus-status">
     <span className="sr-only" role="status">{l[shown]}</span>
-    <strong>{l[shown]}</strong>
+    <strong className={shown === 'available' ? 'live-glow' : undefined}>{shown !== 'checking' && <LiveIndicator live={shown === 'available'} />}{l[shown]}</strong>
     {newest && <p>{l.age(Math.max(0, Math.floor((now - newest.observedAt) / 1000)))}</p>}
     {!fresh && shown !== 'checking' && <p>{l.fallback}</p>}
     {skipped ? <p className="warn" role="alert">{l.skipped}</p> : prediction && !snapshot?.cancelledAt

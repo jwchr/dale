@@ -184,3 +184,28 @@ for (const cancelled of [false, true]) test(`same-packet ${cancelled ? 'cancella
   await expect(page.locator('.destination-arrival')).toContainText('Arrival not confirmed');
   expect(await page.evaluate(() => localStorage.getItem('arriba.arrival.v1.g2'))).toBeNull();
 });
+
+
+test('tracker opens close to bus, keeps manual overview, and offers transit geography plus a line diagram', async ({ page }) => {
+  const errors: string[] = [], outside: string[] = [];
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('request', r => { const host = new URL(r.url()).hostname; if (!['localhost', 'dale-live.test.workers.dev'].includes(host)) outside.push(host); });
+  const stop = liveDataset.stops.find(s => s.id === '2')!;
+  const body = packet(); body.observations[0] = { ...body.observations[0]!, lat: stop.lat!, lon: stop.lon! };
+  await setup(page, () => body);
+  const wrapper = page.locator('.waiting-map .map-views'), map = wrapper.locator('.route-map');
+  await expect(map.locator('canvas')).toBeVisible({ timeout: 15000 }).catch(error => { throw new Error(String(error) + '\nMap diagnostics: ' + errors.join(' | ')); }); await expect(map).toHaveAttribute('data-camera', 'bus');
+  await wrapper.getByRole('button', { name: 'Whole route', exact: true }).click(); await expect(map).toHaveAttribute('data-camera', 'route');
+  await page.clock.fastForward(31000); await expect(map).toHaveAttribute('data-camera', 'route');
+  await wrapper.getByRole('button', { name: 'Zoom to bus', exact: true }).click(); await expect(map).toHaveAttribute('data-camera', 'bus');
+  await wrapper.getByRole('button', { name: 'Transit map', exact: true }).click();
+  await expect(map).toHaveAttribute('data-presentation', 'transit'); await expect(map.locator('canvas')).toBeVisible({ timeout: 15000 });
+  await expect(map).toContainText('OpenStreetMap');
+  await page.waitForLoadState('networkidle'); await wrapper.screenshot({ path: 'test-results/transit-map-preview.png' });
+  await wrapper.getByRole('button', { name: 'Line diagram', exact: true }).click();
+  await expect(wrapper.locator('.transit-line-map')).toContainText('spacing is not distance');
+  await expect(wrapper.locator('.line-stations [data-state="alight"]')).toContainText('Your destination');
+  await wrapper.screenshot({ path: 'test-results/line-diagram-preview.png' });
+  expect(outside).toEqual([]);
+  expect(errors.filter(e => !/favicon|net::ERR_FAILED/.test(e))).toEqual([]);
+});

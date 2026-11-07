@@ -337,7 +337,7 @@ test('trip update: the rider shares or copies a plain message; Dale sends nothin
   await expect.poll(() => page.evaluate(() => (window as unknown as { shared: { text: string }[] }).shared.map((d) => d.text))).toEqual([expect.stringMatching(/Waiting at Maple Ave & Main St/)]);
   expect(page.url()).not.toContain('share'); // nothing put in the address
 
-  await lock.getByRole('button', { name: 'Close' }).click();
+  await lock.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(lock.getByRole('button', { name: 'Share a trip update' })).toBeFocused();
 
   // A share sheet that fails (not just closed) falls back to copying.
@@ -430,7 +430,7 @@ test('missed stop / wrong bus: the rider says where they are and gets scheduled 
   await expect(dialog).toContainText('Your stop stays the same and your Bus Lock does not change');
   await expect(dialog).toContainText('No walking routes or transfers are suggested');
   expect((await new AxeBuilder({ page }).include('.recovery').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([]);
-  await dialog.getByRole('button', { name: 'Close' }).first().click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(dialog.getByRole('button', { name: 'Something went wrong?' })).toBeFocused();
   await expect(page.locator('.bus-lock .lock-phase')).toHaveText('You reported: boarded');
 
