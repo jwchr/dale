@@ -7,7 +7,7 @@ interface Storage { get<T>(key: string): Promise<T | undefined>; put(key: string
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
 interface Env extends Credentials { FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = 30_000, AUTH_RETRY_MS = 3600_000;
 
@@ -15,7 +15,7 @@ const POLL_MS = 30_000, AUTH_RETRY_MS = 3600_000;
 export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, clock = Date.now) {
   const normalize = createNormalizer(ds);
   return class Feed {
-    private saved: Saved = { feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
+    private saved: Saved = { transportVersion: 2, feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
     private pending?: Promise<void>;
     private ready: Promise<void>;
     private ctx: State;
@@ -24,10 +24,17 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       this.ctx = ctx; this.env = env;
       this.ready = ctx.blockConcurrencyWhile(async () => {
         const stored = await ctx.storage.get<Saved>('state-v1');
-        if (stored && Number.isFinite(stored.authAt) && Number.isFinite(stored.pollAt)) this.saved = {
-          ...stored, feedVersion: ds.meta.feedVersion,
-          ...(stored.feedVersion === ds.meta.feedVersion ? {} : { vehicles: undefined, updates: undefined }),
-        };
+        if (stored && Number.isFinite(stored.authAt) && Number.isFinite(stored.pollAt)) {
+          this.saved = {
+            ...stored, transportVersion: 2, feedVersion: ds.meta.feedVersion,
+            ...(stored.feedVersion === ds.meta.feedVersion ? {} : { vehicles: undefined, updates: undefined }),
+          };
+          // Legacy redirect:'error' failed during workerd Request construction, before any
+          // NJ Transit request. Release only that known failure once; preserve real denials,
+          // valid tokens, the global poll pace and every failure from the fixed transport.
+          if (stored.transportVersion === undefined && !stored.token && stored.failures?.authentication?.code === 'network-error') this.saved.authAt = 0;
+          if (stored.transportVersion !== 2) await ctx.storage.put('state-v1', this.saved);
+        }
       });
     }
     private async refresh(): Promise<void> {

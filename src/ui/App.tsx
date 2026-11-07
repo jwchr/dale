@@ -4,6 +4,7 @@ import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
 import { addFavorite, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
+import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
 import { gateFor, type GateAnswer } from '../domain/gate';
 import { isNjtHoliday } from '../domain/holidays';
@@ -553,6 +554,7 @@ function FavoriteCard({ ctx, fav, count, editing, rev, onReverse, first, last, o
   const deps = ahead.slice(0, count).map((o) => o.dep);
   const rows = ahead.slice(0, count).map((o) => ({ d: o.dep, arr: o.arrives }));
   const plan = fav.leave?.[rev ? 'back' : 'out'];
+  const express = leg ? nextExpress(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, deps, now, plan?.walkMin) : undefined;
   const [planning, setPlanning] = useState(false);
   // After the form closes, focus returns to the control that opened it.
   const planButton = useRef<HTMLButtonElement>(null);
@@ -640,6 +642,13 @@ function FavoriteCard({ ctx, fav, count, editing, rev, onReverse, first, last, o
               ))}
             </ul>
           )}
+          {express && <p className="next-express" data-testid="next-express">
+            <span>{t.nextExpress}</span><span className="express-mini">165T</span>
+            <span><TimeText ctx={ctx} at={express.departs} estimated={express.estimated} />
+              {localYmd(express.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {new Intl.DateTimeFormat(ctx.lang, { timeZone: ctx.tz, month: 'short', day: 'numeric' }).format(express.departs)}</>}
+              {' · '}{t.inMin(minutesUntil(now, express.departs))}{' · '}{t.scheduledOnly}
+            </span>
+          </p>}
           {soonest && rows[soonest.index] && <p className="small leave-why">{t.leave.arrivesFirstWhy(
             rows[soonest.index]!.d.route.shortName,
             `${rows[soonest.index]!.d.estimated ? '~' : ''}${formatTime12(rows[soonest.index]!.d.departs, ctx.tz, ctx.lang)}`, soonest.laterMin, soonest.earlierMin, soonest.estimated)}</p>}

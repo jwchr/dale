@@ -39,5 +39,9 @@ D51 confirms approved bus API access and authorizes secure credential setup and 
 
 D52 prioritizes the provisional live bus tracker (#89) with the existing free Worker architecture, explicit scheduled fallback, source age and unchanged exact-bus identity. Printed commutes remain separately available while riders confirm current GTFS stops. This does not complete sustained M0 evidence, rail access or real-ride acceptance. See `docs/LIVE_BUS_PILOT.md`.
 
+## Owner addition, 2026-11-07
+
+D53 adds a compact scheduled next-165T cue when all displayed departures are local165 buses (#93). Reuse the same confirmed stops, calendar and walking-time constraints, without changing the main rows or the exact bus lock. A 165T that does not serve those stops is not an option.
+
 ## Done means
 Tests prove it (`npm run verify`), the Pages build shows it, and for live features the owner's real rides confirm it (M3 acceptance in the review doc).

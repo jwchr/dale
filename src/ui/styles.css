@@ -365,3 +365,7 @@ main { flex: 1; padding-bottom: 24px; }
 /* Which Dale this is, always in view (owner request 2026-11-05). */
 .top-version { margin-left: auto; margin-right: 4px; min-width: 0; max-width: 11em; font-size: 0.72rem; line-height: 1.2; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .nowrap { white-space: nowrap; }
+
+/* Secondary scheduled express: smaller than a departure row, with no extra tap target. */
+.next-express { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; margin: 8px 0; padding: 5px 8px; font-size: .82rem; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.express-mini { font-weight: 800; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; }

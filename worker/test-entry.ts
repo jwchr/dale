@@ -6,8 +6,10 @@ import { createFeedClass, createRouter } from './service';
 const ds = parseDataset(raw), now = Date.parse('2026-11-04T12:20:00Z');
 if (!ds.meta.feedVersion.startsWith('SYNTHETIC')) throw new Error('Synthetic local-runtime fixture required');
 const descriptor = { tripId: 'T1', routeId: '10', startDate: '20261104' };
-const fake = (async (url: RequestInfo | URL) => {
-  const name = new URL(String(url)).pathname.split('/').pop();
+const fake = (async (url: RequestInfo | URL, init?: RequestInit) => {
+  // Validate outbound init with workerd's actual Request API, before the synthetic response.
+  const request = new Request(url, init);
+  const name = new URL(request.url).pathname.split('/').pop();
   if (name === 'authenticateUser') return Response.json({ Authenticated: 'True', UserToken: 'local-test-token' });
   const entity = name === 'getVehiclePositions' ? [{ id: 'v', vehicle: { trip: descriptor, vehicle: { id: 'local-test-bus' }, timestamp: now / 1000 - 10, position: { latitude: 40.89, longitude: -74.04 } } }]
     : name === 'getTripUpdates' ? [{ id: 'u', tripUpdate: { trip: descriptor, timestamp: now / 1000 - 10 } }] : undefined;

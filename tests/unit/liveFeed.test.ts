@@ -200,9 +200,18 @@ describe('bounded private NJ Transit client', () => {
   });
   it('bounds response size and refuses redirects before a token can reach another host', async () => {
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      expect(init?.redirect).toBe('error'); return new Response('x'.repeat(101));
+      expect(init?.redirect).toBe('manual'); return new Response('x'.repeat(101));
     }) as unknown as typeof fetch;
     await expect(njtRequest('getTripUpdates', { token: 'private-token' }, 100, fetchImpl)).rejects.toThrow('response-too-large');
+  });
+  it('refuses redirects without sending the token to a second host', async () => {
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      return new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/collect' } });
+    }) as unknown as typeof fetch;
+    await expect(njtRequest('getVehiclePositions', { token: 'synthetic-private-token' }, 100, fetchImpl)).rejects.toThrow('redirect-refused');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetchImpl).mock.calls[0]![0])).toBe('https://pcsdata.njtransit.com/api/GTFSG2/getVehiclePositions');
   });
   it('enforces a deadline through a stalled body read without returning raw errors', async () => {
     vi.useFakeTimers();
@@ -270,5 +279,34 @@ describe('fixed secret-safe connection diagnostics', () => {
     expect(safeNjtFailure(new NjtError('token-secret'))).toBe('unknown-error');
     expect(safeNjtFailure(new NjtError('timed-out'))).toBe('timed-out');
     expect(safeNjtFailure(new NjtError('network-error'))).toBe('network-error');
+  });
+});
+
+describe('known legacy pre-network transport failure migration', () => {
+  it.each([
+    { version: undefined, code: 'network-error', token: undefined, retry: true },
+    { version: undefined, code: 'access-denied', token: undefined, retry: false },
+    { version: 2, code: 'network-error', token: undefined, retry: false },
+    { version: undefined, code: 'network-error', token: { value: 'existing-synthetic-token', expiresAt: NOW + 3600_000 }, retry: true },
+  ])('preserves pacing and releases only the known legacy no-token failure: %j', async ({ version, code, token, retry }) => {
+    let now = NOW, calls: string[] = [];
+    const saved = new Map<string, unknown>([['state-v1', { transportVersion: version, feedVersion: ds.meta.feedVersion, authAt: NOW - 1000, pollAt: NOW - 1000, token, failures: { authentication: { code, at: NOW - 1000 } } }]]);
+    const ctx = { storage: { get: async <T,>(k: string) => structuredClone(saved.get(k)) as T | undefined, put: async (k: string, v: unknown) => { saved.set(k, structuredClone(v)); } }, blockConcurrencyWhile: async <T,>(f: () => Promise<T>) => f() };
+    const Feed = createFeedClass(ds, (async (url: RequestInfo | URL) => {
+      calls.push(String(url));
+      if (String(url).endsWith('authenticateUser')) throw new Error('synthetic-transport-failure');
+      return new Response(new Uint8Array(String(url).endsWith('getVehiclePositions') ? gps() : updates()).buffer);
+    }) as typeof fetch, () => now);
+    const env = { ...creds, FEED: { idFromName: () => '', get: () => object } }, object = new Feed(ctx, env);
+    await object.fetch(request('/v1/status')); expect(calls).toHaveLength(0);
+    expect((saved.get('state-v1') as { transportVersion: number }).transportVersion).toBe(2);
+    now += 31_000; await object.fetch(request('/v1/status'));
+    expect(calls.length > 0).toBe(retry);
+    if (token) { expect(calls).toHaveLength(2); expect((saved.get('state-v1') as { token: unknown }).token).toEqual(token); }
+    else if (retry) {
+      expect(calls).toHaveLength(1);
+      // A new transport failure survives a cold start without granting another migration retry.
+      now += 31_000; await new Feed(ctx, env).fetch(request('/v1/status')); expect(calls).toHaveLength(1);
+    }
   });
 });

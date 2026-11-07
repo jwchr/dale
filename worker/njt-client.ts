@@ -5,7 +5,7 @@ export class NjtError extends Error {
   code: string;
   constructor(code: string) { super(code); this.code = code; }
 }
-const SAFE_FAILURES = new Set(['configuration-missing', 'authentication-cooldown', 'access-denied', 'rate-limited', 'http-error', 'empty-response', 'response-too-large', 'timed-out', 'network-error', 'invalid-token', 'invalid-response']);
+const SAFE_FAILURES = new Set(['configuration-missing', 'authentication-cooldown', 'access-denied', 'rate-limited', 'http-error', 'empty-response', 'response-too-large', 'timed-out', 'network-error', 'invalid-token', 'invalid-response', 'redirect-refused']);
 /** Never expose an exception message, upstream body or arbitrary error code in diagnostics. */
 export function safeNjtFailure(error: unknown): string {
   return error instanceof NjtError && SAFE_FAILURES.has(error.code) ? error.code : 'unknown-error';
@@ -16,8 +16,9 @@ export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, s
     const body = new FormData();
     for (const [key, value] of Object.entries(fields)) body.set(key, value);
     const response = await fetchImpl(`https://pcsdata.njtransit.com/api/GTFSG2/${endpoint}`, {
-      method: 'POST', body, redirect: 'error', cache: 'no-store', signal: ctl.signal,
+      method: 'POST', body, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
     });
+    if (response.status >= 300 && response.status < 400) throw new NjtError('redirect-refused');
     if (!response.ok) throw new NjtError(response.status === 401 || response.status === 403 ? 'access-denied' : response.status === 429 ? 'rate-limited' : 'http-error');
     if (!response.body) throw new NjtError('empty-response');
     const reader = response.body.getReader(), chunks: Uint8Array[] = [];
