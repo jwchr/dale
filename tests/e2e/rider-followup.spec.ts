@@ -1,0 +1,64 @@
+import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { strings } from '../../src/ui/i18n';
+import { liveDataset, NOW } from '../helpers/liveBus';
+import { STOP_CITY_SOURCE } from '../../src/domain/stopInfo';
+
+test.use({ serviceWorkers: 'block', viewport: { width: 320, height: 780 } });
+const API = 'https://dale-live.test.workers.dev';
+for (const lang of ['en', 'es'] as const) test(`compact home, legacy label and train preview preserve rider choices (${lang})`, async ({ page }) => {
+  const t = strings[lang], j = t.journey;
+  const ds = structuredClone(liveDataset);
+  Object.assign(ds.stops.find(s => s.id === '2')!, { city: 'Hackensack', name: 'STATE ST AT LAWRENCE ST', sourceName: 'STATE ST AT LAWERENCE ST' });
+  ds.meta.stopCities = { state: 'verified', source: 'NJ Transit GIS Department', url: STOP_CITY_SOURCE, retrievedAt: new Date(NOW).toISOString() };
+  const saved = [{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'STATE ST AT LAWERENCE ST → PORT AUTHORITY BUS TERMINAL' }];
+  await page.addInitScript(({ language, favorites }) => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: language, skin: 'garden', theme: 'light' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
+  }, { language: lang, favorites: saved });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', route => route.abort('failed'));
+  await page.goto('/?live=1');
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await expect(page.locator('[data-end="from"] .highway-name')).toHaveText('Hackensack');
+  await expect(page.locator('[data-end="from"] .commute-stop')).toHaveText('STATE ST AT LAWRENCE ST');
+  await expect(page.locator('.commute-sign')).toHaveCount(0);
+  const nav = await page.locator('.home-toolbar .travel-mode').boundingBox();
+  const find = await page.getByRole('button', { name: t.findStop, exact: true }).boundingBox();
+  expect(Math.abs(nav!.y - find!.y)).toBeLessThan(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // Future-day labels must fit inside their own clock, not collide with the destination time.
+  expect(await page.locator('.dep-clock > span').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(saved);
+  await page.screenshot({ path: `test-results/rider-home-${lang}.png`, fullPage: true });
+
+  await page.getByRole('button', { name: j.trainMode, exact: true }).click();
+  const rail = page.locator('.rail-preview');
+  await expect(rail.getByText(t.rail.sample, { exact: true })).toHaveCount(1);
+  await expect(rail.locator('.rail-option')).toHaveCount(3);
+  const first = rail.locator('.rail-option').first();
+  await first.locator('summary').focus(); await page.keyboard.press('Enter');
+  await expect(first).toHaveAttribute('open', '');
+  await expect(first).toContainText('5:49 AM');
+  await expect(first).toContainText('6:29 AM');
+  await expect(first.getByText(t.rail.outTransfer, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: j.returning, exact: true }).click();
+  await expect(rail).toContainText('PVL 1651');
+  await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
+  await expect(rail).not.toContainText('PVL 1651');
+  await expect(rail.locator('.rail-option')).toHaveCount(2);
+  await page.getByRole('combobox', { name: t.rail.day, exact: true }).selectOption('weekend');
+  await expect(rail.locator('.rail-option')).toHaveCount(3);
+  await expect(rail).toContainText('8:07 AM');
+  await expect(rail).toContainText('8:39 AM');
+  await rail.locator('.rail-option summary').first().click();
+  await expect(rail.getByText(t.rail.returnTransfer('2103', j.stations.essex), { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: `test-results/rider-rail-${lang}.png`, fullPage: true });
+  await page.getByRole('button', { name: j.busMode, exact: true }).click();
+  await expect(page.locator('.dep').first()).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(saved);
+});

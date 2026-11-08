@@ -41,7 +41,7 @@ test('location turned off: says so and points to search by name', async ({ page,
   await page.goto('/?now=2026-11-04T07:50&demo');
   await page.getByRole('button', { name: /find a stop/i }).first().click();
   await page.getByRole('button', { name: 'Stops near me' }).click();
-  await expect(page.locator('.near-me')).toContainText('Location is turned off for this site');
+  await expect(page.locator('.near-me')).toContainText('Location permission was denied');
 });
 
 test('a browser that never answers: gives up after a while and the button still works', async ({ page }) => {
@@ -52,10 +52,11 @@ test('a browser that never answers: gives up after a while and the button still 
   await page.goto('/?now=2026-11-04T07:50&demo');
   await page.getByRole('button', { name: /find a stop/i }).first().click();
   await page.getByRole('button', { name: 'Stops near me' }).click();
-  await expect(page.locator('.near-me')).toContainText('Asking your phone');
-  await expect(page.getByRole('button', { name: 'Stops near me' })).toBeEnabled();
+  await expect(page.locator('.near-me')).toContainText('Asking your device');
+  await expect(page.getByRole('button', { name: 'Stops near me' })).toBeDisabled();
   await page.clock.runFor(21_000);
-  await expect(page.locator('.near-me')).toContainText('could not find your location');
+  await expect(page.locator('.near-me')).toContainText('Finding your location took too long');
+  await expect(page.getByRole('button', { name: 'Stops near me' })).toBeEnabled();
 });
 
 test('a browser without location: says so', async ({ page }) => {
@@ -71,4 +72,73 @@ test('printed timetable: not offered, and says why', async ({ page }) => {
   await page.getByRole('button', { name: /find a stop/i }).first().click();
   await expect(page.getByRole('button', { name: 'Stops near me' })).toHaveCount(0);
   await expect(page.getByRole('note').filter({ hasText: 'needs stop locations, which the printed timetable does not have' })).toBeVisible();
+});
+
+for (const code of [2, 3]) test(`a precise location error ${code} tries one approximate lookup and ignores late precise results`, async ({ page }) => {
+  await page.addInitScript(errorCode => {
+    const calls: PositionOptions[] = [];
+    (window as any).locationCalls = calls;
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback, error: PositionErrorCallback, options: PositionOptions) {
+        calls.push(options);
+        if (options.enableHighAccuracy) {
+          (window as any).latePosition = () => success({ coords: { latitude: 0, longitude: 0, accuracy: 1 } } as GeolocationPosition);
+          error({ code: errorCode } as GeolocationPositionError);
+        } else success({ coords: { latitude: 40.8701, longitude: -74.04, accuracy: 400 } } as GeolocationPosition);
+      },
+    } });
+  }, code);
+  await page.goto('/?now=2026-11-04T07:50&demo');
+  await page.getByRole('button', { name: /Find a stop/i }).click();
+  await page.getByRole('button', { name: 'Stops near me' }).click();
+  await expect(page.locator('.near-me .results li')).toHaveCount(2);
+  await expect(page.locator('.near-me')).toContainText('Your location is rough');
+  expect(await page.evaluate(() => (window as any).locationCalls.map((c: PositionOptions) => c.enableHighAccuracy))).toEqual([true, false]);
+  await page.evaluate(() => (window as any).latePosition());
+  await expect(page.locator('.near-me .results li')).toHaveCount(2);
+});
+
+test('denial never triggers an approximate retry; unavailable on both attempts explains OS settings', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).geoErrorCode = 1;
+    (window as any).geoCalls = 0;
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(_success: PositionCallback, error: PositionErrorCallback) {
+        (window as any).geoCalls++;
+        error({ code: (window as any).geoErrorCode } as GeolocationPositionError);
+      },
+    } });
+  });
+  await page.goto('/?now=2026-11-04T07:50&demo');
+  await page.getByRole('button', { name: /Find a stop/i }).click();
+  await page.getByRole('button', { name: 'Stops near me' }).click();
+  await expect(page.locator('.near-me')).toContainText('Location permission was denied');
+  expect(await page.evaluate(() => (window as any).geoCalls)).toBe(1);
+  await page.evaluate(() => { (window as any).geoErrorCode = 2; });
+  await page.getByRole('button', { name: 'Stops near me' }).click();
+  await expect(page.locator('.near-me')).toContainText('even if you clicked Allow');
+  expect(await page.evaluate(() => (window as any).geoCalls)).toBe(3);
+  await page.getByText('Location help for this device', { exact: true }).click();
+  await expect(page.locator('.near-me')).toContainText('System Settings → Privacy & Security → Location Services');
+});
+
+test('a late result after timeout cannot replace a fresh retry', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).geoCallbacks = [];
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback) { (window as any).geoCallbacks.push(success); },
+    } });
+  });
+  await page.clock.install();
+  await page.goto('/?now=2026-11-04T07:50&demo');
+  await page.getByRole('button', { name: /Find a stop/i }).click();
+  await page.getByRole('button', { name: 'Stops near me' }).click();
+  await page.clock.runFor(21_000);
+  await page.getByRole('button', { name: 'Stops near me' }).click();
+  await page.evaluate(() => {
+    (window as any).geoCallbacks[2]({ coords: { latitude: 40.8701, longitude: -74.04, accuracy: 25 } });
+    (window as any).geoCallbacks[1]({ coords: { latitude: 0, longitude: 0, accuracy: 1 } });
+  });
+  await expect(page.locator('.near-me .results li')).toHaveCount(2);
+  await expect(page.locator('.near-me')).toContainText('good to about 25 m');
 });

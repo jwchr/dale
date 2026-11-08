@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# The existing non-author operator classifies risk before requesting one provider.
+# Routine: request a full CodeRabbit review. High-risk: use REVIEW_POLICY.md.
+# No automatic duplicate reviews on opening/pushing a high-risk PR.
+reviews:
+  auto_review:
+    enabled: false
+    auto_incremental_review: false
+    description_keyword: ""
+    labels: []
+  auto_approvals:
+    enabled: false
+    allow_author_approval: false
+  high_level_summary: false
+  review_info: true
+  review_details: true

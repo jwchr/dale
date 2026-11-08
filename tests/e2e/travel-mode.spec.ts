@@ -30,7 +30,7 @@ for (const lang of ['en', 'es'] as const) test(`phone Bus/Train switch retains f
   const train = modes.getByRole('button', { name: j.trainMode, exact: true });
   await train.focus(); await page.keyboard.press('Enter');
   await expect(train).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText(j.railUnavailable, { exact: true })).toBeVisible();
+  await expect(page.getByText(t.rail.availability, { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
   await page.getByRole('button', { name: j.next, exact: true }).click();
   const bus = modes.getByRole('button', { name: j.busMode, exact: true });
