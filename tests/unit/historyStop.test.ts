@@ -41,11 +41,14 @@ function run(scenario = 'ok', entry = stop) {
       assert.equal(options.headers.Authorization,'Bearer synthetic-token');
       assert.equal(url.pathname.startsWith('/client/v4/accounts/'+'a'.repeat(32)+'/workers/scripts/dale-live/'),true);
       const path = url.pathname.split('/dale-live')[1];
+      if (scenario === 'hostile') throw Error('PRIVATE_SENTINEL_token_url_body_stack');
+      if (scenario === 'timeout') throw new DOMException('PRIVATE_SENTINEL_timeout','TimeoutError');
+      if (scenario === 'non-json') return new Response('PRIVATE_SENTINEL_raw_response',{status:200});
       if (scenario === 'denied') return new Response('',{status:403});
       let result;
       if (path === '/deployments') result={deployments:[{versions:[{version_id:patched?'v2':'v1',percentage:scenario === 'split'?50:100}]}]};
       else if (path === '/versions') result={items:[{id:scenario === 'staged'?'draft':patched?'v2':'v1'}]};
-      else if (path.startsWith('/versions/')) result={resources:{script:{etag:patched && scenario === 'code-change'?'changed':'original-code-hash'},script_runtime:{compatibility_date:'2026-10-01',compatibility_flags:[]}}};
+      else if (path.startsWith('/versions/')) result={resources:{script:{etag:patched && scenario === 'code-change'?'changed':'original-code-hash'},script_runtime:{compatibility_date:patched && scenario === 'runtime-change'?'2026-10-02':'2026-10-01',compatibility_flags:[]}}};
       else if (path === '/settings' && options.method === 'PATCH') {
         patchCount++;
         assert.equal(patchCount,1);
@@ -68,11 +71,11 @@ it.each([stop, deploy])('native disabled entrypoint %s stops without NJT, static
   expect(result.error).toBeUndefined(); expect(result.status).toBe(0);
   expect(result.stderr).toBe(''); expect(result.stdout).toContain('counters unchanged across 35 seconds');
 });
-it.each(['denied','staged','split','binding-loss','code-change','enabled-health','alarm','advancing'])('stop fails closed for %s without raw diagnostics or rollback', scenario => {
+it.each(['denied','staged','split','binding-loss','code-change','runtime-change','enabled-health','alarm','advancing','hostile','timeout','non-json'])('stop fails closed for %s without raw diagnostics or rollback', scenario => {
   const result=run(scenario);
   expect(result.error).toBeUndefined(); expect(result.status).toBe(1);
   expect(result.stdout).toBe(''); expect(result.stderr).toContain('Cloudflare-only stop was not fully verified');
-  expect(result.stderr).not.toMatch(/synthetic-token|FORBIDDEN|AssertionError/);
+  expect(result.stderr).not.toMatch(/synthetic-token|FORBIDDEN|AssertionError|PRIVATE_SENTINEL|https:/);
 });
 it('disabled workflow reaches native stop before every enabled-only dependency', () => {
   const workflow=readFileSync(new URL('../../.github/workflows/live-worker.yml',import.meta.url),'utf8');
@@ -84,4 +87,35 @@ it('disabled workflow reaches native stop before every enabled-only dependency',
     expect(step).toContain("if: inputs.history_collection == 'enabled'");
   }
   expect(workflow.indexOf('run: node scripts/stop-history-collection.mjs')).toBeLessThan(workflow.indexOf('run: npm run worker:prepare'));
+});
+
+it.each([
+  ['denied','stage=read-deployments reason=cloudflare-stop-request-failed http=403'],
+  ['non-json','stage=read-deployments reason=invalid-json'],
+  ['timeout','stage=read-deployments reason=request-timeout'],
+  ['hostile','stage=read-deployments reason=unexpected-failure'],
+  ['binding-loss','stage=verify-preservation reason=stop-other-bindings-changed'],
+  ['code-change','stage=verify-preservation reason=stop-code-changed'],
+  ['runtime-change','stage=verify-preservation reason=stop-runtime-changed'],
+])('emits a closed safe diagnostic for %s', (scenario, diagnostic) => {
+  const result=run(scenario);
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Stop diagnostic: '+diagnostic+'.');
+  expect(result.stderr).not.toMatch(/PRIVATE_SENTINEL|synthetic-token|https:/);
+});
+
+it('rejects foreign and tampered error fields at the final logging boundary', () => {
+  const result=spawnSync(process.execPath,['--input-type=module','--eval',`
+    import assert from 'node:assert/strict';
+    const {stopHistoryCollection,safeStopFailure}=await import(${JSON.stringify(stop)});
+    assert.equal(safeStopFailure(Error('PRIVATE_SENTINEL')), 'stage=unknown reason=unexpected-failure');
+    try { await stopHistoryCollection({}); } catch(error) {
+      assert.equal(safeStopFailure(error),'stage=authorization reason=manual-main-required');
+      error.status='PRIVATE_SENTINEL';
+      assert.equal(safeStopFailure(error),'stage=authorization reason=manual-main-required');
+      error.reason='PRIVATE_SENTINEL';
+      assert.equal(safeStopFailure(error),'stage=unknown reason=unexpected-failure');
+    }
+  `],{env:{NODE_NO_WARNINGS:'1'},encoding:'utf8',timeout:10000});
+  expect(result.status).toBe(0); expect(result.stderr).toBe(''); expect(result.stdout).toBe('');
 });
