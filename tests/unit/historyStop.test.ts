@@ -58,7 +58,7 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
         captures++;
         const form=new FormData();
         if(scenario==='aux-change')form.set('data.bin',new Blob([patched?'changed':'original'],{type:'application/octet-stream'}),'data.bin');
-        form.set('index.js',new Blob([patched && scenario==='module-change'?'export default {changed:true}':'export default {}'],{type:'application/javascript+module'}),'index.js');
+        form.set('index.js',new Blob([patched && scenario==='module-change'?'export default {changed:true}':'export default {}'],{type:'application/javascript+module'}),patched && scenario==='filename-change'?'transport-name.js':'index.js');
         const response=new Response(form);response.headers.set('cf-entrypoint','index.js');return response;
       }
       else if (path === '/settings' && options.method === 'PATCH') {
@@ -169,4 +169,12 @@ it.each([
   const result=run(scenario);expect(result.error).toBeUndefined();expect(result.status).toBe(1);
   expect(result.stderr).toContain('reason='+reason);expect(result.stdout).toBe('');
   expect(result.stderr).not.toMatch(/synthetic-token|PRIVATE_SENTINEL|AssertionError|FORBIDDEN/);
+});
+
+it('actual stop reports filename-only mismatch as booleans and still refuses it',()=>{
+  const r=run('filename-change');expect(r.status).toBe(1);
+  expect(r.stderr).toContain('"filenamesEqual":false');
+  expect(r.stderr).toContain('"byteDigestsEqual":true');expect(r.stderr).toContain('"lengthsEqual":true');
+  expect(r.stderr).toContain('reason=stop-module-content-changed');
+  expect(r.stderr).not.toMatch(/transport-name|synthetic-token|index\.js|original-code-hash/);
 });

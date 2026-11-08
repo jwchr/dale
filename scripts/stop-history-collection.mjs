@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { liveApiUrl } from '../src/domain/liveBus.ts';
-import { readActiveWorkerIdentity, workerProofDiagnostic } from './worker-content-identity.mjs';
+import { readActiveWorkerIdentity, workerProofDiagnostic, workerContentComparison } from './worker-content-identity.mjs';
 // Only locally constructed, closed diagnostics may reach public Actions logs.
 class StopFailure extends Error {
   constructor(reason, stage, status) { super(reason); this.reason = reason; this.stage = stage; this.status = status; }
@@ -53,7 +53,10 @@ export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms
     if (after.bindings.filter(b => b.name === 'HISTORY_COLLECTION').length !== 1 || !after.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw failure('stop-disabled-setting-unverified');
     // ETags are retained as metadata, but executable identity requires the stronger
     // exact complete module proof. No byte normalization or missing-module waiver.
-    if (!isDeepStrictEqual(after.content, before.content)) throw failure('stop-module-content-changed');
+    if (!isDeepStrictEqual(after.content, before.content)) {
+      console.error(`Stop module comparison: ${JSON.stringify(workerContentComparison(before.content, after.content))}`);
+      throw failure('stop-module-content-changed');
+    }
     if (!isDeepStrictEqual(after.runtime, before.runtime)) throw failure('stop-runtime-changed');
     async function health() {
       // Never send the control-plane credential to this public read-only endpoint.
