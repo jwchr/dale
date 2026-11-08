@@ -89,9 +89,18 @@ test('malformed saved lock is removed and does not blank the app', async ({ page
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('arriba.lock.v1')!); s.dep.pattern.stopIds = null; localStorage.setItem('arriba.lock.v1', JSON.stringify(s)); });
-  await page.reload();
+  // Train guidance is deliberately available before the schedule. Hold that request so this
+  // test always crosses the loading boundary before checking Main's saved-lock validation.
+  let releaseSchedule!: () => void;
+  const scheduleReady = new Promise<void>((resolve) => { releaseSchedule = resolve; });
+  await page.route('**/data/corridor.json', async (route) => { await scheduleReady; await route.continue(); });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('button', { name: strings.en.journey.trainMode })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1'))).toBeNull();
+  await expect(page.getByText(strings.en.loading, { exact: true })).toBeVisible();
+  releaseSchedule();
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('arriba.lock.v1'))).toBeNull();
+  await expect(page.locator('.lock-return')).toHaveCount(0);
 });
 
 test('an overdue wait without any GPS offers alternatives without a moving marker', async ({ page }) => {
