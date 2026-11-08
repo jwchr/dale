@@ -17,5 +17,5 @@ it.each([
   expect(result.signal).toBeNull();
   expect(result.status).toBe(1);
   expect(result.stdout).toBe('');
-  expect(result.stderr.trim()).toBe(entry === 'deploy-live-worker.mjs' ? 'Stop diagnostic: stage=unknown reason=unexpected-failure.\n' + message : message);
+  expect(result.stderr.trim()).toBe(entry === 'deploy-live-worker.mjs' ? 'Worker proof diagnostic: reason=manual-main-required.\n' + message : message);
 });

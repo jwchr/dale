@@ -8,11 +8,12 @@ import { liveApiUrl, parseLiveSnapshot } from '../src/domain/liveBus.ts';
 import { stopHistoryCollection, safeStopFailure } from './stop-history-collection.mjs';
 import { readActiveWorkerIdentity, workerProofDiagnostic, workerProofError } from './worker-content-identity.mjs';
 import { verifyUploadedWorker } from './worker-deployment-proof.mjs';
+import { disabledArchiveEvidence, preservesArchiveEvidence } from './disabled-archive-evidence.mjs';
 let temporary;
 async function run() {
-  if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw new Error('manual-main-required');
+  if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled', 'restore-disabled'].includes(collectionMode)) throw new Error('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
   if (collectionMode === 'disabled') {
     await stopHistoryCollection(process.env);
     return;
@@ -20,30 +21,33 @@ async function run() {
   const targetEnabled = collectionMode === 'enabled';
   const deploymentStartedAt = Date.now();
   const url = liveApiUrl(process.env.DALE_WORKER_URL);
-  const ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8'));
+  let ds;
+  try { ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8')); }
+  catch { throw workerProofError('schedule-preflight-failed'); }
   if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD
-    || ds.meta?.source !== 'NJ Transit GTFS BUS G2' || !/^[a-f0-9]{12}$/.test(ds.meta.feedVersion) || ds.meta.realtime?.provider !== 'njt-bus-g2' || ds.meta.demo) throw new Error('configuration-invalid');
-  if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw new Error('reviewed-source-identity-required');
+    || ds.meta?.source !== 'NJ Transit GTFS BUS G2' || !/^[a-f0-9]{12}$/.test(ds.meta.feedVersion) || ds.meta.realtime?.provider !== 'njt-bus-g2' || ds.meta.demo) throw workerProofError('configuration-invalid');
+  if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
   const before = await readActiveWorkerIdentity(process.env);
   if (!before.bindings.some(b => b.name === 'FEED' && b.type === 'durable_object_namespace' && typeof b.namespace_id === 'string' && b.namespace_id)
     || !before.bindings.some(b => b.name === 'HISTORY_ARCHIVE' && b.type === 'r2_bucket' && b.bucket_name === 'dale-history')
-    || !['NJT_API_USERNAME', 'NJT_API_PASSWORD'].every(name => before.bindings.some(b => b.name === name && b.type === 'secret_text'))) throw new Error('existing-resource-identity-required');
-  const config = JSON.parse(readFileSync(new URL('../worker/wrangler.jsonc', import.meta.url), 'utf8'));
+    || !['NJT_API_USERNAME', 'NJT_API_PASSWORD'].every(name => before.bindings.some(b => b.name === name && b.type === 'secret_text'))) throw workerProofError('existing-resource-identity-required');
+  let config;
+  try { config = JSON.parse(readFileSync(new URL('../worker/wrangler.jsonc', import.meta.url), 'utf8')); }
+  catch { throw workerProofError('hosting-config-preflight-failed'); }
   const existingNames = ['FEED', 'HISTORY_ARCHIVE', 'NJT_API_USERNAME', 'NJT_API_PASSWORD', 'HISTORY_COLLECTION'];
   if (config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled'
     || config.compatibility_date !== before.runtime.compatibility_date
     || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
     || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
     || before.bindings.some(b => !existingNames.includes(b.name))) throw workerProofError('worker-existing-configuration-mismatch');
-  let retained;
+  let retained, archiveBefore;
   if (!targetEnabled) {
     const readback = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
     retained = readback.ok ? (await readback.json()).collection : undefined;
     if (!retained || retained.enabled !== false || retained.reason !== 'disabled' || retained.alarmAt !== null || retained.error
-      || retained.archive?.configured !== true || !Number.isSafeInteger(retained.archive.verifiedObjects) || retained.archive.verifiedObjects < 0
-      || !Number.isSafeInteger(retained.archive.reservedBytes) || retained.archive.reservedBytes < 0
       || !['observations', 'batches', 'bytes'].every(key => Number.isSafeInteger(retained[key]) && retained[key] >= 0)
-      || !before.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw new Error('restore-disabled-precondition');
+      || !before.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw workerProofError('restore-disabled-precondition');
+    archiveBefore = disabledArchiveEvidence(retained.archive);
   }
   temporary = mkdtempSync(join(tmpdir(), 'dale-worker-secrets-'));
   const secrets = join(temporary, 'secrets.json');
@@ -58,12 +62,12 @@ async function run() {
     if (/10000|Authentication error/i.test(detail)) console.error('Cloudflare denied the deployment credential. App activation is held.');
     else if (/10021|startup/i.test(detail)) console.error('Cloudflare rejected Worker startup. App activation is held.');
     else if (/limit|quota/i.test(detail)) console.error('Cloudflare reported a resource limit. Do not upgrade automatically.');
-    throw new Error('deployment-failed');
+    throw workerProofError('deployment-failed');
   }
   const uploaded = await verifyUploadedWorker(process.env, join(temporary, 'uploaded'), before);
-  if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw new Error('uploaded-mode-invalid');
+  if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw workerProofError('uploaded-mode-invalid');
   const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
-  if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw new Error('health-check-failed');
+  if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');
   console.log('Reviewed upload artifact matches all active executable/data modules; runtime and other binding descriptors preserved.');
   if (!targetEnabled) {
     await stopHistoryCollection(process.env);
@@ -74,17 +78,17 @@ async function run() {
       || !Number.isSafeInteger(current.observations) || current.observations !== retained.observations
       || !Number.isSafeInteger(current.batches) || current.batches !== retained.batches
       || !Number.isSafeInteger(current.bytes) || current.bytes < retained.bytes
-      || current.archive?.configured !== true || !Number.isSafeInteger(current.archive.verifiedObjects) || current.archive.verifiedObjects < retained.archive.verifiedObjects
-      || !Number.isSafeInteger(current.archive.reservedBytes) || current.archive.reservedBytes < retained.archive.reservedBytes) throw new Error('restored-evidence-unverified');
-    console.log('Known reviewed code restored disabled; existing evidence retained and strict module/stop proof passed. Original historical code identity remains unknown. Resume requires a separate authorized action.');
+      || !preservesArchiveEvidence(archiveBefore, disabledArchiveEvidence(current.archive))) throw workerProofError('restored-evidence-unverified');
+    if (archiveBefore.kind === 'unreported') console.log('Disabled health omits archive receipt counters and backlog: unknown remains unknown. Same private bucket binding preserved; no archive-count or object-durability result inferred.');
+    console.log('Known reviewed code restored disabled; retained journal evidence and strict module/stop proof passed. Private archive receipts need separate readback. Original historical code identity remains unknown. Resume requires a separate authorized action.');
     return;
   }
   const status = await fetch(url + '/v1/status', { signal: AbortSignal.timeout(45_000), redirect: 'error', cache: 'no-store' });
-  if (!status.ok) throw new Error('live-check-failed');
+  if (!status.ok) throw workerProofError('live-check-failed');
   const profile = await status.json();
   const v = profile.vehicles?.state, u = profile.updates?.state;
   const allowed = ['ok', 'stale', 'unavailable', 'invalid'];
-  if (!allowed.includes(v) || !allowed.includes(u) || profile.feedVersion !== ds.meta.feedVersion || !Number.isSafeInteger(profile.reportingBuses)) throw new Error('invalid-profile');
+  if (!allowed.includes(v) || !allowed.includes(u) || profile.feedVersion !== ds.meta.feedVersion || !Number.isSafeInteger(profile.reportingBuses)) throw workerProofError('invalid-profile');
   let collection = profile.collection;
   if (collectionMode === 'enabled') {
     // Read-only collection health does not create a demand observation. Wait for
@@ -93,16 +97,16 @@ async function run() {
       && collection.archive.verifiedObjects >= 2 && collection.archive.lastSuccessAt >= deploymentStartedAt); attempt++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       const check = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(10_000), redirect: 'error', cache: 'no-store' });
-      if (!check.ok) throw new Error('collection-health-failed');
+      if (!check.ok) throw workerProofError('collection-health-failed');
       collection = (await check.json()).collection;
     }
     if (collection?.archive?.configured !== true || collection.archive.reason !== 'ready' || collection.archive.verifiedObjects < 2
-      || collection.archive.lastSuccessAt < deploymentStartedAt || !collection.scheduleContextStored) throw new Error('archive-readback-unverified');
+      || collection.archive.lastSuccessAt < deploymentStartedAt || !collection.scheduleContextStored) throw workerProofError('archive-readback-unverified');
   }
   if (!collection || collection.enabled !== (collectionMode === 'enabled') || collection.error
     || (collectionMode === 'enabled' ? !Number.isSafeInteger(collection.alarmAt) || collection.alarmAt <= 0
       || collection.reason !== 'collecting' || !Number.isSafeInteger(collection.observations) || collection.observations <= 0
-      : collection.alarmAt !== null)) throw new Error('collection-state-unverified');
+      : collection.alarmAt !== null)) throw workerProofError('collection-state-unverified');
   console.log('Worker deployed and canonical schedule verified. No credentials, tokens or raw responses logged.');
   console.log(`Vehicle feed: ${v}; trip-update feed: ${u}; matched corridor buses: ${profile.reportingBuses}.`);
   console.log(collectionMode === 'enabled'
@@ -125,14 +129,14 @@ async function run() {
     const endpoint = new URL('/v1/live', url); endpoint.searchParams.set('trip', trip); endpoint.searchParams.set('date', date);
     const response = await fetch(endpoint, { signal: AbortSignal.timeout(15_000), redirect: 'error' });
     const packet = response.ok ? parseLiveSnapshot(await response.json(), ds, trip, date, Date.now()) : undefined;
-    if (packet?.vehicles.state !== 'ok' || !packet.observations.some((p) => p.vehicleId === profile.example.vehicleId && p.tripInstanceId === profile.example.tripInstanceId && p.observedAt >= profile.example.observedAt && Date.now() - p.observedAt <= 120_000)) throw new Error('exact-bus-check-failed');
+    if (packet?.vehicles.state !== 'ok' || !packet.observations.some((p) => p.vehicleId === profile.example.vehicleId && p.tripInstanceId === profile.example.tripInstanceId && p.observedAt >= profile.example.observedAt && Date.now() - p.observedAt <= 120_000)) throw workerProofError('exact-bus-check-failed');
     console.log('A fresh official bus report matched its canonical trip/date through the tracker endpoint. Ready for app activation and a real ride test.');
   }
 }
 try { await run(); } catch (error) {
   const proof = workerProofDiagnostic(error);
   if (proof) console.error(`Worker proof diagnostic: reason=${proof.reason}${proof.status === undefined ? '' : ` http=${proof.status}`}.`);
-  if ((process.env.HISTORY_COLLECTION_MODE || 'disabled') === 'disabled') console.error(`Stop diagnostic: ${safeStopFailure(error)}.`);
+  else if ((process.env.HISTORY_COLLECTION_MODE || 'disabled') === 'disabled') console.error(`Stop diagnostic: ${safeStopFailure(error)}.`);
   console.error('Live Worker deployment or validation failed. Do not infer collection is inactive: verify its actual health/stop state. No raw error or secret values are logged. Check the private hosting setup.');
   process.exitCode = 1;
 } finally { if (temporary) rmSync(temporary, { recursive: true, force: true }); }

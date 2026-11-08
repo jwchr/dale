@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createFeedClass } from '../../worker/service';
+// @ts-expect-error Native deployment helper intentionally has no declaration.
+import { disabledArchiveEvidence, preservesArchiveEvidence } from '../../scripts/disabled-archive-evidence.mjs';
 import { liveDataset as ds, NOW, binaryFeed, vehicle, update } from '../helpers/liveBus';
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
@@ -41,6 +43,26 @@ function harness(enabled = true, blocked?: Promise<void>) {
     alarm: async (target = object) => { alarmAt = null; await target.alarm(); } };
 }
 describe('collector and existing relay lifecycle', () => {
+  it('restoration accepts the real disabled service schema without invented archive counters or archive I/O', async () => {
+    const h = harness(false); await h.health();
+    let archiveCalls = 0;
+    const env = { ...h.env, HISTORY_ARCHIVE: {
+      put: async () => { archiveCalls++; throw new Error('disabled archive write forbidden'); },
+      get: async () => { archiveCalls++; throw new Error('disabled archive read forbidden'); },
+    } };
+    const stopped = new h.Feed(h.ctx, env);
+    const before = await h.health(stopped);
+    expect(before.archive).toEqual({ configured: true, enabled: false });
+    const evidence = disabledArchiveEvidence(before.archive);
+    expect(evidence).toEqual({ kind: 'unreported' });
+    expect(evidence).not.toHaveProperty('verifiedObjects');
+    expect(evidence).not.toHaveProperty('reservedBytes');
+    h.clock(NOW + 35_000); await h.alarm(stopped);
+    const after = await h.health(stopped);
+    expect(preservesArchiveEvidence(evidence, disabledArchiveEvidence(after.archive))).toBe(true);
+    expect(after).toMatchObject({ enabled: false, reason: 'disabled', alarmAt: null, observations: before.observations, batches: before.batches, bytes: before.bytes });
+    expect(h.calls).toEqual([]); expect(archiveCalls).toBe(0);
+  });
   it('starts explicitly, collects without demand, survives eviction and stops on disabled deployment', async () => {
     const h = harness();
     expect(await h.health()).toMatchObject({ enabled: true, observations: 0, reason: 'starting' }); expect(h.calls).toEqual([]);
