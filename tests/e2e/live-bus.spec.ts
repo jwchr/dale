@@ -50,7 +50,7 @@ test('a fresh report between clock ticks binds immediately; a future receipt sti
   expect(first.session.history[0].observedAt).toBe(receivedAt);
   invalidFuture = true;
   await page.clock.fastForward(31_000);
-  await expect(page.getByTestId('signal-warning')).toContainText('ESTIMATED POSITION ONLY');
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
   const after = await saved(page);
   expect(after.session.lock.vehicleId).toBe('bus-A');
   expect(after.session.history).toHaveLength(1);
@@ -65,8 +65,8 @@ test('live GPS/prediction → missing feed → explicitly estimated schedule →
   expect((await saved(page)).session.lock.vehicleId).toBe('bus-A');
   body = null;
   await page.clock.fastForward(31_000);
-  await expect(page.getByTestId('signal-warning')).toContainText('WARNING: NJ TRANSIT GPS FEED LOST FOR THIS BUS');
-  await expect(page.getByTestId('signal-warning')).toContainText('ESTIMATED POSITION ONLY');
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
   await expect(page.getByTestId('schedule-projection').locator('progress')).toBeVisible();
   expect((await saved(page)).session.history).toHaveLength(1);
   expect((await saved(page)).session.lock.status).toBe('stale');
@@ -87,7 +87,7 @@ test('ambiguous and stale snapshots never bind a bus or claim a current predicti
   expect((await saved(page)).session.history).toHaveLength(0);
   body = packet(NOW, { vehicles: { state: 'stale', timestamp: NOW - 600_000 }, updates: { state: 'stale', timestamp: NOW - 600_000 } });
   await page.clock.fastForward(31_000);
-  await expect(page.getByTestId('live-bus-status')).toContainText('LIVE GPS UNAVAILABLE');
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ Transit GPS data unavailable');
   await expect(page.getByTestId('live-bus-status')).not.toContainText('NJ Transit predicts');
   expect((await saved(page)).session.lock.status).toBe('scheduled_only');
   expect((await saved(page)).session.lock.vehicleId).toBeUndefined();
@@ -114,8 +114,9 @@ test('Spanish live fallback is clear and fits a narrow screen', async ({ page })
   await expect(page.getByTestId('live-bus-status')).toContainText('REPORTE EN VIVO');
   body = null;
   await page.clock.fastForward(31_000);
-  await expect(page.getByTestId('live-bus-status')).toContainText('GPS EN VIVO NO DISPONIBLE');
-  await expect(page.getByTestId('signal-warning')).toContainText('SOLO POSICIÓN ESTIMADA');
+  await expect(page.getByTestId('live-bus-status')).toContainText('GPS de NJ Transit no disponible');
+  await expect(page.getByTestId('live-bus-status').locator('p')).toHaveCount(0);
+  await expect(page.getByTestId('live-bus-status')).toContainText('GPS de NJ Transit no disponible — solo estimaciones del horario.');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -128,7 +129,7 @@ test('live schedule is available offline without turning a saved position into l
   await page.reload();
   await expect(page.getByText(/Showing the schedule saved/)).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
-  await expect(page.getByTestId('signal-warning')).toContainText('ESTIMATED POSITION ONLY');
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
   expect((await saved(page)).session.lock.vehicleId).toBe('bus-A');
 });
 
@@ -234,4 +235,36 @@ test('tracker opens close to bus, keeps manual overview, and offers transit geog
   await wrapper.screenshot({ path: 'test-results/line-diagram-preview.png' });
   expect(outside).toEqual([]);
   expect(errors.filter(e => !/favicon|net::ERR_FAILED/.test(e))).toEqual([]);
+});
+
+test('onboard fresh GPS stays observed, highlights current not upcoming stop, and tolerates stale predictions',async({page})=>{
+ const boarding=liveDataset.stops.find(s=>s.id==='2')!, destination=liveDataset.stops.find(s=>s.id==='3')!;
+ let body:LiveBusSnapshot|null=packet(NOW,{updatedAt:NOW-600000,predictions:[]});
+ body.observations[0]={...body.observations[0]!,lat:boarding.lat!,lon:boarding.lon!};
+ await setup(page,()=>body);
+ await page.getByRole('button',{name:'I’m waiting at this stop',exact:true}).click();
+ await page.getByRole('button',{name:'Bus arrived',exact:true}).click();
+ await page.getByRole('button',{name:'I boarded',exact:true}).click();
+ const ride=page.getByRole('dialog');const strip=ride.locator('.strip');
+ await expect(strip.locator('[data-current="true"]')).toHaveCount(1);
+ await expect(strip.locator('[data-current="true"]')).toContainText(boarding.name);
+ await expect(strip.locator('[data-state="next"][data-current="true"]')).toHaveCount(0);
+ await strip.screenshot({path:'test-results/observed-gps-at-stop.png'});
+ await page.clock.fastForward(20000);
+ await expect(ride.locator('.progress-source')).not.toContainText('Estimated');
+ await expect(ride.getByTestId('signal-warning')).toHaveCount(0);
+ const time=NOW+31000;
+ body=packet(time,{updatedAt:NOW-600000,predictions:[],observations:[{...body.observations[0]!,observedAt:time,lat:(boarding.lat!+destination.lat!)/2,lon:(boarding.lon!+destination.lon!)/2}]});
+ await page.clock.fastForward(12000);
+ await expect(strip.locator('[data-current="true"]')).toHaveCount(0);
+ await expect(ride.locator('.progress-source')).toContainText("From the bus's GPS");
+ await expect(ride.getByTestId('signal-warning')).toHaveCount(0);
+ await strip.screenshot({path:'test-results/observed-gps-current-stop.png'});
+ await ride.getByRole('button',{name:'Line diagram',exact:true}).click();
+ await expect(ride.locator('.line-bus-between')).toHaveCount(1);
+ await expect(ride.locator('.line-stations [data-current="true"]')).toHaveCount(0);
+ body=null;
+ await page.clock.fastForward(121000);
+ await expect(strip.locator('[data-current="true"]')).toHaveCount(0);
+ await expect(ride.getByTestId('signal-warning')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
 });

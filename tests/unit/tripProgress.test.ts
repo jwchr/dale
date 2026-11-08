@@ -99,3 +99,12 @@ describe('trip progress while riding (owner request 2026-11-04)', () => {
     expect(tripProgress({ ...base, stops: unlocated, now: T0 + 5 * MIN, phone: at(1, T0 + 5 * MIN) }).basis).toBe('timetable');
   });
 });
+
+it('fresh bus GPS stays at its observed position between polls, without timetable carry-forward',()=>{
+ const observed=T0+10*MIN, fix=at(1,observed);
+ for(const seconds of [0,30,90]){
+  const p=tripProgress({...base,now:observed+seconds*1000,bus:fix});
+  expect(p.basis).toBe('bus_gps');expect(p.position).toBeCloseTo(1);expect(p.projected).toBe(false);expect(p.observedAt).toBe(observed);
+ }
+ expect(tripProgress({...base,now:observed+121000,bus:fix}).basis).toBe('timetable');
+});

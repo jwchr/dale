@@ -1075,6 +1075,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="small">{versionLine(t, ctx.lang, ctx.tz)}</p>
       <p className="small"><a className="link" href={`${import.meta.env.BASE_URL}licenses.txt`}>{t.licenses}</a></p>
       <h2>{t.dataSource}</h2>
+      {ds.meta.realtime && <p className="small">{t.live.source}</p>}
       <p className="small">{ds.meta.source} · {ds.meta.feedVersion}</p>
       {ds.meta.transcribed && <p className="small">{t.transcribedBanner(fmtYmd(ds.meta.transcribed.issued, settings.lang))}</p>}
       {ds.meta.stopCities && <p className="small">{ds.meta.stopCities.state === 'verified' ? <>{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</> : t.selection.cityUnavailable}</p>}
