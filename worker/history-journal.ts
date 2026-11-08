@@ -1,4 +1,4 @@
-import { emptyCadenceSummary, recordCadencePoll, publicCadenceSummary, type CadenceSummary, type CadenceClocks } from './cadence-summary';
+import { emptyCadenceSummary, recordCadencePoll, publicCadenceSummary, upgradeCadenceSummary, type CadenceSummary, type CadenceClocks } from './cadence-summary';
 import type { NormalizedFeed } from './normalize';
 import { createHistorySelector, type HistoryWatermark } from './history-evidence';
 import type { Dataset } from '../src/domain/types';
@@ -19,10 +19,32 @@ export async function historyContextKey(ds: Dataset) {
   return ds.meta.feedVersion + ':' + [...new Uint8Array(hash)].map(n => n.toString(16).padStart(2, '0')).join('');
 }
 type Reason = 'disabled' | 'starting' | 'collecting' | 'feed-gap' | 'quota-paused' | 'payload-limit' | 'storage-limit' | 'schedule-context-unavailable';
+interface InterruptedAttempt { attemptAt: number; detectedAt: number; contextKey?: string; contextUnknown: boolean }
+interface WindowAttribution { expiresAt: number; count: number; unknownDetails: number }
+interface PendingInterruptions { windowAttribution?: WindowAttribution; details: InterruptedAttempt[]; omittedAttemptDetails: number; firstOmittedAttemptAt?: number; lastOmittedAttemptAt?: number }
+const interruptionCount = (p?: PendingInterruptions) => p ? p.details.length + p.omittedAttemptDetails : 0;
+function attributeInterruptions(p: PendingInterruptions, expiresAt: number): WindowAttribution {
+  if (p.windowAttribution?.expiresAt === expiresAt) return p.windowAttribution;
+  const start = expiresAt - 180_000;
+  let count = p.details.filter(d=>d.attemptAt >= start && d.attemptAt < expiresAt).length, unknownDetails = 0;
+  if (p.omittedAttemptDetails) {
+    if (p.firstOmittedAttemptAt !== undefined && p.lastOmittedAttemptAt !== undefined
+      && p.firstOmittedAttemptAt >= start && p.lastOmittedAttemptAt < expiresAt) count += p.omittedAttemptDetails;
+    else if (!(p.lastOmittedAttemptAt !== undefined && p.lastOmittedAttemptAt < start)
+      && !(p.firstOmittedAttemptAt !== undefined && p.firstOmittedAttemptAt >= expiresAt)) unknownDetails = p.omittedAttemptDetails;
+  }
+  return p.windowAttribution = {expiresAt,count,unknownDetails};
+}
+const interruptionEvidence = (p: PendingInterruptions) => ({ kind: 'interrupted-collector-attempt' as const,
+  details: p.details.map(d=>({attemptAt:d.attemptAt,detectedAt:d.detectedAt,...(d.contextKey?{contextKey:d.contextKey}:{}),contextUnknown:d.contextUnknown})),
+  ...(p.windowAttribution?{windowAttribution:{expiresAt:p.windowAttribution.expiresAt,count:p.windowAttribution.count,unknownDetails:p.windowAttribution.unknownDetails}}:{}),
+  omittedAttemptDetails:p.omittedAttemptDetails,...(p.firstOmittedAttemptAt!==undefined?{firstOmittedAttemptAt:p.firstOmittedAttemptAt,lastOmittedAttemptAt:p.lastOmittedAttemptAt}:{}),
+});
 interface JournalState {
   v: 1; enabled: boolean; reason: Reason; startedAt?: number; lastAttemptAt?: number; completedAttempt?: number;
   cadenceTest?: { expiresAt: number; attempts: number; summary?: CadenceSummary };
   cadenceClocks?: CadenceClocks;
+  lastAttemptContextKey?: string; lastRecordedInterruptionAt?: number; pendingCollectorInterruptions?: PendingInterruptions;
   lastSuccessAt?: number; lastObservationAt?: number; gapSince?: number;
   observations: number; batches: number; bytes: number; duplicates: number; rejected: number; conflicts: number; outOfOrder: number;
   budgetDay: string; reservedWrites: number; watermarks: Record<string, HistoryWatermark>;
@@ -57,6 +79,7 @@ export class HistoryJournal {
     const state = JSON.parse(String(row.body)) as JournalState;
     if (state.v !== 1 || typeof state.enabled !== 'boolean' || !Number.isSafeInteger(state.bytes) || state.bytes < 0
       || !Number.isSafeInteger(state.reservedWrites) || state.reservedWrites < 0) throw new Error('history-state-invalid');
+    if (state.cadenceTest?.summary) upgradeCadenceSummary(state.cadenceTest.summary);
     return state;
   }
   private write(state: JournalState) {
@@ -126,22 +149,37 @@ export class HistoryJournal {
     return this.storage.transactionSync(() => {
       const state = this.read(now);
       if (!state.enabled || (state.lastAttemptAt !== undefined && now - state.lastAttemptAt < this.intervalMs(now))) return;
+      let capturedInterruption = false;
+      if (state.lastAttemptAt !== undefined && state.completedAttempt !== state.lastAttemptAt && state.lastRecordedInterruptionAt !== state.lastAttemptAt) {
+        const pending = state.pendingCollectorInterruptions ??= {details:[],omittedAttemptDetails:0};
+        if (state.cadenceTest) {
+          const attribution = attributeInterruptions(pending,state.cadenceTest.expiresAt);
+          if (state.lastAttemptAt >= attribution.expiresAt - 180_000 && state.lastAttemptAt < attribution.expiresAt) attribution.count++;
+        }
+        const contextKey = typeof state.lastAttemptContextKey === 'string' && state.lastAttemptContextKey.length <= 256 ? state.lastAttemptContextKey : undefined;
+        if (pending.details.length < 16) pending.details.push({attemptAt:state.lastAttemptAt,detectedAt:now,...(contextKey?{contextKey}:{}),contextUnknown:contextKey===undefined});
+        else {
+          if (!Number.isSafeInteger(pending.omittedAttemptDetails + 1)) throw new Error('history-interruption-limit');
+          pending.omittedAttemptDetails++;pending.firstOmittedAttemptAt ??= state.lastAttemptAt;pending.lastOmittedAttemptAt = state.lastAttemptAt;
+        }
+        state.lastRecordedInterruptionAt = state.lastAttemptAt;capturedInterruption = true;
+      }
       if (!this.contextStored()) {
-        if (state.reason !== 'schedule-context-unavailable') { state.reason = 'schedule-context-unavailable'; state.gapSince ??= now; this.write(state); }
+        if (capturedInterruption || state.reason !== 'schedule-context-unavailable') { state.reason = 'schedule-context-unavailable'; state.gapSince ??= now; this.write(state); }
         return;
       }
       if (this.databaseFull()) {
-        if (state.reason !== 'storage-limit') { state.reason = 'storage-limit'; state.gapSince ??= now; this.write(state); }
+        if (capturedInterruption || state.reason !== 'storage-limit') { state.reason = 'storage-limit'; state.gapSince ??= now; this.write(state); }
         return;
       }
       if (day(now) !== state.budgetDay) { state.budgetDay = day(now); state.reservedWrites = 0; }
       if (state.reservedWrites + WRITE_RESERVATION > DAILY_WRITE_BUDGET) {
-        if (state.reason !== 'quota-paused') { state.reason = 'quota-paused'; state.gapSince ??= now; this.write(state); }
+        if (capturedInterruption || state.reason !== 'quota-paused') { state.reason = 'quota-paused'; state.gapSince ??= now; this.write(state); }
         return;
       }
       if (state.lastAttemptAt !== undefined && state.completedAttempt !== state.lastAttemptAt) state.gapSince ??= state.lastAttemptAt;
       if (this.intervalMs(now) === 5000) state.cadenceTest!.attempts++;
-      state.lastAttemptAt = now; state.reservedWrites += WRITE_RESERVATION;
+      state.lastAttemptAt = now; state.lastAttemptContextKey = this.contextKey; state.reservedWrites += WRITE_RESERVATION;
       this.write(state); return now;
     });
   }
@@ -161,7 +199,8 @@ export class HistoryJournal {
       const diagnostics = Object.fromEntries(Object.entries(feed.diagnostics ?? {}).filter(([key, value]) =>
         ['entities', 'knownTrips', 'corridorRoutes', 'missingServiceDates', 'missingObservationTimes'].includes(key)
         && Number.isSafeInteger(value) && value >= 0));
-      const quality = { source: LIVE_SOURCE, feedState: feed.feed.state, generatedAt: feed.feed.timestamp, diagnostics,
+      const pendingAttribution = test && state.pendingCollectorInterruptions ? attributeInterruptions(state.pendingCollectorInterruptions,test.expiresAt) : undefined;
+      const quality = { ...(state.pendingCollectorInterruptions ? {collectorInterruptions:interruptionEvidence(state.pendingCollectorInterruptions)} : {}), source: LIVE_SOURCE, feedState: feed.feed.state, generatedAt: feed.feed.timestamp, diagnostics,
         censusAvailable: feed.presence !== undefined,
         updateFeedState: updates?.feed.state ?? 'unavailable', updateGeneratedAt: updates?.feed.timestamp,
         duplicates: selected.duplicates, rejected: selected.rejected, conflicts: selected.conflicts, outOfOrder: selected.outOfOrder };
@@ -188,6 +227,16 @@ export class HistoryJournal {
         // not erase prior missing-date, stale-feed or rejected-report intervals.
         this.storage.sql.exec('INSERT INTO dale_history_batches(attempt,received_at,feed_version,context_key,bytes,body) VALUES(?,?,?,?,?,?)',
           attempt, receivedAt, this.feedVersion, this.contextKey, bytes, body);
+        if (state.pendingCollectorInterruptions) {
+          if (test && pendingAttribution) {
+            test.summary ??= emptyCadenceSummary();
+            test.summary.interruptedCollectorAttempts += pendingAttribution.count;
+            if (pendingAttribution.unknownDetails) test.summary.interruptionCoverage = 'since-upgrade';
+          }
+          // The insert and metadata acknowledgment commit atomically. Failed
+          // insert/ack or storage refusal retains pending evidence for recovery.
+          delete state.pendingCollectorInterruptions;
+        }
         state.bytes += bytes; state.batches++; state.observations += records.length;
         if (records.length) state.lastObservationAt = Math.max(...records.map(r => r.observation.observedAt));
       }
@@ -293,9 +342,9 @@ export class HistoryJournal {
     });
   }
   status(now: number) {
-    const { watermarks: _privateCheckpoint, cadenceClocks: _privateCadenceClocks, ...state } = this.read(now);
+    const { watermarks: _privateCheckpoint, cadenceClocks: _privateCadenceClocks, pendingCollectorInterruptions: _privateInterruptions, lastRecordedInterruptionAt: _privateInterruptionCheckpoint, lastAttemptContextKey: _privateAttemptContext, ...state } = this.read(now);
     const oldest = this.storage.sql.exec('SELECT attempt FROM dale_history_batches ORDER BY attempt LIMIT 1').toArray()[0];
-    return { ...state, ...(state.cadenceTest ? { cadenceTest: { expiresAt: state.cadenceTest.expiresAt, attempts: state.cadenceTest.attempts,
+    return { ...state, pendingInterruptionCount: interruptionCount(_privateInterruptions), ...(state.cadenceTest ? { cadenceTest: { expiresAt: state.cadenceTest.expiresAt, attempts: state.cadenceTest.attempts,
       ...(state.cadenceTest.summary ? { summary: publicCadenceSummary(state.cadenceTest.summary) } : {}) } } : {}), effectiveIntervalMs: this.intervalMs(now), retention: 'indefinite-archive-before-hot-prune', hotHours: 6, scheduleVersion: this.feedVersion, scheduleContextStored: this.contextStored(),
       oldestRetainedAt: oldest ? Number(oldest.attempt) : null,
       incompleteAttempt: state.lastAttemptAt !== state.completedAttempt,

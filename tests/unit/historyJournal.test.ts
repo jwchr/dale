@@ -150,3 +150,110 @@ describe('private SQLite history journal', () => {
     expect(scenarios.every(s => s.losslessGzipBytes < s.payloadBytes && s.sqliteGrowthBytes > 0)).toBe(true);
   });
 });
+
+it('replacement retains an incomplete attempt, its spent reservation and prior originals before the next completion',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);
+ h.journal.complete(h.journal.beginAttempt(NOW)!,feed(),NOW);
+ const original=h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW)!.body;
+ const interrupted=h.journal.beginAttempt(NOW+30000)!;
+ const reserved=h.journal.status(NOW+30000).reservedWrites;
+ const replacement=new HistoryJournal(h.storage,ds,ds.meta.feedVersion);
+ expect(replacement.status(NOW+30001)).toMatchObject({enabled:true,lastAttemptAt:interrupted,completedAttempt:NOW,incompleteAttempt:true,reservedWrites:reserved});
+ replacement.setCadenceTest(String(NOW+210000),NOW+30000);
+ const next=replacement.beginAttempt(NOW+35000)!;
+ expect(next).toBe(NOW+35000);
+ expect(replacement.status(NOW+35000)).toMatchObject({incompleteAttempt:true,gapSince:interrupted});
+ expect(replacement.status(NOW+35000).reservedWrites).toBeGreaterThan(reserved);
+ expect(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW)!.body).toBe(original);
+});
+
+it('persists interrupted-attempt quality through capacity refusal and failed acknowledgment, clearing only after atomic batch insert',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);
+ h.journal.complete(h.journal.beginAttempt(NOW)!,feed(),NOW);
+ const original=h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW)!.body;
+ h.journal.beginAttempt(NOW+30000);
+ const size=Object.getOwnPropertyDescriptor(h.storage.sql,'databaseSize')!;
+ Object.defineProperty(h.storage.sql,'databaseSize',{configurable:true,get:()=>500000000});
+ const restarted=new HistoryJournal(h.storage,ds,ds.meta.feedVersion);
+ expect(restarted.beginAttempt(NOW+60000)).toBeUndefined();
+ expect(restarted.status(NOW+60000)).toMatchObject({pendingInterruptionCount:1,incompleteAttempt:true});
+ expect(restarted.beginAttempt(NOW+90000)).toBeUndefined();
+ expect(restarted.status(NOW+90000).pendingInterruptionCount).toBe(1);
+ Object.defineProperty(h.storage.sql,'databaseSize',size);
+ const attempt=restarted.beginAttempt(NOW+120000)!;
+ h.db.exec("CREATE TRIGGER fail_interruption_ack BEFORE UPDATE ON dale_history_meta BEGIN SELECT RAISE(ABORT,'synthetic failed ack'); END");
+ expect(()=>restarted.complete(attempt,feed(),NOW+120000)).toThrow();
+ expect(restarted.status(NOW+120000).pendingInterruptionCount).toBe(1);
+ expect(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(attempt)).toBeUndefined();
+ h.db.exec('DROP TRIGGER fail_interruption_ack');
+ restarted.complete(attempt,feed(),NOW+120000);
+ expect(restarted.status(NOW+120000).pendingInterruptionCount).toBe(0);
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(attempt)!.body));
+ expect(batch.quality.collectorInterruptions).toMatchObject({kind:'interrupted-collector-attempt',details:[{attemptAt:NOW+30000,contextKey:ds.meta.feedVersion,contextUnknown:false}],omittedAttemptDetails:0});
+ expect(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW)!.body).toBe(original);
+ expect(JSON.stringify(restarted.status(NOW+120000))).not.toMatch(/pendingCollectorInterruptions|lastAttemptContextKey|lastRecordedInterruptionAt/);
+});
+it('bounds interruption details with explicit omitted-count/range and never invents legacy context',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.setCadenceTest(String(NOW+180000),NOW);
+ for(let i=0;i<=30;i++)h.journal.beginAttempt(NOW+i*5000);
+ const state=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ expect(state.pendingCollectorInterruptions.details).toHaveLength(16);
+ expect(state.pendingCollectorInterruptions.omittedAttemptDetails).toBe(14);
+ h.journal.complete(NOW+150000,feed(),NOW+150000);
+ const body=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW+150000)!.body));
+ expect(body.quality.collectorInterruptions).toMatchObject({omittedAttemptDetails:14,firstOmittedAttemptAt:NOW+80000,lastOmittedAttemptAt:NOW+145000});
+ expect(h.journal.status(NOW+150000).pendingInterruptionCount).toBe(0);
+ const legacy=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ legacy.lastAttemptAt=NOW+155000;delete legacy.lastAttemptContextKey;
+ h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(legacy));
+ h.journal.complete(h.journal.beginAttempt(NOW+160000)!,feed(),NOW+160000);
+ const after=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(NOW+160000)!.body));
+ expect(after.quality.collectorInterruptions.details[0]).toMatchObject({attemptAt:NOW+155000,contextUnknown:true});
+ expect(after.quality.collectorInterruptions.details[0]).not.toHaveProperty('contextKey');
+});
+
+it('attributes a last-window interrupted attempt to its original sample even when recovered after expiry, exactly once after ack',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.setCadenceTest(String(NOW+180000),NOW);
+ h.journal.complete(h.journal.beginAttempt(NOW)!,feed(),NOW);
+ h.journal.beginAttempt(NOW+175000);
+ const recovery=h.journal.beginAttempt(NOW+205000)!;
+ h.db.exec("CREATE TRIGGER fail_window_ack BEFORE UPDATE ON dale_history_meta BEGIN SELECT RAISE(ABORT,'synthetic'); END");
+ expect(()=>h.journal.complete(recovery,feed(),NOW+205000)).toThrow();
+ expect(h.journal.status(NOW+205000).cadenceTest!.summary!.interruptedCollectorAttempts).toBe(0);
+ h.db.exec('DROP TRIGGER fail_window_ack');
+ h.journal.complete(recovery,feed(),NOW+205000);h.journal.complete(recovery,feed(),NOW+205000);
+ expect(h.journal.status(NOW+205000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:1,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(recovery)!.body));
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({expiresAt:NOW+180000,count:1,unknownDetails:0});
+});
+it('does not attribute a pre-window normal interruption to a recovery poll inside the sample',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.beginAttempt(NOW);
+ h.journal.setCadenceTest(String(NOW+210000),NOW+30000);
+ h.journal.complete(h.journal.beginAttempt(NOW+35000)!,feed(),NOW+35000);
+ expect(h.journal.status(NOW+35000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:0,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt DESC LIMIT 1').get()!.body));
+ expect(batch.quality.collectorInterruptions.details[0].attemptAt).toBe(NOW);
+});
+it('retains exact original-window attribution when bounded details overflow across the window boundary',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW-600000);
+ for(let i=0;i<=20;i++)h.journal.beginAttempt(NOW-600000+i*30000);
+ h.journal.setCadenceTest(String(NOW+180001),NOW+1);
+ h.journal.beginAttempt(NOW+5001);
+ const recovery=h.journal.beginAttempt(NOW+10001)!;h.journal.complete(recovery,feed(),NOW+10001);
+ expect(h.journal.status(NOW+10001).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:1,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(recovery)!.body));
+ expect(batch.quality.collectorInterruptions.details).toHaveLength(16);
+ expect(batch.quality.collectorInterruptions.omittedAttemptDetails).toBe(6);
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({count:1,unknownDetails:0});
+});
+
+it('marks legacy overflow attribution unknown instead of claiming a complete zero',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.setCadenceTest(String(NOW+180000),NOW);
+ const meta=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ meta.pendingCollectorInterruptions={details:[],omittedAttemptDetails:10,firstOmittedAttemptAt:NOW-30000,lastOmittedAttemptAt:NOW+5000};
+ h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
+ const attempt=h.journal.beginAttempt(NOW+10000)!;h.journal.complete(attempt,feed(),NOW+10000);
+ expect(h.journal.status(NOW+10000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:0,interruptionCoverage:'since-upgrade'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(attempt)!.body));
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({count:0,unknownDetails:10});
+});

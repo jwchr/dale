@@ -136,3 +136,60 @@ describe('owner-bounded three-minute five-second cadence test',()=>{
   expect((await h.health(retry)).cadenceTest.expiresAt).toBe(NOW+180000);
  });
 });
+
+it('a warm actor keeps constructor environment until replacement; adoption restores saved token/poll pace without another poller',async()=>{
+ const h=harness();await h.health();await h.alarm();
+ const before=await h.health();expect(before.effectiveIntervalMs).toBe(30000);
+ h.clock(NOW+1000);
+ const changed={...h.env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+181000)};
+ // Control-plane settings do not mutate an existing actor's constructor Env.
+ expect((await h.health()).cadenceTest).toBeUndefined();
+ expect((await h.health()).effectiveIntervalMs).toBe(30000);
+ // Models replacement only; hosted proof must establish actual platform adoption.
+ const adopted=new h.Feed(h.ctx,changed);
+ expect((await h.health(adopted)).effectiveIntervalMs).toBe(5000);
+ h.clock(NOW+4999);await h.alarm(adopted);
+ expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(1);
+ h.clock(NOW+5000);await h.alarm(adopted);
+ expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(2);
+ expect(h.calls.filter(c=>c==='authenticateUser')).toHaveLength(1);
+ expect((await h.health(adopted)).observations).toBeGreaterThanOrEqual(before.observations);
+});
+
+for(const upstreamCacheSaved of [false,true]) it(`replacement honors durable pace before/after upstream cache persistence (${upstreamCacheSaved})`,async()=>{
+ const h=harness();await h.health();await h.alarm();
+ const baselineCalls=h.calls.length;
+ const saved=await h.ctx.storage.get<Record<string,unknown>>('state-v1');
+ expect(saved).toBeDefined();
+ const meta=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ meta.lastAttemptAt=NOW+30000;h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
+ if(upstreamCacheSaved)await h.ctx.storage.put('state-v1',{...saved,pollAt:NOW+30000});
+ h.clock(NOW+30001);
+ const adopted=new h.Feed(h.ctx,{...h.env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+210000)});
+ await adopted.fetch(new Request('https://test/v1/status'));
+ expect(h.calls).toHaveLength(baselineCalls);
+ expect((await h.health(adopted)).incompleteAttempt).toBe(true);
+ h.clock(NOW+35000);await h.alarm(adopted);
+ expect(h.calls.filter(c=>c==='authenticateUser')).toHaveLength(1);
+ expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(2);
+ const latest=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt DESC LIMIT 1').get()!.body));
+ expect(latest.quality.collectorInterruptions.details[0].attemptAt).toBe(NOW+30000);
+ expect((await h.health(adopted)).pendingInterruptionCount).toBe(0);
+});
+
+it('reconstructs a persisted legacy cadence summary without NaN and marks pre-upgrade interruption coverage unknown',async()=>{
+ const h=harness();await h.health();const env={...h.env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+180000)};
+ const first=new h.Feed(h.ctx,env);await h.health(first);await h.alarm(first);
+ const meta=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ delete meta.cadenceTest.summary.interruptedCollectorAttempts;delete meta.cadenceTest.summary.interruptionCoverage;
+ meta.lastAttemptAt=NOW+5000;h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
+ h.clock(NOW+10000);const upgraded=new h.Feed(h.ctx,env);
+ const before=await h.health(upgraded);
+ expect(before.cadenceTest.summary).toMatchObject({interruptedCollectorAttempts:0,interruptionCoverage:'since-upgrade'});
+ await h.alarm(upgraded);
+ const after=await h.health(upgraded);
+ expect(after.cadenceTest.summary).toMatchObject({interruptedCollectorAttempts:1,interruptionCoverage:'since-upgrade'});
+ expect(Number.isFinite(after.cadenceTest.summary.interruptedCollectorAttempts)).toBe(true);
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt DESC LIMIT 1').get()!.body));
+ expect(batch.quality.collectorInterruptions.details[0].attemptAt).toBe(NOW+5000);
+});

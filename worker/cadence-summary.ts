@@ -1,22 +1,34 @@
 import type { NormalizedFeed } from './normalize';
 export interface CadenceSummary {
-  polls: number; upstreamVehicleAttempts: number; feedGaps: number; staleFeeds: number; reports: number;
+  interruptionCoverage?: 'complete' | 'since-upgrade'; interruptedCollectorAttempts: number; polls: number; upstreamVehicleAttempts: number; feedGaps: number; staleFeeds: number; reports: number;
   firstFreshReports: number; unchangedFreshClocks: number; advancedFreshClocks: number; regressedClocks: number;
   missingClocks: number; staleReports: number; futureClocks: number; contextChanges: number; disappearances: number;
   trackingLimitOmissions: number; unmatchedReports: number; sourceDeltaSecondsHistogram: Record<string, number>;
 }
 export interface CadenceClock { at: number; trip: string; poll: number }
 export type CadenceClocks = Record<string, CadenceClock>;
-const counts = ['polls','upstreamVehicleAttempts','feedGaps','staleFeeds','reports','firstFreshReports','unchangedFreshClocks','advancedFreshClocks','regressedClocks','missingClocks','staleReports','futureClocks','contextChanges','disappearances','trackingLimitOmissions','unmatchedReports'] as const;
+const counts = ['interruptedCollectorAttempts','polls','upstreamVehicleAttempts','feedGaps','staleFeeds','reports','firstFreshReports','unchangedFreshClocks','advancedFreshClocks','regressedClocks','missingClocks','staleReports','futureClocks','contextChanges','disappearances','trackingLimitOmissions','unmatchedReports'] as const;
 export function emptyCadenceSummary(): CadenceSummary {
-  return { ...Object.fromEntries(counts.map(k=>[k,0])), sourceDeltaSecondsHistogram: {} } as CadenceSummary;
+  return { ...Object.fromEntries(counts.map(k=>[k,0])), sourceDeltaSecondsHistogram: {}, interruptionCoverage: 'complete' } as CadenceSummary;
+}
+/** A missing legacy counter means earlier interruption coverage is unknown.
+ * Zero initializes only the count tracked from this upgrade onward. */
+export function upgradeCadenceSummary(summary: CadenceSummary): CadenceSummary {
+  if (summary.interruptedCollectorAttempts === undefined) {
+    summary.interruptedCollectorAttempts = 0; summary.interruptionCoverage = 'since-upgrade';
+  }
+  if (!Number.isSafeInteger(summary.interruptedCollectorAttempts) || summary.interruptedCollectorAttempts < 0) throw new Error('cadence-summary-invalid');
+  summary.interruptionCoverage ??= 'complete';
+  if (!['complete','since-upgrade'].includes(summary.interruptionCoverage)) throw new Error('cadence-summary-invalid');
+  return summary;
 }
 /** Explicit public whitelist: never return the per-vehicle clocks, IDs or source payload. */
-export function publicCadenceSummary(summary: CadenceSummary) {
+export function publicCadenceSummary(input: CadenceSummary) {
+  const summary = upgradeCadenceSummary({...input});
   if (!summary || counts.some(k=>!Number.isSafeInteger(summary[k]) || summary[k]<0)) throw new Error('cadence-summary-invalid');
-  return { ...Object.fromEntries(counts.map(k=>[k,summary[k]])),
+  return { ...Object.fromEntries(counts.map(k=>[k,summary[k]])), interruptionCoverage: summary.interruptionCoverage,
     sourceDeltaSecondsHistogram: Object.fromEntries(Object.entries(summary.sourceDeltaSecondsHistogram).filter(([k,v])=>
-      (k==='over300'||/^(?:[1-9][0-9]?|[12][0-9]{2}|300)$/.test(k)) && Number.isSafeInteger(v) && v>=0)) };
+      (k==='over300'||/^(?:[1-9][0-9]?|[12][0-9]{2}|300)$/.test(k)) && Number.isSafeInteger(v) && v>=0)) } as CadenceSummary;
 }
 /** Count only actual collector completions; public health/cache reads never call this. */
 export function recordCadencePoll(summary: CadenceSummary, clocks: CadenceClocks, feed: NormalizedFeed, receivedAt: number, upstreamAttempted: boolean) {
