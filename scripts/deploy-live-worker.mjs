@@ -5,11 +5,16 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { safeNjtFailure, NjtError } from '../worker/njt-client.ts';
 import { liveApiUrl, parseLiveSnapshot } from '../src/domain/liveBus.ts';
+import { stopHistoryCollection } from './stop-history-collection.mjs';
 let temporary;
-try {
+async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw new Error('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
   if (!['disabled', 'enabled'].includes(collectionMode)) throw new Error('collection-mode-invalid');
+  if (collectionMode === 'disabled') {
+    await stopHistoryCollection(process.env);
+    return;
+  }
   const deploymentStartedAt = Date.now();
   const url = liveApiUrl(process.env.DALE_WORKER_URL);
   const ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8'));
@@ -81,7 +86,8 @@ try {
     if (packet?.vehicles.state !== 'ok' || !packet.observations.some((p) => p.vehicleId === profile.example.vehicleId && p.tripInstanceId === profile.example.tripInstanceId && p.observedAt >= profile.example.observedAt && Date.now() - p.observedAt <= 120_000)) throw new Error('exact-bus-check-failed');
     console.log('A fresh official bus report matched its canonical trip/date through the tracker endpoint. Ready for app activation and a real ride test.');
   }
-} catch {
+}
+try { await run(); } catch {
   console.error('Live Worker deployment or validation failed. Do not infer collection is inactive: verify its actual health/stop state. No raw error or secret values are logged. Check the private hosting setup.');
   process.exitCode = 1;
 } finally { if (temporary) rmSync(temporary, { recursive: true, force: true }); }

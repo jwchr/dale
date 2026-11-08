@@ -1,0 +1,87 @@
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { expect, it } from 'vitest';
+
+// Execute the real unbundled Node entrypoints with NO NJT credentials. All I/O is
+// synthetic; long waits are accelerated here, not in the production stop command.
+const stop = new URL('../../scripts/stop-history-collection.mjs', import.meta.url).href;
+const deploy = new URL('../../scripts/deploy-live-worker.mjs', import.meta.url).href;
+function run(scenario = 'ok', entry = stop) {
+  return spawnSync(process.execPath, ['--input-type=module', '--eval', `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const originalRead = fs.readFileSync;
+    fs.readFileSync = (...args) => { if (String(args[0]).includes('generated/corridor')) throw Error('FORBIDDEN_STATIC'); return originalRead(...args); };
+    cp.spawnSync = () => { throw Error('FORBIDDEN_DEPLOY_OR_CONVERSION'); };
+    syncBuiltinESMExports();
+    const scenario = ${JSON.stringify(scenario)};
+    let patched = false, healthReads = 0, patchCount = 0;
+    const bindings = [
+      {name:'FEED',type:'durable_object_namespace',namespace_id:'synthetic-namespace'},
+      {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},
+      {name:'NJT_API_PASSWORD',type:'secret_text'},
+      {name:'OTHER',type:'plain_text',text:'preserved'},
+      {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'}
+    ];
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn,ms,...args) => realTimeout(fn, ms >= 1000 ? 0 : ms, ...args);
+    globalThis.fetch = async (input, options = {}) => {
+      const url = new URL(input);
+      assert.equal(options.redirect,'error');
+      if (url.hostname === 'dale-live.synthetic.workers.dev') {
+        assert.equal(url.pathname,'/v1/collection');
+        assert.equal(options.headers,undefined);
+        assert.ok(patched);
+        healthReads++;
+        return Response.json({collection:{enabled:scenario === 'enabled-health', reason:scenario === 'enabled-health'?'collecting':'disabled',alarmAt:scenario === 'alarm'?1:null,observations:healthReads > 1 && scenario === 'advancing'?2:1,batches:1,bytes:123,lastAttemptAt:100,completedAttempt:100}});
+      }
+      assert.equal(url.origin,'https://api.cloudflare.com');
+      assert.equal(options.headers.Authorization,'Bearer synthetic-token');
+      assert.equal(url.pathname.startsWith('/client/v4/accounts/'+'a'.repeat(32)+'/workers/scripts/dale-live/'),true);
+      const path = url.pathname.split('/dale-live')[1];
+      if (scenario === 'denied') return new Response('',{status:403});
+      let result;
+      if (path === '/deployments') result={deployments:[{versions:[{version_id:patched?'v2':'v1',percentage:scenario === 'split'?50:100}]}]};
+      else if (path === '/versions') result={items:[{id:scenario === 'staged'?'draft':patched?'v2':'v1'}]};
+      else if (path.startsWith('/versions/')) result={resources:{script:{etag:patched && scenario === 'code-change'?'changed':'original-code-hash'},script_runtime:{compatibility_date:'2026-10-01',compatibility_flags:[]}}};
+      else if (path === '/settings' && options.method === 'PATCH') {
+        patchCount++;
+        assert.equal(patchCount,1);
+        assert.ok(options.body instanceof FormData);
+        assert.deepEqual([...options.body.keys()],['settings']);
+        const body = JSON.parse(options.body.get('settings'));
+        assert.deepEqual(body,{bindings:[...bindings.filter(b=>b.name!=='HISTORY_COLLECTION').sort((a,b)=>a.name.localeCompare(b.name)).map(b=>({name:b.name,type:'inherit'})),{name:'HISTORY_COLLECTION',type:'plain_text',text:'disabled'}]});
+        patched=true; result={};
+      } else if (path === '/settings') result={bindings:bindings.filter(b=>!(patched && scenario==='binding-loss' && b.name==='FEED')).map(b=>b.name==='HISTORY_COLLECTION' && patched?{...b,text:'disabled'}:b)};
+      else throw Error('FORBIDDEN_UPSTREAM_OR_OTHER_IO');
+      return Response.json({success:true,result});
+    };
+    process.argv[1] = new URL(${JSON.stringify(entry)}).pathname;
+    await import(${JSON.stringify(entry)});
+    if (!process.exitCode) { assert.equal(patchCount,1); assert.equal(healthReads,2); }
+  `], { env: { NODE_NO_WARNINGS:'1', GITHUB_EVENT_NAME:'workflow_dispatch', GITHUB_REF:'refs/heads/main', GITHUB_REPOSITORY:'jwchr/dale', HISTORY_COLLECTION_MODE:'disabled', CLOUDFLARE_API_TOKEN:'synthetic-token', CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32), DALE_WORKER_URL:'https://dale-live.synthetic.workers.dev' }, encoding:'utf8', timeout:10_000 });
+}
+it.each([stop, deploy])('native disabled entrypoint %s stops without NJT, static preparation or deployment', entry => {
+  const result = run('ok',entry);
+  expect(result.error).toBeUndefined(); expect(result.status).toBe(0);
+  expect(result.stderr).toBe(''); expect(result.stdout).toContain('counters unchanged across 35 seconds');
+});
+it.each(['denied','staged','split','binding-loss','code-change','enabled-health','alarm','advancing'])('stop fails closed for %s without raw diagnostics or rollback', scenario => {
+  const result=run(scenario);
+  expect(result.error).toBeUndefined(); expect(result.status).toBe(1);
+  expect(result.stdout).toBe(''); expect(result.stderr).toContain('Cloudflare-only stop was not fully verified');
+  expect(result.stderr).not.toMatch(/synthetic-token|FORBIDDEN|AssertionError/);
+});
+it('disabled workflow reaches native stop before every enabled-only dependency', () => {
+  const workflow=readFileSync(new URL('../../.github/workflows/live-worker.yml',import.meta.url),'utf8');
+  const steps=workflow.split(/\n      - /);
+  const stopStep=steps.find(s=>s.includes('run: node scripts/stop-history-collection.mjs'))!;
+  expect(stopStep).toContain("if: inputs.history_collection == 'disabled'");
+  expect(stopStep).not.toMatch(/NJT_API_|npm|worker:prepare/);
+  for (const step of steps.filter(s=>/run: (npm ci|npm run worker:prepare|node scripts\/deploy-live-worker|node -e)/.test(s))) {
+    expect(step).toContain("if: inputs.history_collection == 'enabled'");
+  }
+  expect(workflow.indexOf('run: node scripts/stop-history-collection.mjs')).toBeLessThan(workflow.indexOf('run: npm run worker:prepare'));
+});
