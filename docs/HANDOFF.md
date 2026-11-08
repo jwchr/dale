@@ -2,6 +2,9 @@
 
 Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
 
+## Owner-authorized short cadence test (#91)
+- Jeff now authorizes exactly three minutes at5second pacing, then automatic30seconds; no lasting-rate adjustment without his decision and no extension without asking. Same sole builder implements a persisted one-shot absolute expiry and36attempt cap, same refresh owner/native alarm/token/budget/original census. Protected-main manual settings control verifies full program/runtime/other bindings, never stops recording, and leaves existing safeguards intact. Existing health returns whitelisted bounded aggregates only; private pervehicle clocks omitted, original archives unchanged. No actual test or result yet; independent review/CI and operator activation remain required after current UI121 gate.
+
 ## Current rider correction (issue #113)
 - Recorder independently qualified ON:261→381observations/62→72verifiedarchives with context/alarm and no errors/backlog; reviewed PR120 merged8352b25 without Worker redeploy. Same sole builder now corrects ride GPS/current-stop and one-line unavailable notice. Fresh GPS holds at observed position between reports, upcoming stop stays separate from current illumination, diagram marker lies between stops when appropriate, prediction freshness remains independent. Ordinary unavailable notice has only owner EN/ES line, with attribution in Settings and distinct service warnings preserved. Full verify/review/public acceptance pending; remaining approved compact signs/cards/train/visual-reference/distance work113 is not cancelled.
 

@@ -1,3 +1,4 @@
+import { emptyCadenceSummary, recordCadencePoll, publicCadenceSummary, type CadenceSummary, type CadenceClocks } from './cadence-summary';
 import type { NormalizedFeed } from './normalize';
 import { createHistorySelector, type HistoryWatermark } from './history-evidence';
 import type { Dataset } from '../src/domain/types';
@@ -20,6 +21,8 @@ export async function historyContextKey(ds: Dataset) {
 type Reason = 'disabled' | 'starting' | 'collecting' | 'feed-gap' | 'quota-paused' | 'payload-limit' | 'storage-limit' | 'schedule-context-unavailable';
 interface JournalState {
   v: 1; enabled: boolean; reason: Reason; startedAt?: number; lastAttemptAt?: number; completedAttempt?: number;
+  cadenceTest?: { expiresAt: number; attempts: number; summary?: CadenceSummary };
+  cadenceClocks?: CadenceClocks;
   lastSuccessAt?: number; lastObservationAt?: number; gapSince?: number;
   observations: number; batches: number; bytes: number; duplicates: number; rejected: number; conflicts: number; outOfOrder: number;
   budgetDay: string; reservedWrites: number; watermarks: Record<string, HistoryWatermark>;
@@ -99,10 +102,30 @@ export class HistoryJournal {
       this.write(state);
     });
   }
+  /** Manual protected-main control supplies one absolute deadline. Persist once;
+   * the same expired/exhausted deadline cannot renew after actor restart. */
+  setCadenceTest(value: string | undefined, now: number) {
+    if (!value || !/^[0-9]{13}$/.test(value)) return;
+    const expiresAt = Number(value);
+    this.storage.transactionSync(() => {
+      const state = this.read(now);
+      if (!state.enabled || expiresAt <= now || expiresAt - now > 180_000
+        || state.cadenceTest !== undefined || this.databaseFull()) return;
+      if (day(now) !== state.budgetDay) { state.budgetDay = day(now); state.reservedWrites = 0; }
+      if (state.reservedWrites + 1 > DAILY_WRITE_BUDGET) return;
+      state.cadenceTest = { expiresAt, attempts: 0 }; state.reservedWrites++;
+      this.write(state);
+    });
+  }
+  intervalMs(now: number): number {
+    const state = this.read(now), test = state.cadenceTest;
+    return state.enabled && test && Number.isSafeInteger(test.expiresAt) && Number.isSafeInteger(test.attempts)
+      && test.attempts >= 0 && test.attempts < 36 && now < test.expiresAt && test.expiresAt - now <= 180_000 ? 5000 : HISTORY_INTERVAL_MS;
+  }
   beginAttempt(now: number): number | undefined {
     return this.storage.transactionSync(() => {
       const state = this.read(now);
-      if (!state.enabled || (state.lastAttemptAt !== undefined && now - state.lastAttemptAt < HISTORY_INTERVAL_MS)) return;
+      if (!state.enabled || (state.lastAttemptAt !== undefined && now - state.lastAttemptAt < this.intervalMs(now))) return;
       if (!this.contextStored()) {
         if (state.reason !== 'schedule-context-unavailable') { state.reason = 'schedule-context-unavailable'; state.gapSince ??= now; this.write(state); }
         return;
@@ -117,14 +140,20 @@ export class HistoryJournal {
         return;
       }
       if (state.lastAttemptAt !== undefined && state.completedAttempt !== state.lastAttemptAt) state.gapSince ??= state.lastAttemptAt;
+      if (this.intervalMs(now) === 5000) state.cadenceTest!.attempts++;
       state.lastAttemptAt = now; state.reservedWrites += WRITE_RESERVATION;
       this.write(state); return now;
     });
   }
-  complete(attempt: number, feed: NormalizedFeed, receivedAt: number, updates?: NormalizedFeed): void {
+  complete(attempt: number, feed: NormalizedFeed, receivedAt: number, updates?: NormalizedFeed, upstreamVehicleAttempted = false): void {
     this.storage.transactionSync(() => {
       const state = this.read(receivedAt);
       if (!state.enabled || state.lastAttemptAt !== attempt || state.completedAttempt === attempt) return;
+      const test = state.cadenceTest;
+      if (test && attempt >= test.expiresAt - 180_000 && attempt < test.expiresAt) {
+        test.summary ??= emptyCadenceSummary(); state.cadenceClocks ??= {};
+        recordCadencePoll(test.summary, state.cadenceClocks, feed, receivedAt, upstreamVehicleAttempted);
+      } else if (test && attempt >= test.expiresAt) delete state.cadenceClocks;
       const selected = this.select(feed, receivedAt, state.watermarks);
       state.completedAttempt = attempt;
       state.duplicates += selected.duplicates; state.rejected += selected.rejected;
@@ -264,9 +293,10 @@ export class HistoryJournal {
     });
   }
   status(now: number) {
-    const { watermarks: _privateCheckpoint, ...state } = this.read(now);
+    const { watermarks: _privateCheckpoint, cadenceClocks: _privateCadenceClocks, ...state } = this.read(now);
     const oldest = this.storage.sql.exec('SELECT attempt FROM dale_history_batches ORDER BY attempt LIMIT 1').toArray()[0];
-    return { ...state, retention: 'indefinite-archive-before-hot-prune', hotHours: 6, scheduleVersion: this.feedVersion, scheduleContextStored: this.contextStored(),
+    return { ...state, ...(state.cadenceTest ? { cadenceTest: { expiresAt: state.cadenceTest.expiresAt, attempts: state.cadenceTest.attempts,
+      ...(state.cadenceTest.summary ? { summary: publicCadenceSummary(state.cadenceTest.summary) } : {}) } } : {}), effectiveIntervalMs: this.intervalMs(now), retention: 'indefinite-archive-before-hot-prune', hotHours: 6, scheduleVersion: this.feedVersion, scheduleContextStored: this.contextStored(),
       oldestRetainedAt: oldest ? Number(oldest.attempt) : null,
       incompleteAttempt: state.lastAttemptAt !== state.completedAttempt,
       stale: state.enabled && now - (state.lastSuccessAt ?? state.startedAt ?? now) > 120_000,
@@ -274,6 +304,6 @@ export class HistoryJournal {
       dailyWriteReservationLimit: DAILY_WRITE_BUDGET,
       nextAttemptAt: !state.enabled ? null : state.reason === 'quota-paused' && state.budgetDay === day(now)
         ? Date.parse(day(now) + 'T00:00:00Z') + 86400_000 : ['storage-limit', 'schedule-context-unavailable'].includes(state.reason)
-          ? now + 3600_000 : Math.max(now, (state.lastAttemptAt ?? 0) + HISTORY_INTERVAL_MS) };
+          ? now + 3600_000 : Math.max(now, (state.lastAttemptAt ?? 0) + this.intervalMs(now)) };
   }
 }

@@ -12,7 +12,7 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials { HISTORY_COLLECTION?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -30,6 +30,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private journal?: HistoryJournal;
     private archive?: HistoryArchive;
     private collectionError = false;
+    private upstreamVehicleAttempts = 0;
     constructor(ctx: State, env: Env) {
       this.ctx = ctx; this.env = env;
       this.ready = ctx.blockConcurrencyWhile(async () => {
@@ -49,6 +50,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           try {
             this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, await historyContextKey(ds));
             this.journal.setEnabled(env.HISTORY_COLLECTION === 'enabled', clock());
+            this.journal.setCadenceTest(env.HISTORY_CADENCE_TEST_UNTIL, clock());
             if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
             if (env.HISTORY_COLLECTION !== 'enabled') {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
@@ -60,18 +62,22 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private async arm() {
       if (!this.journal || this.env.HISTORY_COLLECTION !== 'enabled' || !this.ctx.storage.getAlarm || !this.ctx.storage.setAlarm) return;
       const next = this.journal.status(clock()).nextAttemptAt;
-      if (next !== null && await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Math.max(clock() + 1000, next));
+      if (next !== null) {
+        const desired = Math.max(clock() + 1000, next), existing = await this.ctx.storage.getAlarm();
+        if (existing === null || existing > desired) await this.ctx.storage.setAlarm(desired);
+      }
     }
     private async poll(background = false) {
-      if (!this.pending && clock() - this.saved.pollAt >= POLL_MS) {
+      if (!this.pending && clock() - this.saved.pollAt >= (this.journal?.intervalMs(clock()) ?? POLL_MS)) {
         let attempt: number | undefined;
         try { attempt = this.journal?.beginAttempt(clock()); } catch { this.collectionError = true; }
         // A paused/disabled collector must not start upstream work on its own.
         if (background && attempt === undefined) return;
         this.pending = (async () => {
+          const beforeVehicleAttempts = this.upstreamVehicleAttempts;
           await this.refresh();
           if (attempt !== undefined) {
-            try { this.journal!.complete(attempt, this.saved.vehicles ?? unavailable(), clock(), this.saved.updates); this.collectionError = false; }
+            try { this.journal!.complete(attempt, this.saved.vehicles ?? unavailable(), clock(), this.saved.updates, this.upstreamVehicleAttempts > beforeVehicleAttempts); this.collectionError = false; }
             catch { this.collectionError = true; }
           }
         })().finally(() => { this.pending = undefined; });
@@ -110,6 +116,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         const fetchFeed = async (endpoint: 'getVehiclePositions' | 'getTripUpdates', kind: 'vehicles' | 'updates') => {
           // A cooldown is not a new endpoint attempt: retain the last failure until that feed retries.
           delete this.saved.failures![kind];
+          if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try { return normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); }
           catch (error) {
             this.saved.failures![kind] = { code: safeNjtFailure(error), at: now };
