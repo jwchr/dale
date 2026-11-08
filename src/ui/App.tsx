@@ -1,7 +1,7 @@
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
-import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
@@ -591,16 +591,32 @@ function commutePlace(stop: Stop | undefined, name: string, printed: boolean, t:
   return { name: landmark?.[1] ?? town, detail: `${landmark ? `${landmark[2]} · ` : ''}${place.slice(split + 3)}` };
 }
 
+/** Keep whole words together when they fit; provide balanced, readable breaks for
+ * words wider than a sign at enlarged text sizes. Text/copy/accessibility stay intact. */
+function SignText({ text }: { text: string }) {
+  return text.split(/(\s+)/).map((word, index) => {
+    if (!word.trim()) return word;
+    const characters = Array.from(word);
+    const count = Math.ceil(characters.length / 4);
+    return <span className="sign-word" key={index}>{Array.from({ length: count }, (_, part) => <Fragment key={part}>
+      {part > 0 && <wbr />}
+      <span className="sign-word-part">{characters.slice(Math.floor(part * characters.length / count), Math.floor((part + 1) * characters.length / count)).join('')}</span>
+    </Fragment>)}</span>;
+  });
+}
+
+/** City and stop retain separate sign faces and the original visible/source text. */
 function HighwayPlace({ place, label, end }: { place: { name: string; detail: string }; label: string; end: 'from' | 'to' }) {
   return <div className="commute-place" data-end={end}>
     <div className="highway-sign">
       <span className="highway-label">{label}</span>
-      <strong className="highway-name">{place.name}</strong>
+      <strong className="highway-name"><SignText text={place.name} /></strong>
     </div>
-    {place.detail && <p className="commute-stop">{place.detail}</p>}
+    {place.detail && <p className="commute-stop"><span className="commute-stop-name"><SignText text={place.detail} /></span></p>}
   </div>;
 }
 
+/** Saved commute presentation preserves the selected direction, departure and existing trip actions. */
 function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue }: {
   ctx: Ctx; fav: Favorite; count: number; model: UpcomingSet; liveEnabled: boolean; evidence: (d: Departure, toStopId: string) => DepartureEvidence | undefined; editing: boolean; rev: boolean; onReverse: () => void; first: boolean; last: boolean;
   onMove: (d: -1 | 1) => void; onRemove: () => void; onRename: (s: string) => void; onLeavePlan: (p: LeavePlan | undefined) => void;
@@ -620,6 +636,19 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
   // After the form closes, focus returns to the control that opened it.
   const planButton = useRef<HTMLButtonElement>(null);
   const closedForm = useRef(false);
+  const reverseButton = useRef<HTMLButtonElement>(null);
+  const restoreReverseFocus = useRef(false);
+  // Changing direction resets the boarding-sign panel and remounts its controls.
+  // Restore only the initiating button's focus; do not steal focus from other actions.
+  const reverseTrip = () => {
+    restoreReverseFocus.current = document.activeElement === reverseButton.current;
+    onReverse();
+  };
+  useEffect(() => {
+    if (restoreReverseFocus.current) reverseButton.current?.focus();
+    restoreReverseFocus.current = false;
+  }, [rev]);
+
   useEffect(() => { if (!planning && closedForm.current) planButton.current?.focus(); closedForm.current = planning; }, [planning]);
   const soonest = liveEnabled ? undefined : earliestArrival(ahead.slice(0, count), now, plan);
   const anyEstimated = rows.some((r) => r.d.estimated || r.arr?.estimated);
@@ -663,13 +692,18 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
         {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
         {editing && leg && <p className="leg">{title}</p>}
         {/* One compact row of actions, so the next buses sit right under the signs. */}
-        <div className="commute-controls">
-          {!editing && leg && !plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
-          {!editing && leg && <button className="chip rescue-chip" onClick={() => onRescue(leg, to?.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to?.terminal ? t.rescue.otherWays : t.rescue.title}</button>}
-          <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
-        </div>
+        {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
+          actions={trigger => <div className="commute-controls">
+            {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
+            <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</button>
+            <div className="commute-sign-actions">
+              <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+              {trigger}
+            </div>
+          </div>} /> : <div className="commute-controls">
+            <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+          </div>}
       </div>
-      {!editing && leg && from && to && <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t} />}
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
         <div className="edit-row">
           <button onClick={() => onMove(-1)} disabled={first}>↑ {t.moveUp}</button>

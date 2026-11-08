@@ -1,6 +1,6 @@
 export const stopSignStrings = {
   en: {
-    open: 'See stop sign', title: 'Your boarding stop', stop: 'STOP', routes: 'Routes for this trip',
+    open: 'See bus stop sign', title: 'Your boarding stop', stop: 'STOP', routes: 'Routes for this trip',
     unknownRoutes: 'No boarding route confirmed for this destination.',
     note: 'Match the number and direction on the real sign. These routes are in the loaded schedule; check departures for when they run.',
     illustration: 'Seasonal illustration — not a photo of this stop or current weather.',
@@ -16,7 +16,7 @@ export const stopSignStrings = {
     },
   },
   es: {
-    open: 'Ver señal de parada', title: 'Tu parada de salida', stop: 'PARADA', routes: 'Rutas para este viaje',
+    open: 'Ver letrero de la parada', title: 'Tu parada de salida', stop: 'PARADA', routes: 'Rutas para este viaje',
     unknownRoutes: 'No hay una ruta de salida confirmada para este destino.',
     note: 'Comprueba el número y la dirección en la señal real. Estas rutas aparecen en el horario cargado; consulta las salidas para saber cuándo pasan.',
     illustration: 'Ilustración de temporada — no es una foto de esta parada ni del tiempo actual.',

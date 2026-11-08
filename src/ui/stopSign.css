@@ -1,5 +1,5 @@
-.stop-sign { margin: .6rem 0; }
-.stop-sign summary { cursor: pointer; min-height: 44px; display: list-item; padding: .7rem .3rem; }
+.stop-sign { margin: 0; }
+.stop-sign[hidden] { display: none; }
 .stop-sign-content { border: 1px solid var(--line); border-radius: 12px; padding: .75rem; }
 .stop-sign-content h3 { margin-top: 0; }
 .stop-sign-content figure { margin: 1rem 0; }

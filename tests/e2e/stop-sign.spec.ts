@@ -24,9 +24,9 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await expect(page.locator('.dep').first()).toBeVisible();
   expect(images).toEqual([]);
   const sign = page.locator('.stop-sign');
-  await sign.locator('summary').focus();
+  await page.getByRole('button', { name: t.stopSign.open, exact: true }).focus();
   await page.keyboard.press('Enter');
-  await expect(sign).toHaveAttribute('open', '');
+  await expect(page.getByRole('button', { name: t.stopSign.open, exact: true })).toHaveAttribute('aria-expanded', 'true');
   await expect(sign.locator('img')).toHaveJSProperty('complete', true);
   await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
   await expect(sign).not.toContainText('13583');
@@ -61,7 +61,7 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
     await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
   }
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
-  await sign.locator('summary').click();
+  await page.getByRole('button', { name: t.stopSign.open, exact: true }).click();
   await expect(sign.locator('img')).toHaveCount(0);
   await expect(page.locator('.dep').first()).toBeVisible();
 });
@@ -78,6 +78,6 @@ test('missing public stop number never substitutes the internal stop ID', async 
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
   await page.goto('/?live=1');
   await expect(page.locator('.dep').first()).toBeVisible();
-  await page.locator('.stop-sign summary').click();
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
   await expect(page.locator('.stop-sign-number')).toHaveText(strings.en.selection.numberUnknown);
 });
