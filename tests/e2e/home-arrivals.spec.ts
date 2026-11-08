@@ -4,6 +4,7 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 import { LIVE_SOURCE } from '../../src/domain/liveBus';
 import type { DepartureBatch, DepartureRequest, DepartureReport } from '../../src/domain/liveDepartures';
 const API = 'https://dale-live.test.workers.dev';
+const captureCards = process.env.DALE_CAPTURE_VISUALS === '1';
 const favorite = { id: 'home-live', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
 type Mode = 'boarding-arrival' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
 function response(queries: DepartureRequest[], mode: Mode, now: number): DepartureBatch {
@@ -180,23 +181,29 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(geometry.countdown.right).toBeLessThanOrEqual(geometry.bounds.right);
       expect(geometry.overflow).toBe(0);
       expect(geometry.textOutside).toBe(false);
-      if (scale <= 130) {
+      if (scale === 100) {
         expect(Math.abs(geometry.boarding.top - geometry.arrival.top)).toBeLessThan(2);
         expect(geometry.arrival.left).toBeGreaterThan(geometry.boarding.left);
       } else expect(geometry.arrival.top).toBeGreaterThan(geometry.boarding.bottom);
-      await row.screenshot({ path: `test-results/departure-${skin}-${lang}-${width}-${scale}.png` });
+      if (captureCards) await row.screenshot({ path: `test-results/departure-${skin}-${lang}-${width}-${scale}.png` });
     }
     state.mode = 'long-time'; state.now += 31000;
     await page.clock.fastForward(31000);
     await page.setViewportSize({ width: 305, height: 900 });
     await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
     await expect(row.locator('.dep-time')).toHaveText(lang === 'en' ? '12:25 PM' : '12:25 p.m.');
-    expect(await row.locator('.dep-time').evaluate(clock => {
-      const text = clock.firstChild!;
-      const value = text.textContent!, match = /\d{1,2}:\d{2}/.exec(value)!;
-      const range = document.createRange(); range.setStart(text, match.index); range.setEnd(text, match.index + match[0].length);
-      return [...range.getClientRects()].filter(line => line.width > 0).length;
-    })).toBe(1);
+    for (const family of ['', 'Verdana']) {
+      await page.evaluate(family => { document.body.style.fontFamily = family; }, family);
+      const numeric = await row.locator('.dep-time').evaluate(clock => {
+        const text = clock.firstChild!;
+        const value = text.textContent!, match = /\d{1,2}:\d{2}/.exec(value)!;
+        const range = document.createRange(); range.setStart(text, match.index); range.setEnd(text, match.index + match[0].length);
+        return { value, fontFamily: getComputedStyle(clock).fontFamily, fontSize: getComputedStyle(clock).fontSize,
+          rects: [...range.getClientRects()].filter(line => line.width > 0).map(line => line.toJSON()) };
+      });
+      expect(numeric.rects.length, JSON.stringify(numeric)).toBe(1);
+    }
+    await page.evaluate(() => { document.body.style.fontFamily = ''; });
     const badgeLines = await row.locator('.badge-live, .badge-destination-live').evaluateAll(nodes => nodes.map(node => {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT), lines = new Map<number, string>();
       let text: Node | null;
@@ -209,7 +216,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     }));
     expect(badgeLines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify(badgeLines)).toEqual([]);
     await expect(row.locator('.boarding-clock .badge-live')).toMatchAriaSnapshot(`- strong: ${lang === 'en' ? 'LIVE ESTIMATE' : 'ESTIMACIÓN EN VIVO'}`);
-    await row.screenshot({ path: `test-results/departure-${skin}-${lang}-long-clock.png` });
+    if (captureCards) await row.screenshot({ path: `test-results/departure-${skin}-${lang}-long-clock.png` });
     await button.focus(); await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: lang === 'en' ? 'Lock onto this bus' : 'Seguir este autobús', exact: true })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).toBeNull();
