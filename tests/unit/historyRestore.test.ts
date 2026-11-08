@@ -21,6 +21,7 @@ function restore(scenario='ok') {
       assert.ok(!args.includes('HISTORY_COLLECTION:enabled'));
       const out=args[args.indexOf('--outdir')+1];temporary=out.slice(0,-'/uploaded'.length);
       fs.mkdirSync(out,{recursive:true});fs.writeFileSync(join(out,'index.js'),code);
+      fs.writeFileSync(join(out,'README.md'),scenario==='forged-readme'?'PRIVATE_SENTINEL':'This folder contains the built output assets for the worker \"dale-live\" generated at 2026-11-08T10:00:00.000Z.');
       if(scenario==='extra-artifact')fs.writeFileSync(join(out,'unknown.wasm'),'PRIVATE_SENTINEL');
       return {status:0};
     };
@@ -69,7 +70,7 @@ it('actual native recovery deploys only disabled, binds uploaded artifact and pr
   expect(r.stdout).toContain('completeModulesEqual=true metadataEtagEqual=false');
   expect(r.stdout).not.toContain('PRIVATE_SENTINEL');
 });
-it.each(['unapplied-migration','not-disabled','extra-artifact','artifact-mismatch','binding-change','runtime-change','stop-code-change'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
+it.each(['unapplied-migration','not-disabled','extra-artifact','forged-readme','artifact-mismatch','binding-change','runtime-change','stop-code-change'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
   const r=restore(scenario);expect(r.error).toBeUndefined();expect(r.status).toBe(1);
   expect(r.stderr).toContain('Live Worker deployment or validation failed');
   expect(r.stdout+r.stderr).not.toMatch(/PRIVATE_SENTINEL|AssertionError|FORBIDDEN|https:/);
