@@ -2,6 +2,13 @@ name: Deploy live bus pilot
 # Owner-initiated only, after exact-head CI and independent review/merge. No PR secrets or auto deployment.
 on:
   workflow_dispatch:
+    inputs:
+      history_collection:
+        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled also stops an existing collector'
+        type: choice
+        required: true
+        default: disabled
+        options: [disabled, enabled]
 permissions:
   contents: read
 concurrency:
@@ -44,3 +51,4 @@ jobs:
           NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
+          HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}

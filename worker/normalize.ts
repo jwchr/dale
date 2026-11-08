@@ -7,7 +7,8 @@ import { uniqueCalendarDate, dateContainsReport } from './service-date';
 type Descriptor = bindings.transit_realtime.ITripDescriptor;
 export interface NormalizedUpdate { tripInstanceId: string; observedAt: number; cancelled: boolean; predictions: LivePrediction[]; skippedStops: number[] }
 export interface FeedDiagnostics { entities: number; knownTrips: number; corridorRoutes: number; missingServiceDates: number; missingObservationTimes: number }
-export interface NormalizedFeed { unresolvedDateTrips?: string[]; diagnostics?: FeedDiagnostics; feed: LiveFeed; observations: VehicleObservation[]; updates: NormalizedUpdate[] }
+export interface VehiclePresence { vehicleId: string; tripId?: string; tripInstanceId?: string; routeId?: string; observedAt?: number; qualification: 'unmatched' | 'invalid-position-or-time' | 'unsupported-service' | 'stale' | 'matched' }
+export interface NormalizedFeed { presence?: VehiclePresence[]; unresolvedDateTrips?: string[]; diagnostics?: FeedDiagnostics; feed: LiveFeed; observations: VehicleObservation[]; updates: NormalizedUpdate[] }
 const seconds = (v: unknown) => { const n = Number(v), ms = n * 1000; return Number.isSafeInteger(n) && n > 0 && Number.isSafeInteger(ms) && Number.isFinite(new Date(ms).getTime()) ? ms : undefined; };
 
 export function createNormalizer(ds: Dataset) {
@@ -40,7 +41,7 @@ export function createNormalizer(ds: Dataset) {
       if (!at || at > now || data.header.incrementality === 1) return empty;
       const diagnostics: FeedDiagnostics = { entities: data.entity.length, knownTrips: 0, corridorRoutes: 0, missingServiceDates: 0, missingObservationTimes: 0 };
       const feedRoutes = new Set(ds.routes.map((r) => r.feedRouteId ?? r.id));
-      const output: NormalizedFeed = { unresolvedDateTrips: [], diagnostics, feed: { state: now - at > LIVE_MAX_AGE_MS ? 'stale' : 'ok', timestamp: at }, observations: [], updates: [] };
+      const output: NormalizedFeed = { ...(kind === 'vehicles' ? { presence: [] } : {}), unresolvedDateTrips: [], diagnostics, feed: { state: now - at > LIVE_MAX_AGE_MS ? 'stale' : 'ok', timestamp: at }, observations: [], updates: [] };
       for (const entity of data.entity) {
         if (entity.isDeleted) continue;
         const report = kind === 'vehicles' ? entity.vehicle : entity.tripUpdate;
@@ -55,9 +56,21 @@ export function createNormalizer(ds: Dataset) {
         }
         if (kind === 'vehicles' && entity.vehicle) {
           const vehicle = entity.vehicle, observedAt = seconds(vehicle.timestamp), match = identify(vehicle.trip, observedAt), pos = vehicle.position;
+          let presence: VehiclePresence | undefined;
+          // Corridor-only timestamp census preserves unchanged/rejected presence
+          // for cadence analysis, without storing any systemwide coordinates.
+          if (validVehicleId(vehicle.vehicle?.id) && (feedRoutes.has(vehicle.trip?.routeId ?? '') || trips.has(vehicle.trip?.tripId ?? ''))) {
+            presence = { vehicleId: vehicle.vehicle.id, ...(vehicle.trip?.tripId && vehicle.trip.tripId.length <= 256 ? { tripId: vehicle.trip.tripId } : {}),
+              ...(match ? { tripInstanceId: match.id } : {}),
+              ...(feedRoutes.has(vehicle.trip?.routeId ?? '') ? { routeId: vehicle.trip!.routeId! } : {}),
+              ...(observedAt !== undefined ? { observedAt } : {}), qualification: match ? 'invalid-position-or-time' : 'unmatched' };
+            output.presence!.push(presence);
+          }
+          if (presence && (vehicle.trip?.scheduleRelationship ?? 0) !== 0) presence.qualification = 'unsupported-service';
           if (!match || !observedAt || observedAt > now || !validVehicleId(vehicle.vehicle?.id) || !pos
             || !Object.hasOwn(pos, 'latitude') || !Object.hasOwn(pos, 'longitude') || !Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)
             || Math.abs(pos.latitude) > 90 || Math.abs(pos.longitude) > 180 || (vehicle.trip?.scheduleRelationship ?? 0) !== 0) continue;
+          if (presence) presence.qualification = now - observedAt > LIVE_MAX_AGE_MS ? 'stale' : 'matched';
           const candidates = match.pattern.stopIds.flatMap((id, i) => (!vehicle.stopId || vehicle.stopId === id)
             && (!Object.hasOwn(vehicle, 'currentStopSequence') || vehicle.currentStopSequence === match.pattern.stopSequences?.[i]) ? [i] : []);
           const index = candidates.length === 1 ? candidates[0]! : undefined;

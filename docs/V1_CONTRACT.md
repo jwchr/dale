@@ -49,5 +49,9 @@ D56 replaces the home Penn opener with a compact Bus/Train selector and original
 
 D57 adds the owner-approved rail timetable preview from the supplied guide, with one compact sample label. It prepares the two-leg timetable UI and preserves the existing checklist, but is not current service, rail API activation or a basis for ranking trains against live buses. It also prioritizes the compact homepage, verified city/street hierarchy, desktop location recovery and recovered Household Garden State skin before seasonal signs.
 
+## Owner addition, 2026-11-08
+
+D60 authorizes #91: private indefinite corridor originals on existing SQLite plus the explicitly approved private same-account R2 bucket, native background collection and actual source-cadence measurement. Preserve complete canonical context, source clocks and per-poll presence; predictions/summaries cannot replace originals. Only checksum/readback-verified original/context/manifests permit hot cleanup. Enforce Free-budget pauses, one paced poll owner, no public raw export/rider tracking, independent HIGH review and separate verified deployment. A UI release, local test or storage subscription is not operational collection or a cadence result.
+
 ## Done means
 Tests prove it (`npm run verify`), the Pages build shows it, and for live features the owner's real rides confirm it (M3 acceptance in the review doc).

@@ -13,6 +13,7 @@ Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stan
 
 ## Data and privacy
 - D51/D52: bus credentials are verified (#87) and the owner requests the bounded live bus pilot (#89) on the existing Free Cloudflare plan. Require verified exact trip/date matching, source age and explicit scheduled fallback; no paid upgrade, archive, rail or shared-report access follows from this pilot. See docs/LIVE_BUS_PILOT.md.
+- D60/#91 separately authorizes private indefinite corridor history, background collection and actual agency cadence measurement. Jeff explicitly approved same-account R2 within Free usage; Project Control created private `dale-history`. Preserve original evidence/context; hot cleanup requires verified durable data+manifest readback. Enforce persistent storage/operation/write limits, no automatic paid overflow or new vendor. Independent HIGH review, separate release/activation and actual production evidence remain required. See docs/HISTORY_COLLECTION.md.
 - NJ Transit data terms apply (server-side storage, 40,000 requests/day per API, attribution, latency disclosure). The owner reported NJ Transit's OK for archiving on 2026-10-31; keep the archive corridor-only and private.
 - This repository is public. Never commit NJ Transit credentials, tokens, recorded feed responses, rider locations or personal data. Credentials live only in repository or Cloudflare secrets set by the owner.
 
