@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 // Background scenes for Dale's styles (owner request 2026-11-04, D46). Original artwork only: no
 // official shields, logos or sign designs of the NJ Turnpike Authority, the Garden State Parkway,
 // the MTA, NJ Transit or the Port Authority (the NYC style avoids the MTA's sign system on purpose). Decorative, so hidden from assistive technology.
-export type Skin = 'turnpike' | 'parkway' | 'nyc' | 'clean';
-export const SKINS: readonly Skin[] = ['turnpike', 'parkway', 'nyc', 'clean'];
+export type Skin = 'garden' | 'turnpike' | 'parkway' | 'nyc' | 'clean';
+export const SKINS: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
 // Shared by loading, guide and main views; remounting one does not choose another photo.
 const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-september-sunset';
 
@@ -24,7 +24,7 @@ export function SkinBackdrop({ skin }: { skin: Skin }) {
       {ready && <div className="photo-backdrop" data-photo={photo} style={{ backgroundImage: `url("${url}")` }} />}
       {!ready && skin !== 'clean' && <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMax slice" width="100%" height="100%" focusable="false">
         {skin === 'turnpike' && <Turnpike />}
-        {skin === 'parkway' && <Parkway />}
+        {(skin === 'parkway' || skin === 'garden') && <Parkway />}
         {skin === 'nyc' && <Skyline />}
       </svg>}
     </div>

@@ -137,3 +137,52 @@
 :root[data-skin='clean'] main > button, :root[data-skin='clean'] main > aside {
   background: var(--surface); border-radius: 14px; padding: 8px 12px;
 }
+
+/* Garden State: the Household prototype's river blue, warm paper and amber boards.
+   Presentation only; the maintained app owns every departure, lock and interaction. */
+:root[data-skin='garden'] {
+  --bg: #f4f3ee; --surface: #fffefa; --text: #253e50; --muted: #506571; --line: #b9c7cd;
+  --brand: #315c7b; --brand-text: #315c7b; --brand-ink: #fffefa; --accent: #d6ad48; --express: #865b16;
+  --warn-bg: #f5edd7; --warn-ink: #604709; --alert: #a62c24; --alert-fill: #b32620; --focus: #244a66;
+  --glass: rgba(255, 254, 250, .96); --glass-strong: #fffefa;
+  --glass-border: #c8d2d5; --glass-edge: #c8d2d5; --glass-shadow: 0 4px 24px #19344c12;
+  color-scheme: light; background: var(--bg);
+}
+:root[data-skin='garden'] body { background: transparent; }
+:root[data-skin='garden'] .app { max-width: 680px; }
+:root[data-skin='garden'] .top { border-radius: 0 0 12px 12px; }
+:root[data-skin='garden'] .wordmark { letter-spacing: -.04em; font-size: 1.6rem; }
+:root[data-skin='garden'] .wordmark .bang { color: var(--express); -webkit-text-stroke: 0; }
+:root[data-skin='garden'] .card { border: 1px solid var(--line); border-radius: 12px; }
+:root[data-skin='garden'] main > section:not(.card), :root[data-skin='garden'] main > .row-between,
+:root[data-skin='garden'] main > button, :root[data-skin='garden'] main > aside,
+:root[data-skin='garden'] .foot { background: var(--surface); border-radius: 12px; padding: 8px 12px; }
+:root[data-skin='garden'] .highway-sign { background: #28644e; color: #fffef0; border: 2px solid #fffef0; box-shadow: 0 0 0 1px #28644e; border-radius: 8px; }
+:root[data-skin='garden'] .highway-label { letter-spacing: .12em; }
+:root[data-skin='garden'] .commute-stop { background: #090d10; color: #ffc34e; border: 2px solid #414443; border-radius: 5px; font-family: 'Courier New', monospace; text-shadow: 0 0 5px #ffb72933; }
+:root[data-skin='garden'] .route-badge { background: #090d10; color: #ffc34e; border: 1px solid #414443; border-radius: 5px; box-shadow: none; font-family: 'Courier New', monospace; }
+:root[data-skin='garden'] .route-badge[data-express='true'] { border-width: 3px; border-color: #b47d24; }
+:root[data-skin='garden'] .dep { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: none; }
+:root[data-skin='garden'] .dep-next { border: 2px solid var(--brand); box-shadow: inset 4px 0 var(--brand); }
+:root[data-skin='garden'] .dep-min { color: var(--brand-text); }
+:root[data-skin='garden'] .photo-backdrop { filter: blur(2px) brightness(.9); }
+:root[data-skin='garden'] .skin-backdrop::after { content: ''; position: absolute; inset: 0; background: #eef2ef44; }
+:root[data-skin='garden'][data-theme='dark'] {
+  --bg: #10191d; --surface: #17262e; --text: #eef1eb; --muted: #bccdd5; --line: #536b78;
+  --brand: #315c7b; --brand-text: #b8daee; --brand-ink: #fffefa; --express: #edc26c; --focus: #edc26c;
+  --warn-bg: #3b311b; --warn-ink: #ffe09a; --alert: #ffa49b;
+  --glass: rgba(23, 38, 46, .97); --glass-strong: #17262e; --glass-border: #536b78; --glass-edge: #536b78;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-skin='garden']:not([data-theme='light']) {
+    --bg: #10191d; --surface: #17262e; --text: #eef1eb; --muted: #bccdd5; --line: #536b78;
+    --brand: #315c7b; --brand-text: #b8daee; --brand-ink: #fffefa; --express: #edc26c; --focus: #edc26c;
+    --warn-bg: #3b311b; --warn-ink: #ffe09a; --alert: #ffa49b;
+    --glass: rgba(23, 38, 46, .97); --glass-strong: #17262e; --glass-border: #536b78; --glass-edge: #536b78;
+    color-scheme: dark;
+  }
+}
+@media (forced-colors: active) {
+  :root[data-skin='garden'] .commute-stop, :root[data-skin='garden'] .route-badge { text-shadow: none; }
+}

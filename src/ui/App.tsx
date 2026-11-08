@@ -5,7 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
-import { addFavorite, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
+import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
@@ -82,8 +82,8 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'turnpike' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'turnpike', liveMotion: true }; }
+    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true }; }
 };
 
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
@@ -348,11 +348,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
       <FeedStatus ctx={ctx} />
       {ds.meta.transcribed && isNjtHoliday(localYmd(now, tz)) && <p className="status-line" data-level="warn" role="note">{t.holidayToday}</p>}
       <main>
-        {(screen.name === 'home' || (screen.name === 'penn' && screen.railOnly)) && <TravelModeSelector
+        {(screen.name === 'home' || (screen.name === 'penn' && screen.railOnly)) && <div className="home-toolbar"><TravelModeSelector
           mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
             if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
             else if (screen.name === 'penn') back();
-          }} />}
+          }} /><button className="find-stop" onClick={() => setScreen({ name: 'search' })}>{t.findStop}</button></div>}
         {resumable && !activeLock && <aside className="lock-return" role="note">
           <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
@@ -369,7 +369,6 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
-            onSearch={() => setScreen({ name: 'search' })}
             onGuide={() => setScreen({ name: 'guide' })}
             onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
             onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })}
@@ -523,10 +522,10 @@ function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefine
   return back ? { ...back, routeIds: f.routeIds } : undefined;
 }
 
-function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onSearch, onGuide, onAllDay, onDeparture, onRescue }: {
+function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onAllDay, onDeparture, onRescue }: {
   ctx: Ctx; favorites: Favorite[]; count: number; setFavorites: (fn: (l: Favorite[]) => Favorite[]) => void;
   reversedIds: Set<string>; toggleReversed: (id: string) => void;
-  onSearch: () => void; onGuide: () => void; onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
+  onGuide: () => void; onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
 }) {
   const { t, ds, now } = ctx;
@@ -547,17 +546,12 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
       <section className="card hero-empty">
         <h1>{t.noFavoritesTitle}</h1>
         <p>{t.noFavoritesBody}</p>
-        <button className="primary" onClick={onSearch}>{t.findStop}</button>
         <p><button className="ghost" onClick={onGuide}>{t.guideOpen}</button></p>
       </section>
     );
   }
   return (
     <>
-      <div className="row-between">
-        <button className="ghost" onClick={onSearch}>＋ {t.findStop}</button>
-        <button className="ghost" onClick={() => setEditing((e) => !e)}>{editing ? t.done : t.edit}</button>
-      </div>
       <ol className="fav-list">
         {favorites.map((f, i) => (
           <li key={f.id}>
@@ -570,6 +564,9 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
           </li>
         ))}
       </ol>
+      <div className="row-between favorites-tools">
+        <button className="ghost" onClick={() => setEditing((e) => !e)}>{editing ? t.done : t.edit}</button>
+      </div>
       <button className="ghost" onClick={onGuide}>{t.guideOpen}</button>
     </>
   );
@@ -579,9 +576,10 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
 const stopPlace = (name: string): string => name.replace(/\s+\(to [^)]+\)$/i, '');
 
 // The printed dataset explicitly uses "Town (landmark) - stop"; other sources keep their full place name.
-function commutePlace(stop: Stop | undefined, name: string, printed: boolean, t: Strings): { name: string; detail: string } {
+function commutePlace(stop: Stop | undefined, name: string, printed: boolean, t: Strings, verifiedCities: boolean): { name: string; detail: string } {
   if (stop?.terminal === 'PABT') return { name: t.commuteNewYork, detail: t.commutePabt };
   const place = stopPlace(name);
+  if (verifiedCities && stop?.city) return { name: stop.city, detail: place };
   const split = printed ? place.indexOf(' - ') : -1;
   if (split < 1) return { name: place, detail: '' };
   const town = place.slice(0, split);
@@ -622,13 +620,13 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
   const soonest = liveEnabled ? undefined : earliestArrival(ahead.slice(0, count), now, plan);
   const anyEstimated = rows.some((r) => r.d.estimated || r.arr?.estimated);
   const title = leg ? `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}` : '';
-  const defaultLabel = `${stopName(fav.fromStopId)} → ${stopName(fav.toStopId)}`;
-  const customName = fav.label !== defaultLabel;
+  const customName = !isGeneratedFavoriteLabel(ds, fav);
   const fromId = leg?.fromStopId ?? (rev ? fav.toStopId : fav.fromStopId);
   const from = ds.stops.find((s) => s.id === fromId);
   const to = leg && ds.stops.find((s) => s.id === leg.toStopId);
-  const origin = commutePlace(from, stopName(fromId), !!ds.meta.transcribed, t);
-  const destination = leg && commutePlace(to, stopName(leg.toStopId), !!ds.meta.transcribed, t);
+  const verifiedCities = ds.meta.stopCities?.state === 'verified';
+  const origin = commutePlace(from, stopName(fromId), !!ds.meta.transcribed, t, verifiedCities);
+  const destination = leg && commutePlace(to, stopName(leg.toStopId), !!ds.meta.transcribed, t, verifiedCities);
   const fullLeg = title || `${stopName(fromId)} → ${stopName(rev ? fav.fromStopId : fav.toStopId)}`;
   // Saved from the real schedule but opened on the demo (or the schedule changed): say which, plainly.
   const missing = !ds.stops.some((s) => s.id === fav.fromStopId) || !ds.stops.some((s) => s.id === fav.toStopId);
@@ -690,7 +688,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
                     <RouteBadge ds={ds} routeId={d.route.id} />
                     <span className="dep-main">
                       {live ? <DepartureTimes evidence={live} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
-                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="small"> · {fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} /> : <>
+                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} /> : <>
                         <span className="dep-time"><TimeText ctx={ctx} at={shown} estimated={d.estimated} /></span>
                         {soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
                         <span className="dep-subline"><span className="dep-sub">{arr ? <>{t.arrives} <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /></> : d.pattern.headsign}</span><span className="badge-sched">{t.scheduledOnly}</span></span>
@@ -1052,7 +1050,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="muted small">{t.skinNote}</p>
       <h2>{t.theme}</h2>
       <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
-      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
+      {!['clean', 'garden'].includes(settings.skin) && <p className="muted small">{t.themeCleanOnly}</p>}
       <h2>{t.departuresShown}</h2>
       <div className="choice-list">{opt('count', 3, '3')}{opt('count', 5, '5')}</div>
       <h2>{t.guide.title}</h2>

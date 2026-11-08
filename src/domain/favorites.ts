@@ -1,6 +1,7 @@
 // Favorites are an ordered list the rider controls. Order is never changed by proximity or time
 // of day (owner decision D26); suggestions may highlight but must not reorder or overwrite.
 import { cleanLeavePlan, type LeavePlan } from './leaveBy';
+import type { Dataset } from './types';
 
 export interface Favorite {
   id: string;
@@ -13,6 +14,16 @@ export interface Favorite {
   routeIds: string[];
   /** Walking time, spare minutes and arrive-by for each direction (issue #54); kept on this phone only. */
   leave?: { out?: LeavePlan; back?: LeavePlan };
+}
+
+/** Recognize exact generated labels, including retained provider names after a spelling correction.
+ * Never rewrite storage or match a substring of a rider's own custom name. */
+export function isGeneratedFavoriteLabel(ds: Dataset, favorite: Favorite): boolean {
+  const from = ds.stops.find(s => s.id === favorite.fromStopId);
+  const to = ds.stops.find(s => s.id === favorite.toStopId);
+  if (!from || !to) return false;
+  return [from.name, from.sourceName].some(a => a !== undefined &&
+    [to.name, to.sourceName].some(b => b !== undefined && favorite.label === `${a} → ${b}`));
 }
 
 /** Set or clear (`undefined`) the leave plan for one direction of a commute. */

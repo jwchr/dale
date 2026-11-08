@@ -77,7 +77,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 // Each style (owner request 2026-11-04, D46) on the main screens: home with a commute, a trip, the timetable, Settings.
-for (const [skin, colorScheme] of [['clean', 'light'], ['clean', 'dark'], ['parkway', 'dark'], ['nyc', 'dark'], ['turnpike', 'light']] as const) {
+for (const [skin, colorScheme] of [['garden', 'light'], ['garden', 'dark'], ['clean', 'light'], ['clean', 'dark'], ['parkway', 'dark'], ['nyc', 'dark'], ['turnpike', 'light']] as const) {
   test(`style ${skin} (${colorScheme}) passes axe on the main screens`, async ({ page }) => {
     await page.emulateMedia({ colorScheme });
     await page.addInitScript((s) => { try { localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: s })); } catch { /* ignore */ } }, skin);
@@ -96,7 +96,7 @@ for (const [skin, colorScheme] of [['clean', 'light'], ['clean', 'dark'], ['park
     await page.getByRole('button', { name: /All day/ }).click();
     await audit(page, `${skin} timetable`);
     await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('button', { name: { clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: { garden: 'Garden State', clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] })).toHaveAttribute('aria-pressed', 'true');
     await audit(page, `${skin} settings`);
   });
 }

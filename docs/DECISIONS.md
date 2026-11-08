@@ -4,6 +4,7 @@ Owner decisions D01-D29 live in master spec v1.3 (archive). Entries below are ne
 
 | ID | Date | Decision | Amends |
 | --- | --- | --- | --- |
+| D57 | 2026-11-07 | Owner now requests the train infrastructure using the supplied guide's sample data, with one compact Sample timetable label instead of repeated prominent demo warnings. Reuse Anderson/Essex and both-direction Secaucus guidance; samples remain separate from current/live buses, dates, locks and fastest-arrival claims. Same release includes compact Bus/Train/Find-stop controls, verified city over street, exact legacy-label recognition, desktop location recovery and the recovered Household polished skin. Keep prior skins and saved choices. Seasonal signs #106 follow this reprioritized slice. | D49, D54, D56; #80 and #101 |
 | D30 | 2026-10-31 | Owner reconciled the Claude and ChatGPT reviews and approved Claude's 12 recommendations as written ("Arriba v1.3 Independent Review", Claude Docs). | - |
 | D31 | 2026-10-31 | Household first (Jeff and Diego), designed to go public later after NJ Transit's written permission. | D16, D19 |
 | D32 | 2026-10-31 | Public GitHub repository `jwchr/arriba` (free Actions minutes; no secrets or recorded data committed). | D29 |

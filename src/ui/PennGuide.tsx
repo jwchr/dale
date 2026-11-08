@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { initialChecklist, readChecklist, saveChecklist, STATIONS, type JourneyChecklist } from '../domain/journeyGuide';
 import type { Strings } from './i18n';
+import { RailPreview } from './RailPreview';
 
 const stationUrls = { anderson: 'https://www.njtransit.com/station/anderson-street-station', essex: 'https://www.njtransit.com/station/essex-street-station-pvl' };
 /** Lives above screen navigation, so even blocked storage cannot erase progress on a mode switch. */
@@ -40,7 +41,7 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
   const step = steps[state.step]!;
   const move = (n: number) => { setState((s) => ({ ...s, step: n })); setFocusStep(true); };
   return <section className="penn-guide">
-    <h1>{j.title}</h1>{state.mode === 'train' && <p className="status-line" role="note">{j.railUnavailable}</p>}<p>{j.intro}</p><p className="small">{j.scope}</p>
+    <h1>{j.title}</h1><p>{j.intro}</p><p className="small">{j.scope}</p>
     <div className="card">
       <h2>{railOnly ? j.train : j.compare}</h2>
       {!railOnly && <div className="choice-list">
@@ -57,6 +58,7 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
         <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
       </div></fieldset>
     </div>
+    {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} />}
     <div className="choice-list">
       <button className="chip" aria-pressed={!state.travelling} onClick={() => setState((s) => ({ ...s, travelling: false }))}>{j.practice}</button>
       <button className="chip" aria-pressed={state.travelling} onClick={() => setState((s) => ({ ...s, travelling: true }))}>{j.travelling}</button>

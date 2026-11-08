@@ -47,5 +47,7 @@ D54 adds upcoming-first home, clearer physical-stop/destination selection, owner
 
 D56 replaces the home Penn opener with a compact Bus/Train selector and original vehicle icons. Train opens the existing guidance with current rail data explicitly unavailable; switching preserves bus identity, favorites and checklist progress. General destination labels use New York/Nueva York; actual station references retain New York Penn. Seasonal sign artwork #106 follows this rider release.
 
+D57 adds the owner-approved rail timetable preview from the supplied guide, with one compact sample label. It prepares the two-leg timetable UI and preserves the existing checklist, but is not current service, rail API activation or a basis for ranking trains against live buses. It also prioritizes the compact homepage, verified city/street hierarchy, desktop location recovery and recovered Household Garden State skin before seasonal signs.
+
 ## Done means
 Tests prove it (`npm run verify`), the Pages build shows it, and for live features the owner's real rides confirm it (M3 acceptance in the review doc).
