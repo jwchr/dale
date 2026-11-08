@@ -1,0 +1,9 @@
+.tour-guide { margin-block: 1rem; text-align: start; }
+.tour-guide > summary { cursor: pointer; min-block-size: 44px; padding-block: .5rem; font-weight: 700; }
+.tour-guide > summary > span { display: block; margin-block-start: .25rem; font-size: .875rem; font-weight: 400; color: var(--muted); }
+.tour-cards { list-style: none; padding: 0; margin-block: 1rem; display: grid; gap: .75rem; }
+.tour-cards > li { min-inline-size: 0; }
+.tour-cards article { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin: 0; padding: .75rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow-wrap: anywhere; }
+.tour-cards h3 { margin: 0; }
+.tour-cards article p { margin-block: .5rem; }
+.tour-cards footer a { display: inline-flex; align-items: center; min-block-size: 44px; }

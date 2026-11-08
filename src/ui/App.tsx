@@ -23,6 +23,7 @@ import { BoardingCheck } from './BoardingCheck';
 import { boardingInfo, destinationGroups } from '../domain/stopInfo';
 import { StopChoice } from './StopChoice';
 import { StopSign } from './StopSign';
+import { TourGuide } from './TourGuide';
 import { NearMe } from './NearMe';
 import { Rescue } from './Rescue';
 import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
@@ -548,6 +549,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
         <h1>{t.noFavoritesTitle}</h1>
         <p>{t.noFavoritesBody}</p>
         <p><button className="ghost" onClick={onGuide}>{t.guideOpen}</button></p>
+        <TourGuide t={t} lang={ctx.lang} />
       </section>
     );
   }
@@ -569,6 +571,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
         <button className="ghost" onClick={() => setEditing((e) => !e)}>{editing ? t.done : t.edit}</button>
       </div>
       <button className="ghost" onClick={onGuide}>{t.guideOpen}</button>
+      <TourGuide t={t} lang={ctx.lang} />
     </>
   );
 }
