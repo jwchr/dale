@@ -1,6 +1,6 @@
 // Validate JSON once at the loading boundary, before any screen trusts it as transit data.
 // Invalid schedules go to the existing Retry flow; never repair times or substitute demo trips.
-import { STOP_CITY_SOURCE } from './stopInfo';
+import { STOP_CITY_SOURCE } from './stopInfo.ts';
 import type { Dataset } from './types';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
