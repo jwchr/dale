@@ -34,7 +34,7 @@ function restore(scenario='ok') {
         assert.equal(options.headers,undefined);
         if(url.pathname==='/health')return Response.json({feedVersion:'abcdef123456'});
         assert.equal(url.pathname,'/v1/collection');
-        return Response.json({collection:{enabled:scenario==='not-disabled' && !uploaded,reason:scenario==='not-disabled' && !uploaded?'collecting':'disabled',alarmAt:null,observations:1,batches:1,bytes:123,lastAttemptAt:100,completedAttempt:100,archive:{configured:true,verifiedObjects:2,reservedBytes:456}}});
+        return Response.json({collection:{enabled:scenario==='not-disabled' && !uploaded,reason:scenario==='not-disabled' && !uploaded?'collecting':'disabled',alarmAt:null,observations:1,batches:1,bytes:123,lastAttemptAt:100,completedAttempt:100,archive:scenario==='mixed-archive'?{configured:true,enabled:false,reason:'unknown'}:scenario==='active-archive'?{configured:true,enabled:true,verifiedObjects:2,reservedBytes:456}:scenario==='partial-archive'?{configured:true,enabled:false,verifiedObjects:2}:scenario==='unconfigured-archive'?{configured:false,enabled:false}:['full-counters','lost-known-counters','archive-regression'].includes(scenario)?uploaded && scenario==='lost-known-counters'?{configured:true,enabled:false}:{configured:true,verifiedObjects:uploaded && scenario==='archive-regression'?1:2,reservedBytes:456}:{configured:true,enabled:false}}});
       }
       assert.equal(url.origin,'https://api.cloudflare.com');
       assert.equal(options.headers.Authorization,'Bearer PRIVATE_SENTINEL_TOKEN');
@@ -60,17 +60,17 @@ function restore(scenario='ok') {
     };
     await import(${JSON.stringify(entry)});
     if(temporary)assert.equal(fs.existsSync(temporary),false);
-    assert.equal(uploaded,['not-disabled','unapplied-migration'].includes(scenario)?0:1);
-    assert.equal(patched,['ok','stop-code-change'].includes(scenario)?1:0);
-  `],{env:{NODE_NO_WARNINGS:'1',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'jwchr/dale',GITHUB_SHA:'a'.repeat(40),HISTORY_COLLECTION_MODE:'restore-disabled',CLOUDFLARE_API_TOKEN:'PRIVATE_SENTINEL_TOKEN',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),DALE_WORKER_URL:'https://dale-live.synthetic.workers.dev',NJT_API_USERNAME:'PRIVATE_SENTINEL_USER',NJT_API_PASSWORD:'PRIVATE_SENTINEL_PASSWORD'},encoding:'utf8',timeout:10000});
+    assert.equal(uploaded,['not-disabled','unapplied-migration','partial-archive','mixed-archive','active-archive','unconfigured-archive','missing-credentials'].includes(scenario)?0:1);
+    assert.equal(patched,['ok','full-counters','lost-known-counters','archive-regression','stop-code-change'].includes(scenario)?1:0);
+  `],{env:{NODE_NO_WARNINGS:'1',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'jwchr/dale',GITHUB_SHA:'a'.repeat(40),HISTORY_COLLECTION_MODE:'restore-disabled',CLOUDFLARE_API_TOKEN:'PRIVATE_SENTINEL_TOKEN',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),DALE_WORKER_URL:'https://dale-live.synthetic.workers.dev',NJT_API_USERNAME:'PRIVATE_SENTINEL_USER',NJT_API_PASSWORD:scenario==='missing-credentials'?undefined:'PRIVATE_SENTINEL_PASSWORD'},encoding:'utf8',timeout:10000});
 }
-it('actual native recovery deploys only disabled, binds uploaded artifact and proves strict stop with retained evidence',()=>{
-  const r=restore();expect(r.error).toBeUndefined();expect(r.status).toBe(0);expect(r.stderr).toBe('');
+it.each(['ok','full-counters'])('actual native recovery accepts valid disabled health %s and binds reviewed artifact/strict stop with retained journal evidence',scenario=>{
+  const r=restore(scenario);expect(r.error).toBeUndefined();expect(r.status).toBe(0);expect(r.stderr).toBe('');
   expect(r.stdout).toContain('Known reviewed code restored disabled');
   expect(r.stdout).toContain('completeModulesEqual=true metadataEtagEqual=false');
   expect(r.stdout).not.toContain('PRIVATE_SENTINEL');
 });
-it.each(['unapplied-migration','not-disabled','extra-artifact','forged-readme','artifact-mismatch','binding-change','runtime-change','stop-code-change'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
+it.each(['mixed-archive','active-archive','partial-archive','unconfigured-archive','missing-credentials','lost-known-counters','archive-regression','unapplied-migration','not-disabled','extra-artifact','forged-readme','artifact-mismatch','binding-change','runtime-change','stop-code-change'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
   const r=restore(scenario);expect(r.error).toBeUndefined();expect(r.status).toBe(1);
   expect(r.stderr).toContain('Live Worker deployment or validation failed');
   expect(r.stdout+r.stderr).not.toMatch(/PRIVATE_SENTINEL|AssertionError|FORBIDDEN|https:/);
@@ -80,4 +80,14 @@ it('only explicit restore-disabled enters existing prepared deployment path; def
   const workflow=readFileSync(new URL('../../.github/workflows/live-worker.yml',import.meta.url),'utf8');
   expect(workflow).toContain('options: [disabled, enabled, inspect, restore-disabled]');
   for(const step of workflow.split(/\n      - /).filter(s=>/run: (npm ci|npm run worker:prepare|node scripts\/deploy-live-worker|node -e)/.test(s)))expect(step).toContain("if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled'");
+});
+
+it.each([
+ ['missing-credentials','configuration-invalid'],['not-disabled','restore-disabled-precondition'],
+ ['partial-archive','disabled-archive-shape-invalid'],['lost-known-counters','restored-evidence-unverified'],
+ ['archive-regression','restored-evidence-unverified'],
+])('emits only a closed local preflight/evidence diagnostic for %s',(scenario,reason)=>{
+ const result=restore(scenario);expect(result.status).toBe(1);
+ expect(result.stderr).toContain('Worker proof diagnostic: reason='+reason+'.');
+ expect(result.stderr).not.toMatch(/PRIVATE_SENTINEL|https:|AssertionError/);
 });
