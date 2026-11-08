@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 // @ts-expect-error Native deployment helper is intentionally unbundled JavaScript.
-import { workerContentIdentity } from '../../scripts/worker-content-identity.mjs';
+import { workerContentIdentity, workerContentComparison } from '../../scripts/worker-content-identity.mjs';
 function content(main='export default {}', entry='index.js', reverse=false) {
   const form=new FormData();
   const files: [string,string,string][] = [['index.js',main,'application/javascript+module'],['data.bin','\u0000\u00ff','application/octet-stream']];
@@ -54,4 +54,15 @@ it('keeps boundary-looking binary payload exact',async()=>{
 });
 it.each(['Content-Disposition: form-data; name="index.js"\r\nContent-Transfer-Encoding: base64','Content-Disposition: form-data; name="index.js"\r\nContent-Type: text/plain\r\nContent-Type: text/javascript','Bad header','Content-Disposition: form-data; name="index.js"\r\nUnknown: private'])('rejects ambiguous or unsupported MIME headers',async headers=>{
   await expect(workerContentIdentity(rawPart(Buffer.from('a'),headers))).rejects.toThrow();
+});
+
+it.each(['entrypoint','name','filename','type','bytes','sha256'])('closed field comparison isolates %s without exposing values',field=>{
+  const before={entrypoint:'PRIVATE_SENTINEL_ENTRY',modules:[{name:'PRIVATE_SENTINEL_NAME',filename:'PRIVATE_SENTINEL_FILE',type:'PRIVATE_SENTINEL_TYPE',bytes:123,sha256:'PRIVATE_SENTINEL_HASH'}]};
+  const after=structuredClone(before);
+  if(field==='entrypoint')after.entrypoint='changed';else(after.modules[0] as Record<string,unknown>)[field]=field==='bytes'?124:'changed';
+  const diagnostic=workerContentComparison(before,after);
+  const key=({entrypoint:'entrypointEqual',name:'namesEqual',filename:'filenamesEqual',type:'typesEqual',bytes:'lengthsEqual',sha256:'byteDigestsEqual'} as Record<string,string>)[field];
+  expect(Object.entries(diagnostic).filter(([,equal])=>!equal).map(([name])=>name)).toEqual([key]);
+  expect(Object.values(diagnostic).every(value=>typeof value==='boolean')).toBe(true);
+  expect(JSON.stringify(diagnostic)).not.toMatch(/PRIVATE_SENTINEL|123|124|changed/);
 });

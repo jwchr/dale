@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { readActiveWorkerIdentity, workerContentIdentity, workerProofError } from './worker-content-identity.mjs';
+import { readActiveWorkerIdentity, workerContentIdentity, workerProofError, workerContentComparison } from './worker-content-identity.mjs';
 export async function verifyUploadedWorker(env, directory, before, options) {
   // Current reviewed bundle has one ESM file; its source map and pinned Wrangler README are not uploaded.
   // Any new auxiliary module requires explicit reviewed manifest support.
@@ -18,7 +18,10 @@ export async function verifyUploadedWorker(env, directory, before, options) {
   const expected = await workerContentIdentity(response);
   const current = await readActiveWorkerIdentity(env, options);
   const others = bindings => bindings.filter(b => b.name !== 'HISTORY_COLLECTION');
-  if (!isDeepStrictEqual(expected, current.content)) throw workerProofError('worker-upload-content-mismatch');
+  if (!isDeepStrictEqual(expected, current.content)) {
+    console.error(`Upload module comparison: ${JSON.stringify(workerContentComparison(expected, current.content))}`);
+    throw workerProofError('worker-upload-content-mismatch');
+  }
   if (!isDeepStrictEqual(before.runtime, current.runtime)) throw workerProofError('worker-upload-runtime-mismatch');
   if (!isDeepStrictEqual(others(before.bindings), others(current.bindings))) throw workerProofError('worker-upload-bindings-mismatch');
   return current;

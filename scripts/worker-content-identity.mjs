@@ -120,3 +120,13 @@ export async function readActiveWorkerIdentity(env, { fetchImpl = fetch } = {}) 
   if (finalVersionId !== versionId || !Array.isArray(finalSettings.bindings) || !isDeepStrictEqual(sorted(settings.bindings), sorted(finalSettings.bindings))) throw workerProofError('worker-identity-state-changed');
   return { versionId, content, etag: version.resources.script.etag, runtime: version.resources.script_runtime, bindings: sorted(settings.bindings) };
 }
+
+// Fixed field classes only: never expose module identifiers, types, lengths or hashes.
+// Diagnostics do not change full-manifest equality or establish historical identity.
+export function workerContentComparison(before, after) {
+  const equal = field => isDeepStrictEqual(before.modules.map(m => m[field]), after.modules.map(m => m[field]));
+  return { entrypointEqual: before.entrypoint === after.entrypoint,
+    moduleCountEqual: before.modules.length === after.modules.length,
+    namesEqual: equal('name'), filenamesEqual: equal('filename'), typesEqual: equal('type'),
+    lengthsEqual: equal('bytes'), byteDigestsEqual: equal('sha256') };
+}
