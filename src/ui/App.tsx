@@ -1,3 +1,6 @@
+import { DepartureTimes } from './DepartureTimes';
+import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
+import { ArrivalResult } from './DestinationArrival';
 import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
@@ -11,15 +14,18 @@ import { isNjtHoliday } from '../domain/holidays';
 import { createBusSession, reduceBusSession, type BusSession, type BusSessionEvent } from '../domain/busLock';
 import { forgetLock, loadLock, saveLock, type SavedLock } from '../domain/lockStore';
 import { clearHistory, pruneHistory, recordSession, summarize, type PastReport } from '../domain/reportHistory';
-import { departuresOn, nextDepartures, tripStopTimes } from '../domain/schedule';
+import { departuresOn, nextDepartures, tripArrivalAt, tripStopTimes } from '../domain/schedule';
 import { addDays, clockChangeBetween, formatTime12, localYmd, weekdayIndex, zonedWallTime } from '../domain/time';
 import type { Dataset, Departure, Stop } from '../domain/types';
 import type { RescueOption } from '../domain/rescue';
 import { strings, type Lang, type Strings } from './i18n';
 import { BoardingCheck } from './BoardingCheck';
+import { boardingInfo, destinationGroups } from '../domain/stopInfo';
+import { StopChoice } from './StopChoice';
 import { NearMe } from './NearMe';
 import { Rescue } from './Rescue';
-import { PennGuide } from './PennGuide';
+import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
+import { TravelModeSelector } from './TravelModeSelector';
 import { RiderGuide } from './RiderGuide';
 import { TicketGuide } from './TicketGuide';
 import { SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
@@ -35,7 +41,7 @@ import { LastReturnCard } from './LastReturnCard';
 import { PastReports } from './PastReports';
 
 type Theme = 'system' | 'light' | 'dark';
-interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin }
+interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean }
 interface Leg { fromStopId: string; toStopId: string; routeIds: string[] }
 interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
@@ -45,7 +51,7 @@ type Screen =
   | { name: 'departure'; dep: Departure; leg: Leg }
   | { name: 'settings' }
   | { name: 'guide' }
-  | { name: 'penn' }
+  | { name: 'penn'; railOnly?: boolean }
   | { name: 'boarding'; dep: Departure; leg: Leg }
   | { name: 'rescue'; fromStopId: string; homeStopId: string; usualRouteId?: string; label: 'home' | 'other' };
 
@@ -60,7 +66,7 @@ try {
   if (sourceParams.has('printed')) rawStore?.setItem('arriba.source.v1', 'printed');
 } catch { /* A blocked preference never prevents opening a source explicitly. */ }
 // The rider confirms current GTFS stops when first using live mode. Never rewrite printed favorites/locks.
-const storageKey = (key: string) => liveMode && ['arriba.favorites.v1', 'arriba.lock.v1'].includes(key) ? key + '.g2' : key;
+const storageKey = (key: string) => liveMode && ['arriba.favorites.v1', 'arriba.lock.v1', ARRIVAL_KEY].includes(key) ? key + '.g2' : key;
 const store = rawStore ? {
   getItem: (key: string) => rawStore.getItem(storageKey(key)),
   setItem: (key: string, value: string) => rawStore.setItem(storageKey(key), value),
@@ -76,8 +82,8 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'turnpike' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'turnpike' }; }
+    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'turnpike' };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'turnpike', liveMotion: true }; }
 };
 
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
@@ -89,8 +95,16 @@ function useNow(tz: string, intervalMs = 30_000): number {
   const [now, setNow] = useState(() => pinned ?? Date.now());
   useEffect(() => {
     if (pinned !== undefined) return;
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setInterval> | undefined;
+    const visible = () => {
+      clearInterval(id);
+      document.documentElement.dataset.pageVisible = document.visibilityState === 'hidden' ? 'false' : 'true';
+      if (document.visibilityState === 'hidden') return;
+      setNow(Date.now());
+      id = setInterval(() => setNow(Date.now()), intervalMs);
+    };
+    document.addEventListener('visibilitychange', visible); visible();
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', visible); };
   }, [pinned, intervalMs]);
   return pinned ?? now;
 }
@@ -151,6 +165,7 @@ function useSettings() {
     if (settings.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.skin = settings.skin;
+    document.documentElement.dataset.liveMotion = settings.liveMotion ? 'on' : 'off';
   }, [settings]);
   return [settings, setSettings] as const;
 }
@@ -159,6 +174,7 @@ type AvailableGuide = 'guide' | 'penn';
 export function App() {
   const [data, retry] = useDataset();
   const [guide, setGuide] = useState<AvailableGuide | undefined>();
+  const journey = useJourneyChecklist(sourceParams.has('demo') || (data.status === 'ready' && !!data.ds.meta.demo));
   const returning = useRef(false);
   useEffect(() => {
     if (returning.current && !guide && data.status === 'ready') {
@@ -168,13 +184,13 @@ export function App() {
     }
   }, [guide, data.status]);
   if (data.status !== 'ready' || guide) return <LoadScreen status={data.status} onRetry={retry} guide={guide}
-    onGuide={setGuide} onBack={() => { returning.current = true; setGuide(undefined); }} />;
-  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} />;
+    journey={journey} onGuide={(value) => { if (value === 'penn') journey.selectMode('train'); setGuide(value); }} onBack={() => { returning.current = true; setGuide(undefined); }} />;
+  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} journey={journey} />;
 }
 
-function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
+function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   status: DatasetState['status']; onRetry: () => void; guide?: AvailableGuide;
-  onGuide: (guide: AvailableGuide) => void; onBack: () => void;
+  onGuide: (guide: AvailableGuide) => void; onBack: () => void; journey: JourneyModel;
 }) {
   const [settings, setSettings] = useSettings();
   const t = strings[settings.lang];
@@ -195,13 +211,15 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
       <SkinBackdrop skin={settings.skin} />
       <header className="top">
         {guide ? <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>
-          : <span className="wordmark" role="img" aria-label="Dale">DALE<span className="bang" aria-hidden="true">!</span></span>}
+          : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <div className="choice-list">
           <button className="chip" lang="en" aria-pressed={settings.lang === 'en'} onClick={() => setSettings({ ...settings, lang: 'en' })}>English</button>
           <button className="chip" lang="es" aria-pressed={settings.lang === 'es'} onClick={() => setSettings({ ...settings, lang: 'es' })}>Español</button>
         </div>
       </header>
       <main ref={content}>
+        <TravelModeSelector mode={guide === 'penn' ? 'train' : 'bus'} t={t} trainRef={pennButton}
+          onChange={(mode) => { if (mode === 'train') onGuide('penn'); else onBack(); }} />
         {liveMode && <p><a className="link" href={sourceHref(false)}>{t.live.backup}</a></p>}
         <div className="warn">
           <p role={status === 'error' ? 'alert' : 'status'}>{status === 'error' ? t.loadFailed : status === 'ready' ? t.scheduleReady : t.loading}</p>
@@ -211,17 +229,16 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
         {!guide && <section className="card"><h1>{t.offlineHelp}</h1><p>{t.offlineHelpNote}</p>
           <div className="choice-list">
             <button ref={busButton} onClick={() => onGuide('guide')}>{t.guide.title}</button>
-            <button ref={pennButton} onClick={() => onGuide('penn')}>{t.journey.title}</button>
           </div>
         </section>}
         {guide === 'guide' && <RiderGuide t={t} />}
-        {guide === 'penn' && <PennGuide t={t} />}
+        {guide === 'penn' && <PennGuide t={t} model={journey} railOnly />}
       </main>
     </div>
   );
 }
 
-function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined }) {
+function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; journey: JourneyModel }) {
   const tz = ds.meta.timezone;
   const [activeLock, setActiveLock] = useState<ActiveLock | undefined>();
   /** A lock saved on this phone before a refresh or close, offered back (never resumed silently). */
@@ -277,6 +294,24 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
   useEffect(() => { if (activeLock) saveLock(store, ds, activeLock, now); }, [activeLock]); // eslint-disable-line react-hooks/exhaustive-deps
   const lockOnScreen = screen.name === 'departure' && activeLock?.dep.tripInstanceId === screen.dep.tripInstanceId && activeLock.dep.stopIndex === screen.dep.stopIndex;
   const lockEvent = (event: BusSessionEvent) => setActiveLock((current) => current ? { ...current, session: reduceBusSession(current.session, event) } : current);
+  const [lastArrival, setLastArrival] = useState(() => ds.meta.demo ? undefined : readLastArrival(store, Date.now()));
+  const savedArrival = useRef('');
+  // Runs after the complete feed packet (including cancellations/skips) has updated the session.
+  useEffect(() => {
+    setActiveLock(current => {
+      if (!current) return current;
+      const index = current.dep.pattern.stopIds.indexOf(current.leg.toStopId, current.dep.stopIndex + 1);
+      const arrival = observedDestinationArrival(ds, current.session, index, lockNow);
+      return arrival ? { ...current, session: reduceBusSession(current.session, { type: 'destination_arrival', arrival, now: lockNow }) } : current;
+    });
+  }, [activeLock?.session, lockNow, ds]);
+  useEffect(() => {
+    const value = activeLock?.session.destinationArrival;
+    if (!value || ds.meta.demo) return;
+    const key = `${value.tripInstanceId}/${value.stopId}/${value.at}`;
+    if (savedArrival.current === key) return;
+    savedArrival.current = key; if (saveLastArrival(store, value)) setLastArrival(value);
+  }, [activeLock?.session.destinationArrival, ds.meta.demo]);
   const liveBus = useLiveBus(ds, activeLock?.session, LIVE_API, lockNow, lockEvent);
   useEffect(() => {
     setActiveLock((current) => {
@@ -305,7 +340,7 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
       <header className="top">
         {screen.name !== 'home' ? (
           <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
-        ) : <span className="wordmark" role="img" aria-label="Dale">DALE<span className="bang" aria-hidden="true">!</span></span>}
+        ) : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
         <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
       </header>
@@ -313,6 +348,11 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
       <FeedStatus ctx={ctx} />
       {ds.meta.transcribed && isNjtHoliday(localYmd(now, tz)) && <p className="status-line" data-level="warn" role="note">{t.holidayToday}</p>}
       <main>
+        {(screen.name === 'home' || (screen.name === 'penn' && screen.railOnly)) && <TravelModeSelector
+          mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
+            if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
+            else if (screen.name === 'penn') back();
+          }} />}
         {resumable && !activeLock && <aside className="lock-return" role="note">
           <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
@@ -325,13 +365,8 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
             {t.busLock.resume} · {activeLock.dep.route.shortName} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
           </button>
         </aside>}
-        {screen.name === 'home' && !ds.meta.demo && (liveMode || LIVE_API) && <div className="card live-mode">
-          {liveMode ? <><h2>{t.live.mode}</h2><p>{t.live.intro}</p><p className="small">{t.live.privacy}</p><p className="small">{t.live.limits}</p></> : null}
-          <a className="link" href={sourceHref(!liveMode)}>{liveMode ? t.live.backup : t.live.open}</a>
-        </div>}
         {liveBus && activeLock && lockOnScreen && <LiveBusStatus state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
-        {screen.name === 'home' && <button className="primary wide penn-open" onClick={() => setScreen({ name: 'penn' })}>{t.journey.open}</button>}
-        {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} />}
+        {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
             onSearch={() => setScreen({ name: 'search' })}
@@ -340,6 +375,15 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
             onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
         )}
+        {screen.name === 'home' && lastArrival && <details className="card last-arrival">
+          <summary>{t.arrival.last}</summary><ArrivalResult value={lastArrival} t={t} lang={settings.lang} tz={tz} />
+          <button type="button" onClick={() => { saveLastArrival(store, undefined); setLastArrival(undefined); }}>{t.arrival.dismiss}</button>
+        </details>}
+        {screen.name === 'home' && !ds.meta.demo && (liveMode || LIVE_API) && <details className="card live-mode">
+          <summary>{t.selection.about}</summary>
+          {liveMode && <><p>{t.live.intro}</p><p className="small">{t.live.privacy}</p><p className="small">{t.live.limits}</p></>}
+          <a className="link" href={sourceHref(!liveMode)}>{liveMode ? t.live.backup : t.live.open}</a>
+        </details>}
         {screen.name === 'search' && (
           <Search ctx={ctx} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
         )}
@@ -468,7 +512,8 @@ function dataNotice(ds: Dataset, t: Strings): string {
 
 function arrivalAt(ds: Dataset, d: Departure, stopId: string): { at: number; estimated: boolean } | undefined {
   const i = d.pattern.stopIds.indexOf(stopId);
-  return i > d.stopIndex ? tripStopTimes(ds, d)[i] : undefined;
+  const trip = ds.trips.find(x => x.id === d.tripId), at = trip && i > d.stopIndex ? tripArrivalAt(ds, trip, d.serviceDate, i) : undefined;
+  return at === undefined ? undefined : { at, estimated: ds.meta.demo || ds.meta.transcribed ? !!trip?.estimated?.includes(i) : false };
 }
 
 function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefined {
@@ -636,20 +681,20 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
             <ul className="deps">
               {rows.map(({ d, arr, live }, i) => {
                 const shown = live?.boarding?.at ?? d.departs;
+                const arrivalPlace = to?.terminal === 'PABT' ? t.commutePabt : to?.name ?? t.unknownStop;
                 const reasonId = `${evidencePrefix}-${d.tripInstanceId}`;
                 const reason = live && homeArrivalReason(ctx, d, live);
                 const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
                 return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
-                  <button className={`dep ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
+                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
                     <RouteBadge ds={ds} routeId={d.route.id} />
                     <span className="dep-main">
-                      <span className="dep-time"><TimeText ctx={ctx} at={shown} estimated={live?.boarding ? false : d.estimated} />{live?.boarding && localYmd(shown, ctx.tz) !== localYmd(now, ctx.tz) && <span className="small"> · {fmtYmd(localYmd(shown, ctx.tz), ctx.lang)}</span>}</span>
-                      {soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
-                      <span className="dep-subline">
-                        <span className="dep-sub">{live?.arrival ? <>{t.live.rows.arrivalLive} <TimeText ctx={ctx} at={live.arrival.at} estimated={false} /></> : arr ? <>{live ? t.live.rows.arrivalScheduled : t.arrives} <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /></> : d.pattern.headsign}</span>
-                        <span className={live?.boarding ? 'badge-live' : 'badge-sched'}>{live?.boarding ? live.boarding.kind === 'arrival' ? t.live.rows.boardingArrival : t.live.rows.live : t.scheduledOnly}</span>
-                      </span>
-                      {live?.boarding && <span className="dep-original">{t.live.rows.scheduled} <TimeText ctx={ctx} at={d.departs} estimated={d.estimated} /></span>}
+                      {live ? <DepartureTimes evidence={live} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
+                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="small"> · {fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} /> : <>
+                        <span className="dep-time"><TimeText ctx={ctx} at={shown} estimated={d.estimated} /></span>
+                        {soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
+                        <span className="dep-subline"><span className="dep-sub">{arr ? <>{t.arrives} <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /></> : d.pattern.headsign}</span><span className="badge-sched">{t.scheduledOnly}</span></span>
+                      </>}
                       {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
                     </span>
@@ -753,56 +798,46 @@ function LeavePlanForm({ ctx, plan, onDone }: { ctx: Ctx; plan?: LeavePlan; onDo
 
 function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
   const { ds, t, stopName } = ctx;
-  const [q, setQ] = useState('');
-  const [stop, setStop] = useState<Stop | undefined>();
-  const [dest, setDest] = useState<string | undefined>();
+  const [q, setQ] = useState(''), [stop, setStop] = useState<Stop>(), [dest, setDest] = useState<string>();
+  const [saveError, setSaveError] = useState(false), submitted = useRef(false), destinationHeading = useRef<HTMLHeadingElement>(null);
   const results = useMemo(() => searchStops(ds, q), [ds, q]);
-  const destinations = useMemo(() => (stop ? destinationsFrom(ds, stop.id) : []), [ds, stop]);
-  const headsigns = stop ? [...new Set(ds.patterns.filter((p) => p.stopIds.slice(0, -1).includes(stop.id)).map((p) => p.headsign))] : [];
-  const check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
-
-  if (!stop) {
-    return (
-      <section>
-        <h1>{t.findStop}</h1>
-        <input className="search" autoFocus type="search" value={q} placeholder={t.searchPlaceholder} aria-label={t.findStop}
-          onChange={(e) => setQ(e.currentTarget.value)} />
-        <ul className="results">
-          {results.map((s) => (
-            <li key={s.id}><button onClick={() => setStop(s)}><strong>{s.name}</strong>{s.code && <span className="muted"> #{s.code}</span>}</button></li>
-          ))}
-          {q && !results.length && <li className="muted">{t.noResults}</li>}
-        </ul>
-        {!q && <NearMe ds={ds} t={t} onPick={setStop} />}
-      </section>
-    );
-  }
-  return (
-    <section>
-      <h1>{stop.name}</h1>
-      {headsigns.length > 0 && <p className="muted">{t.busesHereGoTo}: {headsigns.join(' · ')}</p>}
-      <h2>{t.whereTo}</h2>
-      <div className="choice-list">
-        {destinations.map((s) => (
-          <button key={s.id} className="chip" aria-pressed={dest === s.id} onClick={() => setDest(s.id)}>{s.name}</button>
-        ))}
-      </div>
-      {/* Destinations list only what buses from here (or across the street) reach; say so when Port Authority is not among them. */}
-      {!stop.terminal && !destinations.some((s) => s.terminal) && <p className="warn small" role="note">{t.noTerminalFromHere}</p>}
-      {check && !check.ok && check.reason === 'wrong-side' && (
-        <div className="warn" role="alert">
-          <p>{check.distanceM === undefined ? t.wrongSideNoDistance(check.useStop.name) : t.wrongSide(check.useStop.name, check.distanceM)}</p>
-          <button className="primary" onClick={() => setStop(check.useStop)}>{t.useThatStop}</button>
-        </div>
-      )}
-      {check && !check.ok && check.reason === 'not-served' && <div className="warn" role="alert">{t.notServed}</div>}
-      {check?.ok && dest && (
-        <button className="primary" onClick={() => onSave({
-          id: `${stop.id}>${dest}`, label: `${stopName(stop.id)} → ${stopName(dest)}`, fromStopId: stop.id, toStopId: dest, routeIds: [],
-        })}>{t.saveFavorite}</button>
-      )}
-    </section>
-  );
+  const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
+  const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
+  const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
+  const pick = (s: Stop) => { setStop(s); setSaveError(false); };
+  if (!stop) return <section>
+    <h1>{t.findStop}</h1>
+    <label className="sr-only" htmlFor="stop-search">{t.findStop}</label>
+    <input id="stop-search" name="stop-search" className="search" autoFocus type="search" value={q} placeholder={t.searchPlaceholder} autoCapitalize="off" spellCheck={false} onChange={e => setQ(e.currentTarget.value)} />
+    <ul className="results">{results.map(s => <li key={s.id}><StopChoice ds={ds} stop={s} t={t} onPick={pick} /></li>)}{q && !results.length && <li className="muted">{t.noResults}</li>}</ul>
+    {!q && <NearMe ds={ds} t={t} onPick={pick} />}
+  </section>;
+  const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
+    <span>{s.name}</span>{s.code && <span className="small">{t.selection.stopNumber(s.code)}</span>}
+  </button>;
+  const saveButton = () => <button type="submit" className="primary save-trip">{t.selection.save}</button>;
+  return <form className="trip-selection" onSubmit={e => {
+    e.preventDefault();
+    if (!dest || !check?.ok) { setSaveError(true); destinationHeading.current?.focus(); return; }
+    if (submitted.current) return; submitted.current = true;
+    onSave({ id: `${stop.id}>${dest}`, label: `${stopName(stop.id)} → ${stopName(dest)}`, fromStopId: stop.id, toStopId: dest, routeIds: [] });
+  }}>
+    <h1>{stop.name}</h1><p>{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}</p>
+    <button type="button" className="link" onClick={() => { setStop(undefined); setDest(undefined); }}>{t.selection.change}</button>
+    {info && info.headsigns.length > 0 && <><p>{t.busesHereGoTo}:</p><ul className="route-descriptions">{info.headsigns.map(text => <li key={text}>{text}</li>)}</ul></>}
+    <h2 ref={destinationHeading} tabIndex={-1}>{t.whereTo}</h2>
+    {dest && <p className="selected-destination"><strong>{t.selection.selected}:</strong> {stopName(dest)}</p>}
+    {saveButton()}
+    {saveError && <p className="warn" role="alert">{check && !check.ok ? t.notServed : t.selection.choose}</p>}
+    {groups.terminal.length > 0 && <div className="pinned-destinations"><h3>{t.commutePabt}</h3><div className="choice-list">{groups.terminal.map(destination)}</div></div>}
+    {groups.cities.length > 0 && <fieldset className="destination-cities"><legend>{t.selection.cities}</legend>{groups.cities.map(group => <details key={group.city || 'unknown'}>
+      <summary>{group.city || t.selection.unknownCity} ({group.stops.length})</summary><div className="choice-list">{group.stops.map(destination)}</div>
+    </details>)}</fieldset>}
+    {!stop.terminal && !destinations.some(s => s.terminal) && <p className="warn small" role="note">{t.noTerminalFromHere}</p>}
+    {check && !check.ok && check.reason === 'wrong-side' && <div className="warn" role="alert"><p>{check.distanceM === undefined ? t.wrongSideNoDistance(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`) : t.wrongSide(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`, check.distanceM)}</p><button type="button" className="primary" onClick={() => pick(check.useStop)}>{t.useThatStop}</button></div>}
+    {check && !check.ok && check.reason === 'not-served' && <div className="warn" role="alert">{t.notServed}</div>}
+    {saveButton()}
+  </form>;
 }
 
 function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx: Ctx; leg: Leg; title: string; date?: string; onDate: (date: string) => void; onDeparture: (d: Departure) => void }) {
@@ -889,6 +924,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   // Search after the boarding stop: on a loop pattern the destination can also appear earlier.
   const alightIndex = dep.pattern.stopIds.indexOf(leg.toStopId, dep.stopIndex + 1);
   const boardStop = ds.stops.find((s) => s.id === dep.pattern.stopIds[dep.stopIndex]);
+  const scheduledArrival = arrivalAt(ds, dep, leg.toStopId);
   const alightStop = alightIndex > dep.stopIndex ? ds.stops.find((s) => s.id === dep.pattern.stopIds[alightIndex]) : undefined;
   // The printed Park/Ride note is about Parkway express (P, FP) trips only; other trips stop there as usual.
   const alightNote = alightStop?.noteId && (alightStop.noteId !== 'parkride-request' || ['P', 'FP'].includes(dep.pattern.variant ?? '')) ? t.stopNotes[alightStop.noteId] : undefined;
@@ -927,7 +963,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
         <div className="row-between">
           <div><span className="muted">{t.departs}</span><div className="big-time"><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} /></div></div>
           {alightIndex > dep.stopIndex && (
-            <div className="right"><span className="muted">{t.arrivesLabel}</span><div className="big-time"><TimeText ctx={ctx} at={times[alightIndex]!.at} estimated={times[alightIndex]!.estimated} /></div></div>
+            <div className="right"><span className="muted">{t.arrivesLabel}</span><div className="big-time">{scheduledArrival ? <TimeText ctx={ctx} at={scheduledArrival.at} estimated={scheduledArrival.estimated} /> : t.arrival.scheduleUnknown}</div></div>
           )}
         </div>
         <p className="badge-sched block">{t.scheduledOnly}</p>
@@ -1007,6 +1043,8 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
   return (
     <section>
       <h1>{t.settings}</h1>
+      <label className="lock-toggle"><input type="checkbox" checked={settings.liveMotion} onChange={e => setSettings({ ...settings, liveMotion: e.currentTarget.checked })} />{t.live.motion}</label>
+      <p className="small muted">{t.live.motionNote}</p>
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
       <h2>{t.skin}</h2>
@@ -1035,6 +1073,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <h2>{t.dataSource}</h2>
       <p className="small">{ds.meta.source} · {ds.meta.feedVersion}</p>
       {ds.meta.transcribed && <p className="small">{t.transcribedBanner(fmtYmd(ds.meta.transcribed.issued, settings.lang))}</p>}
+      {ds.meta.stopCities && <p className="small">{ds.meta.stopCities.state === 'verified' ? <>{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</> : t.selection.cityUnavailable}</p>}
       <p className="small muted">{dataNotice(ds, t)}</p>
       <p className="small muted">{t.appTagline}</p>
     </section>

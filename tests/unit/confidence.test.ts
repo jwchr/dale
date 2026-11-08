@@ -69,3 +69,19 @@ it('preserves every printed and demo stop instant across ordinary and DST servic
     expect(tripStopTimes(data, d).map((x) => x.at)).toEqual(pattern.stopIds.map((_, i) => tripTimeAt(data, trip, date, i)));
   }
 });
+
+it('preserves separate bus and train progress, including a legacy bus checklist', () => {
+  const values = new Map<string, string>();
+  const store = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); } };
+  const bus = { ...initialChecklist(), mode: 'bus' as const, step: 3, walks: { summit: 8 } };
+  values.set(JOURNEY_KEY, JSON.stringify(bus));
+  expect(readChecklist(store, 'bus')).toEqual(bus);
+  expect(readChecklist(store, 'train')).toEqual(initialChecklist());
+  saveChecklist(store, bus);
+  const train = { ...initialChecklist(), station: 'essex' as const, step: 2 };
+  saveChecklist(store, train);
+  expect(readChecklist(store, 'bus')).toEqual(bus);
+  expect(readChecklist(store, 'train')).toEqual(train);
+  values.set(`${JOURNEY_KEY}.train`, '{"mode":"train","step":999}');
+  expect(readChecklist(store, 'train').step).toBe(0);
+});

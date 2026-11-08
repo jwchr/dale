@@ -1,5 +1,6 @@
 // Validate JSON once at the loading boundary, before any screen trusts it as transit data.
 // Invalid schedules go to the existing Retry flow; never repair times or substitute demo trips.
+import { STOP_CITY_SOURCE } from './stopInfo';
 import type { Dataset } from './types';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -40,6 +41,7 @@ export function parseDataset(value: unknown): Dataset {
   // Let the same browser Intl implementation used by the timetable check timezone support.
   new Intl.DateTimeFormat('en-US', { timeZone: meta.timezone }).format(0);
   if (meta.realtime !== undefined) requireValid(record(meta.realtime) && meta.realtime.provider === 'njt-bus-g2' && !meta.demo && meta.transcribed === undefined);
+  if (meta.stopCities !== undefined) requireValid(record(meta.stopCities) && meta.stopCities.source === 'NJ Transit GIS Department' && meta.stopCities.url === STOP_CITY_SOURCE && text(meta.stopCities.retrievedAt) && Number.isFinite(Date.parse(meta.stopCities.retrievedAt)) && ['verified', 'unavailable'].includes(String(meta.stopCities.state)));
   if (meta.transcribed !== undefined) {
     requireValid(record(meta.transcribed) && date(meta.transcribed.issued) && id(meta.transcribed.documentId));
   }
@@ -50,7 +52,7 @@ export function parseDataset(value: unknown): Dataset {
     requireValid(id(route.shortName) && text(route.longName) && optionalText(route.color) && optionalText(route.feedRouteId));
   }
   for (const stop of stops) {
-    requireValid(id(stop.name) && optionalText(stop.code) && optionalText(stop.noteId) && optionalText(stop.terminal));
+    requireValid(id(stop.name) && optionalText(stop.code) && optionalText(stop.noteId) && optionalText(stop.terminal) && optionalText(stop.city) && optionalText(stop.sourceName));
     requireValid(stop.twin === undefined || (id(stop.twin) && stopIds.has(stop.twin)));
     requireValid((stop.lat === undefined && stop.lon === undefined)
       || (typeof stop.lat === 'number' && Number.isFinite(stop.lat) && Math.abs(stop.lat) <= 90
@@ -83,6 +85,9 @@ export function parseDataset(value: unknown): Dataset {
     requireValid(Array.isArray(times) && times.length === patternLengths.get(trip.patternId)
       && times.every((at, i) => whole(at) && (i === 0 || at >= times[i - 1])
         && Number.isFinite(new Date(Date.UTC(9999, 11, 31) + at * 1000).getTime())));
+    requireValid(trip.arrivals === undefined || (Array.isArray(trip.arrivals) && trip.arrivals.length === times.length
+      && trip.arrivals.every((at, i) => at === null || (whole(at) && at <= times[i] && (i === 0 || at >= times[i - 1])
+        && Number.isFinite(new Date(Date.UTC(9999, 11, 31) + at * 1000).getTime())))));
     requireValid(trip.estimated === undefined || (Array.isArray(trip.estimated)
       && trip.estimated.every((index) => whole(index) && index < times.length)));
   }

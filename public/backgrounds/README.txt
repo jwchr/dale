@@ -1,0 +1,1 @@
+Owner-selected photographs, provided and authorized for the Dale app. Optimized WebP copies with metadata removed. Originals remain unchanged. Paterson Great Falls and New Jersey September sunset. No third-party image requests.

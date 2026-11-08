@@ -11,6 +11,8 @@ export interface VehicleObservation {
   observedAt: number;
   lat: number;
   lon: number;
+  /** Explicit official stop status, only when the stop selector is unambiguous. */
+  stopCall?: { stopId: string; stopIndex: number; status: 'stopped_at' };
 }
 
 export type LockStatus =

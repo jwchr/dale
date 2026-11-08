@@ -1,3 +1,4 @@
+import { LiveIndicator } from './LiveIndicator';
 // Ride progress (owner request 2026-11-04): an LED status bar ("Next stop … · 3 min behind") and a
 // horizontal strip map of the line, like the maps over subway car doors, with passed stops dimmed,
 // the next stop lit, the rider's stop marked and a progress bar. Evidence: the matched bus's GPS,
@@ -114,7 +115,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
         <p className="led-line"><span className="led-key">{atEnd ? p.at : p.next}</span> {nextLabel.town}{nextLabel.detail ? ` · ${nextLabel.detail}` : ''}</p>
         <p className="led-line led-pace" data-pace={delay === undefined ? 'unknown' : delay > 0 ? 'behind' : delay < 0 ? 'ahead' : 'on'}>{pace}</p>
       </div>
-      <p className="small progress-source">{progress.projected ? `${p.estimated} ` : ''}{source}</p>
+      <p className="small progress-source">{progress.basis !== 'tap' && progress.basis !== 'phone_gps' && !busIsDemo && <LiveIndicator live={progress.basis === 'bus_gps' && !progress.projected} />}{progress.projected ? `${p.estimated} ` : ''}{source}</p>
       {progress.alight.projected !== undefined && delay !== 0
         ? <p className="small">{p.yourStop(clock(progress.alight.projected), clock(progress.alight.scheduled))}</p>
         : <p className="small">{p.yourStopScheduled(clock(progress.alight.scheduled))}</p>}
@@ -154,7 +155,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             const i = first + k;
             const s = stops[i] as { lat: number; lon: number };
             const passed = i <= progress.reachedIndex;
-            return { lat: s.lat, lon: s.lon, name: stopLabel(name(i)).town, state: i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead' };
+            return { id: ids[i]!, city: stops[i]?.city, lat: s.lat, lon: s.lon, name: stopLabel(name(i)).town, state: i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead' };
           });
           // The bus dot: the GPS fix itself when that is the evidence, otherwise a point on the line.
           const fix = progress.basis === 'bus_gps' ? bus : progress.basis === 'phone_gps' ? phone : undefined;
@@ -169,7 +170,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             || document.documentElement.dataset.theme === 'dark'
             || (document.documentElement.dataset.theme !== 'light' && matchMedia?.('(prefers-color-scheme: dark)').matches);
           return <>
-            <StreetMap stops={mapStops} bus={dot} dark={!!dark} label={p.mapLabel(nextLabel.town, stopLabel(name(alightIndex)).town)} failedText={p.mapFailed} loadingText={p.mapLoading} />
+            <StreetMap text={t.maps} stops={mapStops} bus={dot} dark={!!dark} label={p.mapLabel(nextLabel.town, stopLabel(name(alightIndex)).town)} failedText={p.mapFailed} loadingText={p.mapLoading} />
             <p className="muted small">{progress.basis === 'timetable' || progress.projected ? p.mapDotEstimate : p.mapDotSeen}</p>
             <p className="muted small">{p.mapNote}</p>
           </>;

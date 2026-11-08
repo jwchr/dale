@@ -26,10 +26,17 @@ export function parseLiveSnapshot(value: unknown, ds: Dataset, tripId: string, s
     && (v.timestamp === undefined || (time(v.timestamp) && v.timestamp <= receivedAt));
   const trip = ds.trips.find((t) => t.id === tripId), pattern = ds.patterns.find((p) => p.id === trip?.patternId);
   if (!pattern || !feed(value.vehicles) || !feed(value.updates)) return fail();
+  const stopCall = (p: Record<string, unknown>) => {
+    if (p.stopCall === undefined) return true;
+    const parts = typeof p.tripInstanceId === 'string' ? p.tripInstanceId.split('@') : [];
+    const ownTrip = ds.trips.find(t => t.id === parts[0]), ownPattern = ds.patterns.find(x => x.id === ownTrip?.patternId), call = p.stopCall;
+    return parts.length === 2 && validServiceDate(parts[1]!) && ownPattern && object(call) && call.status === 'stopped_at'
+      && typeof call.stopIndex === 'number' && Number.isInteger(call.stopIndex) && call.stopIndex >= 0 && ownPattern.stopIds[call.stopIndex] === call.stopId;
+  };
   if (!Array.isArray(value.observations) || value.observations.length > 10 || !value.observations.every((p) => object(p)
     && typeof p.tripInstanceId === 'string' && p.tripInstanceId.includes('@') && validVehicleId(p.vehicleId)
     && time(p.observedAt) && p.observedAt <= receivedAt && typeof p.lat === 'number' && Number.isFinite(p.lat) && Math.abs(p.lat) <= 90
-    && typeof p.lon === 'number' && Number.isFinite(p.lon) && Math.abs(p.lon) <= 180)) return fail();
+    && typeof p.lon === 'number' && Number.isFinite(p.lon) && Math.abs(p.lon) <= 180 && stopCall(p))) return fail();
   const index = (i: unknown): i is number => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < pattern.stopIds.length;
   if (!Array.isArray(value.predictions) || value.predictions.length > pattern.stopIds.length * 2 || !value.predictions.every((p) => object(p)
     && index(p.stopIndex) && time(p.at) && time(p.observedAt) && p.observedAt <= receivedAt && ['arrival', 'departure'].includes(String(p.kind)))) return fail();

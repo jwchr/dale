@@ -136,3 +136,76 @@ for (const offset of [-86_400_000, 86_400_000]) test(`live reports use the app c
   expect((await saved(page)).session.lock.status).toBe('tracked');
   expect((await saved(page)).session.history).toHaveLength(1);
 });
+
+
+test('destination arrival requires an exact official stopped-at report and retains the first time through ride end', async ({ page }) => {
+  let body = packet(); await setup(page, () => body);
+  await page.getByRole('button', { name: 'I’m waiting at this stop', exact: true }).click();
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click();
+  await expect(page.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  await page.getByRole('button', { name: 'I boarded', exact: true }).click();
+  const dialog = page.getByRole('dialog'), result = dialog.locator('.destination-arrival');
+  const stop = liveDataset.stops.find(s => s.id === '3')!;
+  const next = NOW + 31000;
+  body = packet(next, { observations: [{ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: next - 15000, lat: stop.lat!, lon: stop.lon!, stopCall: { stopId: '3', stopIndex: 2, status: 'stopped_at' } }] });
+  await page.clock.fastForward(31000);
+  await expect(result).toContainText('NJ Transit observed the bus stopped');
+  await expect(result).toContainText('The bus may have arrived before this GPS report');
+  const arrival = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.arrival.v1.g2')!));
+  expect(arrival.at).toBe(next - 15000); expect(arrival.source).toBe('njt_stopped_at'); expect(arrival.scheduledAt).toBeDefined();
+  expect(arrival).not.toHaveProperty('lat');
+  body = packet(next + 31000); await page.clock.fastForward(31000);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.arrival.v1.g2')!).at)).toBe(arrival.at);
+  await dialog.getByRole('button', { name: 'I got off', exact: true }).click();
+  await expect(page.locator('.bus-lock .destination-arrival')).toContainText('NJ Transit observed the bus stopped');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.locator('.last-arrival summary').click(); await expect(page.locator('.last-arrival')).toContainText('NJ Transit observed the bus stopped');
+  await page.reload(); await page.locator('.last-arrival summary').click(); await expect(page.locator('.last-arrival')).toContainText('NJ Transit observed the bus stopped');
+});
+
+test('manual destination confirmation has its own source and is distinct from ending a ride', async ({ page }) => {
+  await setup(page, () => null);
+  await page.getByRole('button', { name: 'I’m waiting at this stop', exact: true }).click();
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click(); await page.getByRole('button', { name: 'I boarded', exact: true }).click();
+  const dialog = page.getByRole('dialog'); await expect(dialog.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  await dialog.getByRole('button', { name: 'I’ve reached PORT AUTHORITY BUS TERMINAL', exact: true }).click();
+  await expect(dialog.locator('.destination-arrival')).toContainText('Arrival you reported');
+  await expect(dialog.locator('.destination-arrival')).toContainText('not an NJ Transit observation');
+  await dialog.getByRole('button', { name: 'I got off', exact: true }).click();
+  await expect(page.locator('.bus-lock .destination-arrival')).toContainText('Arrival you reported');
+});
+
+for (const cancelled of [false, true]) test(`same-packet ${cancelled ? 'cancellation' : 'destination skip'} blocks stopped-at arrival confirmation`, async ({ page }) => {
+  let body = packet(); await setup(page, () => body);
+  const stop = liveDataset.stops.find(s => s.id === '3')!, at = NOW + 31000;
+  body = packet(at, { observations: [{ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: at - 15000, lat: stop.lat!, lon: stop.lon!, stopCall: { stopId: '3', stopIndex: 2, status: 'stopped_at' } }],
+    ...(cancelled ? { cancelledAt: at - 20000 } : { skippedStops: [2] }) });
+  await page.clock.fastForward(31000);
+  await expect(page.locator('.destination-arrival')).toContainText('Arrival not confirmed');
+  expect(await page.evaluate(() => localStorage.getItem('arriba.arrival.v1.g2'))).toBeNull();
+});
+
+
+test('tracker opens close to bus, keeps manual overview, and offers transit geography plus a line diagram', async ({ page }) => {
+  const errors: string[] = [], outside: string[] = [];
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('request', r => { const host = new URL(r.url()).hostname; if (!['localhost', 'dale-live.test.workers.dev'].includes(host)) outside.push(host); });
+  const stop = liveDataset.stops.find(s => s.id === '2')!;
+  const body = packet(); body.observations[0] = { ...body.observations[0]!, lat: stop.lat!, lon: stop.lon! };
+  await setup(page, () => body);
+  const wrapper = page.locator('.waiting-map .map-views'), map = wrapper.locator('.route-map');
+  await expect(map.locator('canvas')).toBeVisible({ timeout: 15000 }).catch(error => { throw new Error(String(error) + '\nMap diagnostics: ' + errors.join(' | ')); }); await expect(map).toHaveAttribute('data-camera', 'bus');
+  await wrapper.getByRole('button', { name: 'Whole route', exact: true }).click(); await expect(map).toHaveAttribute('data-camera', 'route');
+  await page.clock.fastForward(31000); await expect(map).toHaveAttribute('data-camera', 'route');
+  await wrapper.getByRole('button', { name: 'Zoom to bus', exact: true }).click(); await expect(map).toHaveAttribute('data-camera', 'bus');
+  await wrapper.getByRole('button', { name: 'Transit map', exact: true }).click();
+  await expect(map).toHaveAttribute('data-presentation', 'transit'); await expect(map.locator('canvas')).toBeVisible({ timeout: 15000 });
+  await expect(map).toContainText('OpenStreetMap');
+  await page.waitForLoadState('networkidle'); await wrapper.screenshot({ path: 'test-results/transit-map-preview.png' });
+  await wrapper.getByRole('button', { name: 'Line diagram', exact: true }).click();
+  await expect(wrapper.locator('.transit-line-map')).toContainText('spacing is not distance');
+  await expect(wrapper.locator('.line-stations [data-state="alight"]')).toContainText('Your destination');
+  await wrapper.screenshot({ path: 'test-results/line-diagram-preview.png' });
+  expect(outside).toEqual([]);
+  expect(errors.filter(e => !/favicon|net::ERR_FAILED/.test(e))).toEqual([]);
+});

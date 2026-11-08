@@ -56,6 +56,7 @@ export interface DatasetMeta {
   builtAt: string;
   /** Canonical static feed compatible with the approved live bus service. */
   realtime?: { provider: 'njt-bus-g2' };
+  stopCities?: { source: string; url: string; retrievedAt: string; state: 'verified' | 'unavailable' };
   timezone: string; // agency timezone, e.g. America/New_York
   /** Set when the data was typed in from a printed timetable rather than built from NJ Transit's data feed. The UI must say so. */
   transcribed?: { issued: string; documentId: string };
@@ -72,6 +73,9 @@ export interface Route {
 
 export interface Stop {
   id: string;
+  city?: string;
+  /** Provider spelling retained when an owner-verified display correction is applied. */
+  sourceName?: string;
   code?: string; // NJ Transit five-digit stop code when published
   name: string;
   /** Absent in datasets transcribed from printed timetables, which carry no coordinates. */
@@ -106,6 +110,8 @@ export interface Trip {
   serviceId: string;
   /** Departure seconds on the service day, aligned to pattern.stopIds; may exceed 86400. GTFS: after noon minus 12 h. Printed timetables: the printed clock time (see `tripTimeAt`). */
   times: number[];
+  /** Explicit GTFS scheduled arrival seconds; null is missing/invalid, never copied from departure. */
+  arrivals?: (number | null)[];
   /** Indices into `times` the build script filled in because the feed left them blank: Dale's estimates, not NJ Transit data. Omitted when none. */
   estimated?: number[];
 }

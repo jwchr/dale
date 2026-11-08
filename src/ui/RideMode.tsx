@@ -1,3 +1,4 @@
+import { DestinationArrival } from './DestinationArrival';
 // Ride mode (issue #34): shown after the rider says "I boarded". Big get-off guidance when Dale can
 // honestly count stops (every stop listed, fresh unambiguous bus GPS); otherwise a plain statement of
 // what it cannot know, with scheduled times labeled as timetable. Foreground only: no background alerts.
@@ -139,6 +140,7 @@ export function RideMode({ ds, session, alightIndex, now, t, lang, onEvent, onAd
         <h3 id={`ride-title-${session.id}`} tabIndex={-1} ref={heading}>{r.title(dest)}</h3>
         <button className="ghost" onClick={() => setFull(!showFull)}>{showFull ? r.exitFull : r.fullScreen}</button>
       </div>
+      <DestinationArrival ds={ds} session={session} index={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} />
       {!session.stopChanges?.indices.length && <StripMap ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} />}
       <p className="ride-message" aria-live={stage && URGENT.includes(stage) ? 'assertive' : 'polite'}>{message}</p>
       {guide.basis === 'gps' && <p className="small">{session.history.at(-1)?.source === 'demo' ? r.demoGps : r.fromGps(clock(guide.observedAt), Math.max(0, Math.floor((now - guide.observedAt) / 1000)))}</p>}

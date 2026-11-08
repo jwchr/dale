@@ -43,5 +43,9 @@ D52 prioritizes the provisional live bus tracker (#89) with the existing free Wo
 
 D53 adds a compact scheduled next-165T cue when all displayed departures are local165 buses (#93). Reuse the same confirmed stops, calendar and walking-time constraints, without changing the main rows or the exact bus lock. A 165T that does not serve those stops is not an option.
 
+D54 adds upcoming-first home, clearer physical-stop/destination selection, owner photo backgrounds and a source-qualified destination arrival comparison. Large paired clocks distinguish boarding from destination; each independently identifies live prediction or scheduled fallback. An official STOPPED_AT report confirms an observed stop sample, not the exact instant of arrival. Only explicit rider action creates a rider-confirmed destination time. The city labels use bounded public NJ Transit GIS facts joined by exact stop number, served route and nearby coordinates; unavailable/conflicting labels remain unknown. Broader sign scanning, seasonal/weather backgrounds and bus/train schedule comparison retain their existing dependency boundaries.
+
+D56 replaces the home Penn opener with a compact Bus/Train selector and original vehicle icons. Train opens the existing guidance with current rail data explicitly unavailable; switching preserves bus identity, favorites and checklist progress. General destination labels use New York/Nueva York; actual station references retain New York Penn. Seasonal sign artwork #106 follows this rider release.
+
 ## Done means
 Tests prove it (`npm run verify`), the Pages build shows it, and for live features the owner's real rides confirm it (M3 acceptance in the review doc).

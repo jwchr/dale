@@ -1,18 +1,32 @@
+import { useEffect, useState } from 'react';
 // Background scenes for Dale's styles (owner request 2026-11-04, D46). Original artwork only: no
 // official shields, logos or sign designs of the NJ Turnpike Authority, the Garden State Parkway,
 // the MTA, NJ Transit or the Port Authority (the NYC style avoids the MTA's sign system on purpose). Decorative, so hidden from assistive technology.
 export type Skin = 'turnpike' | 'parkway' | 'nyc' | 'clean';
 export const SKINS: readonly Skin[] = ['turnpike', 'parkway', 'nyc', 'clean'];
+// Shared by loading, guide and main views; remounting one does not choose another photo.
+const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-september-sunset';
 
 export function SkinBackdrop({ skin }: { skin: Skin }) {
-  if (skin === 'clean') return null;
+  // One choice per app opening, held across route/style changes. Only that asset is requested.
+  const photo = OPENING_PHOTO;
+  const [ready, setReady] = useState(false);
+  const url = `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`;
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-transparency: reduce), (forced-colors: active)').matches) return;
+    let active = true;
+    const image = new Image(); image.decoding = 'async'; image.fetchPriority = 'low';
+    image.onload = () => { if (active) setReady(true); }; image.src = url;
+    return () => { active = false; image.onload = null; };
+  }, [url]);
   return (
     <div className="skin-backdrop" aria-hidden="true" data-skin={skin}>
-      <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMax slice" width="100%" height="100%" focusable="false">
+      {ready && <div className="photo-backdrop" data-photo={photo} style={{ backgroundImage: `url("${url}")` }} />}
+      {!ready && skin !== 'clean' && <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMax slice" width="100%" height="100%" focusable="false">
         {skin === 'turnpike' && <Turnpike />}
         {skin === 'parkway' && <Parkway />}
         {skin === 'nyc' && <Skyline />}
-      </svg>
+      </svg>}
     </div>
   );
 }

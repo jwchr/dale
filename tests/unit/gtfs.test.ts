@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM script without type declarations
-import { buildDataset, filterCsvByColumn, interpolate, parseCsv } from '../../scripts/gtfs-lib.mjs';
+import { buildDataset, filterCsvByColumn, interpolate, parseCsv, parseGtfsTime } from '../../scripts/gtfs-lib.mjs';
 import { departuresOn, tripStopTimes } from '../../src/domain/schedule';
 import { formatTime12 } from '../../src/domain/time';
 import type { Dataset } from '../../src/domain/types';
@@ -13,6 +13,12 @@ const files: Record<string, string> = Object.fromEntries(
 );
 
 describe('GTFS build', () => {
+  it.each(['7:90:00', '07:00:99', '-1:10:00', '7.5:10:00', '7:10', '9007199254740992:00:00'])('rejects malformed source times instead of silently changing the schedule: %s', value => {
+    expect(() => parseGtfsTime(value)).toThrow();
+  });
+  it('accepts missing intermediate times and next-day GTFS hours without coercing bad values', () => {
+    expect(parseGtfsTime('')).toBeUndefined(); expect(parseGtfsTime('25:10:00')).toBe(90600);
+  });
   it('parses quoted CSV with BOM, embedded commas and doubled quotes', () => {
     const rows = parseCsv('﻿a,b\r\n"x, y","say ""hi"""\r\n');
     expect(rows).toEqual([{ a: 'x, y', b: 'say "hi"' }]);

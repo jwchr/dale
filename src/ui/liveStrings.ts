@@ -1,7 +1,7 @@
 export const liveStrings = {
   en: {
     rows: {
-      live: 'LIVE ESTIMATE', boardingArrival: 'LIVE ARRIVAL', scheduled: 'Scheduled', arrivalLive: 'Live arrival', arrivalScheduled: 'Scheduled arrival',
+      live: 'LIVE ESTIMATE', boardingArrival: 'LIVE ARRIVAL', atYourStop: 'Your stop', scheduleShort: 'Schedule',
       sourceAge: (s: number) => `NJ Transit · reported ${s}s ago`,
       notStarted: (time: string) => `No live estimate yet. Scheduled to start its route at ${time}.`,
       gpsHint: 'Live GPS is available: tap this bus, then Lock onto this bus.', cancelledShort: 'Cancelled', timePassed: 'Time passed',
@@ -14,6 +14,7 @@ export const liveStrings = {
         limited: 'A live estimate was not checked for this row. Open this bus to track it.',
       },
     },
+    motion: 'Animate live indicators', motionNote: 'Gentle broadcast pulse for fresh live data. Turn it off here; reduced-motion preferences also keep it still.',
     mapLabel: 'Selected bus and its scheduled stops', positionUnknown: 'ACTUAL BUS LOCATION UNKNOWN', scheduleHelp: 'These are scheduled times. Any current NJ Transit departure estimate is shown separately above. Lock this departure to check its GPS.', privacy: 'Live checks send trip and stop identifiers to Dale’s server. Your phone location, waiting reports and commute labels are not sent.',
     open: 'Live buses · 163 / 164 / 165', backup: 'Open the printed 165 schedule', mode: 'Live bus pilot',
     intro: 'Upcoming buses show fresh NJ Transit estimates automatically, or explain why the schedule is the backup. Tap a bus, then Lock onto this bus for GPS. Your printed-schedule commutes are kept separately.',
@@ -31,7 +32,7 @@ export const liveStrings = {
   },
   es: {
     rows: {
-      live: 'ESTIMACIÓN EN VIVO', boardingArrival: 'LLEGADA EN VIVO', scheduled: 'Programado', arrivalLive: 'Llegada en vivo', arrivalScheduled: 'Llegada programada',
+      live: 'ESTIMACIÓN EN VIVO', boardingArrival: 'LLEGADA EN VIVO', atYourStop: 'Tu parada', scheduleShort: 'Horario',
       sourceAge: (s: number) => `NJ Transit · informado hace ${s}s`,
       notStarted: (time: string) => `Aún no hay estimación en vivo. Su ruta está programada para empezar a las ${time}.`,
       gpsHint: 'Hay GPS en vivo: toca este autobús y luego Seguir este autobús.', cancelledShort: 'Cancelado', timePassed: 'Hora pasada',
@@ -44,6 +45,7 @@ export const liveStrings = {
         limited: 'No se consultó una estimación en vivo para esta fila. Abre este autobús para seguirlo.',
       },
     },
+    motion: 'Animar indicadores en vivo', motionNote: 'Pulso suave para datos recientes en vivo. Puedes desactivarlo aquí; también se respeta la preferencia de movimiento reducido.',
     mapLabel: 'Autobús elegido y sus paradas programadas', positionUnknown: 'UBICACIÓN REAL DEL AUTOBÚS DESCONOCIDA', scheduleHelp: 'Estos son horarios programados. Cualquier estimación actual de NJ Transit se muestra por separado arriba. Fija esta salida para consultar su GPS.', privacy: 'Las consultas envían identificadores de viajes y paradas al servidor de Dale. No se envían tu ubicación, reportes de espera ni nombres de viajes.',
     open: 'Autobuses en vivo · 163 / 164 / 165', backup: 'Abrir el horario impreso del 165', mode: 'Prueba de autobuses en vivo',
     intro: 'Las próximas salidas muestran estimaciones actuales de NJ Transit o explican por qué se usa el horario. Toca un autobús y luego Seguir este autobús para ver el GPS. Tus viajes del horario impreso se guardan por separado.',

@@ -136,11 +136,25 @@ export function searchStops(ds: Dataset, query: string, limit = 20): Stop[] {
  * Stops no bus from here or across the street reaches (a short trip the other way) are left out.
  */
 export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
-  const group = (s: Stop) => {
-    if (s.id === stopId) return 2;
-    const c = checkDirection(ds, stopId, s.id);
-    return c.ok ? 0 : c.reason === 'wrong-side' ? 1 : 2;
-  };
+  const here = ds.stops.find(s => s.id === stopId);
+  const nearby = new Set<string>();
+  if (here) {
+    const twin = twinOf(ds, here); if (twin) nearby.add(twin.id);
+    if (located(here)) for (const s of ds.stops) if (s.id !== stopId && located(s) && distanceM(here, s) <= 250) nearby.add(s.id);
+  }
+  const direct = new Set<string>(), across = new Set<string>();
+  // Compute downstream reachability once per boarding stop, instead of rescanning every pattern
+  // and measuring every nearby stop again for every possible destination.
+  for (const p of ds.patterns) for (const board of [stopId, ...nearby]) {
+    const i = p.stopIds.indexOf(board);
+    if (i < 0 || p.noPickup?.includes(i)) continue;
+    const target = board === stopId ? direct : across;
+    for (let j = i + 1; j < p.stopIds.length; j++) {
+      const id = p.stopIds[j]!;
+      if (p.stopIds.indexOf(id) === j && !p.noDropOff?.includes(j)) target.add(id);
+    }
+  }
+  const group = (s: Stop) => s.id === stopId ? 2 : direct.has(s.id) ? 0 : across.has(s.id) ? 1 : 2;
   return ds.stops
     .map((s, i) => ({ s, i, g: group(s) }))
     .filter(({ g }) => g < 2)
