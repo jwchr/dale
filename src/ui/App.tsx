@@ -663,13 +663,18 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
         {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
         {editing && leg && <p className="leg">{title}</p>}
         {/* One compact row of actions, so the next buses sit right under the signs. */}
-        <div className="commute-controls">
-          {!editing && leg && !plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
-          {!editing && leg && <button className="chip rescue-chip" onClick={() => onRescue(leg, to?.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to?.terminal ? t.rescue.otherWays : t.rescue.title}</button>}
-          <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
-        </div>
+        {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
+          actions={trigger => <div className="commute-controls">
+            {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
+            <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</button>
+            <div className="commute-sign-actions">
+              <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+              {trigger}
+            </div>
+          </div>} /> : <div className="commute-controls">
+            <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+          </div>}
       </div>
-      {!editing && leg && from && to && <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t} />}
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
         <div className="edit-row">
           <button onClick={() => onMove(-1)} disabled={first}>↑ {t.moveUp}</button>

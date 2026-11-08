@@ -2,13 +2,19 @@
    Original artwork inspired by the road and the city: no official shields, logos or sign designs.
    Loaded after styles.css, so a style's tokens win over the light/dark ones (same specificity). */
 
-/* ---------- Shared: big From/To signs on every style ---------- */
-.commute-places { flex-direction: column; gap: 10px; }
-.commute-place { flex: 1 1 auto; }
-.highway-sign { padding: 12px 16px 14px; border-radius: 12px; position: relative; overflow: hidden; }
-.highway-label { font-size: 0.72rem; margin-bottom: 4px; }
-.highway-name { font-size: clamp(1.6rem, 7.4vw, 2.15rem); line-height: 1.05; }
-.commute-stop { font-size: 0.95rem; padding: 8px 11px; }
+/* ---------- Shared: compact paired journey signs on every style ---------- */
+.commute-places { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px; }
+.commute-place { min-inline-size: 0; display: grid; gap: 5px; }
+@supports (grid-template-rows: subgrid) {
+  .commute-place { grid-row: span 2; grid-template-rows: auto auto; grid-template-rows: subgrid; }
+}
+.highway-sign { display: flex; align-items: center; gap: 2px; padding: 7px 3px; border-radius: 10px; position: relative; min-inline-size: 0; }
+.highway-label { flex: none; writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
+.highway-name { min-inline-size: 0; font-size: clamp(.85rem, .4rem + 2.3vw, 1.75rem); line-height: 1.08; letter-spacing: -.02em; }
+.commute-stop { align-self: start; margin: 0; font-size: 1rem; padding: 7px 8px; line-height: 1.25; }
+.commute-sign-actions { display: flex; align-items: center; gap: 6px; min-inline-size: 0; max-inline-size: 100%; }
+.commute-sign-actions .stop-sign-toggle { min-inline-size: 0; }
+.commute-controls .chip { min-block-size: 44px; }
 /* A soft retroreflective sheen across every sign face. */
 .highway-sign::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(155deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.02) 38%, transparent 55%); }
@@ -67,7 +73,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
 :root[data-skin='turnpike'] .highway-sign { background: var(--sign-bg); color: var(--sign-ink); border: 3px solid var(--sign-rim);
   box-shadow: 0 0 0 4px var(--sign-bg), 0 10px 18px rgba(0, 0, 0, 0.45); margin: 4px; }
-:root[data-skin='turnpike'] .highway-label { display: inline-block; background: var(--accent); color: #111; padding: 1px 8px; border-radius: 4px; letter-spacing: 0.12em; }
+:root[data-skin='turnpike'] .highway-label { display: inline-block; background: var(--accent); color: #111; padding: 4px 2px; border-radius: 4px; letter-spacing: 0.12em; }
 :root[data-skin='turnpike'] .commute-stop { background: var(--plate-bg); color: var(--plate-ink); border-color: #3a4756; margin-left: 4px; margin-right: 4px; }
 :root[data-skin='turnpike'] .route-badge { background: var(--sign-bg); color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 2px var(--sign-bg); border-radius: 7px; }
 :root[data-skin='turnpike'] .route-badge[data-express='true'] { background: var(--accent); color: #111; box-shadow: 0 0 0 2px #111; border-color: #111; }
@@ -79,7 +85,7 @@
 /* ---------- Parkway: forest-green signs with a gold rim, timber plates ---------- */
 :root[data-skin='parkway'] .highway-sign { background: linear-gradient(180deg, #116b45, var(--sign-bg)); color: var(--sign-ink); border: 3px solid var(--sign-rim);
   box-shadow: 0 0 0 3px var(--sign-bg), 0 10px 18px rgba(0, 0, 0, 0.45); margin: 3px; border-radius: 16px; }
-:root[data-skin='parkway'] .highway-label { color: var(--sign-rim); letter-spacing: 0.14em; }
+:root[data-skin='parkway'] .highway-label { background: var(--sign-rim); color: #10261b; letter-spacing: 0.14em; }
 :root[data-skin='parkway'] .commute-stop { background: repeating-linear-gradient(90deg, #2a2418 0 22px, #302819 22px 24px); color: var(--plate-ink); border-color: #4a3d25; margin-left: 3px; margin-right: 3px; }
 :root[data-skin='parkway'] .route-badge { background: var(--sign-bg); color: #fffbea; border: 2px solid var(--sign-rim); box-shadow: none; border-radius: 12px 12px 18px 18px; }
 :root[data-skin='parkway'] .route-badge[data-express='true'] { background: var(--sign-rim); color: #10261b; border-color: #10261b; }
@@ -96,8 +102,8 @@
   box-shadow: 0 10px 18px rgba(0, 0, 0, 0.5); }
 /* A thin taxi-yellow edge along the bottom of each sign. */
 :root[data-skin='nyc'] .highway-sign { border-bottom: 4px solid var(--accent); }
-:root[data-skin='nyc'] .highway-name { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-stretch: normal; text-transform: none; letter-spacing: -0.01em; font-weight: 700; }
-:root[data-skin='nyc'] .highway-label { color: var(--accent); }
+:root[data-skin='nyc'] .highway-name { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-stretch: normal; text-transform: uppercase; letter-spacing: -0.01em; font-weight: 700; }
+:root[data-skin='nyc'] .highway-label { background: var(--accent); color: #111; }
 :root[data-skin='nyc'] .commute-stop { background: var(--plate-bg); color: var(--plate-ink); font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; border-color: #2c2e33; }
 :root[data-skin='nyc'] .route-badge { min-width: 52px; height: 36px; padding: 0 10px; border-radius: 999px; background: var(--accent); color: #111; border: none; box-shadow: none; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
 /* Express: the same tag, outlined, with a checkered taxi stripe along the bottom. */
@@ -185,4 +191,8 @@
 }
 @media (forced-colors: active) {
   :root[data-skin='garden'] .commute-stop, :root[data-skin='garden'] .route-badge { text-shadow: none; }
+}
+
+@media (forced-colors: active) {
+  .highway-label { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
 }

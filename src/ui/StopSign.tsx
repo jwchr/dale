@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
 import { resolveStopScene, STOP_SCENES, stopSceneChoice, stopSignRoutes, type StopSceneChoice } from '../domain/stopSign';
 import type { Strings } from './i18n';
@@ -7,8 +7,8 @@ import './stopSign.css';
 // Import URLs, not image bytes. Only the chosen image is requested after opening.
 const pictures = import.meta.glob('../assets/stop-scenes/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
-export function StopSign({ ds, from, to, routeIds, now, t }: {
-  ds: Dataset; from: Stop; to: Stop; routeIds: string[]; now: number; t: Strings;
+export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
+  ds: Dataset; from: Stop; to: Stop; routeIds: string[]; now: number; t: Strings; actions: (trigger: ReactNode) => ReactNode;
 }) {
   const s = t.stopSign;
   const id = useId();
@@ -19,8 +19,9 @@ export function StopSign({ ds, from, to, routeIds, now, t }: {
   const routes = open ? stopSignRoutes(ds, from.id, to.id, routeIds) : [];
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
-  return <details className="stop-sign" onToggle={e => setOpen(e.currentTarget.open)}>
-    <summary>{s.open}</summary>
+  return <>
+    {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}>{s.open}</button>)}
+    <section id={`${id}-panel`} className="stop-sign" hidden={!open} aria-label={s.title}>
     {open && <div className="stop-sign-content">
       <h3>{s.title}</h3>
       <p><strong>{from.name}</strong><br />{number}<br />{t.selection.towards}: {destination}</p>
@@ -50,5 +51,6 @@ export function StopSign({ ds, from, to, routeIds, now, t }: {
       <p className="small muted">{s.automaticNote}</p>
       <p className="small">{s.note}</p>
     </div>}
-  </details>;
+    </section>
+  </>;
 }
