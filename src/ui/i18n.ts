@@ -4,6 +4,7 @@ import { selectionStrings } from './selectionStrings';
 import { liveStrings } from './liveStrings';
 import { journeyStrings, confidenceStrings } from './journeyStrings';
 import { railEn, railEs } from './railStrings';
+import { stopSignStrings } from './stopSignStrings';
 import type { UncertainReason } from '../domain/rideGuide';
 import type { TripUpdate } from '../domain/tripUpdate';
 export type Lang = 'en' | 'es';
@@ -22,6 +23,7 @@ const en = {
   maps: mapStrings.en,
   journey: journeyStrings.en,
   rail: railEn,
+  stopSign: stopSignStrings.en,
   confidence: confidenceStrings.en,
   appTagline: 'When you ride NJ Transit, you need all the help you can get.',
   demoBanner: 'Demo data: invented stops, times and gates. Do not use it to catch a real bus.',
@@ -615,6 +617,7 @@ const es: Strings = {
   maps: mapStrings.es,
   journey: journeyStrings.es,
   rail: railEs,
+  stopSign: stopSignStrings.es,
   confidence: confidenceStrings.es,
   appTagline: 'Cuando viajas en NJ Transit, necesitas toda la ayuda posible.',
   demoBanner: 'Datos de demostración: paradas, horarios y puertas inventados. No los uses para tomar un autobús real.',

@@ -22,6 +22,7 @@ import { strings, type Lang, type Strings } from './i18n';
 import { BoardingCheck } from './BoardingCheck';
 import { boardingInfo, destinationGroups } from '../domain/stopInfo';
 import { StopChoice } from './StopChoice';
+import { StopSign } from './StopSign';
 import { NearMe } from './NearMe';
 import { Rescue } from './Rescue';
 import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
@@ -665,6 +666,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
           <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
         </div>
       </div>
+      {!editing && leg && from && to && <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t} />}
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
         <div className="edit-row">
           <button onClick={() => onMove(-1)} disabled={first}>↑ {t.moveUp}</button>
