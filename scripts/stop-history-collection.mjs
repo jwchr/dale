@@ -1,4 +1,5 @@
 // Authenticated settings-only stop: no script upload, schedule preparation or NJT call.
+import { waitForReadiness } from './collection-readiness.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { liveApiUrl } from '../src/domain/liveBus.ts';
@@ -13,7 +14,7 @@ export function safeStopFailure(error) {
   if (!(error instanceof StopFailure) || !stages.includes(error.stage) || !reasons.includes(error.reason)) return 'stage=unknown reason=unexpected-failure';
   return `stage=${error.stage} reason=${error.reason}${Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? ` http=${error.status}` : ''}`;
 }
-export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), clock = Date.now } = {}) {
   let stage = 'authorization';
   const failure = (reason, status) => new StopFailure(reason, stage, status);
   try {
@@ -58,9 +59,9 @@ export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms
       throw failure('stop-module-content-changed');
     }
     if (!isDeepStrictEqual(after.runtime, before.runtime)) throw failure('stop-runtime-changed');
-    async function health() {
+    async function health(timeoutMs = 15_000) {
       // Never send the control-plane credential to this public read-only endpoint.
-      const response = await fetchImpl(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
+      const response = await fetchImpl(url + '/v1/collection', { signal: AbortSignal.timeout(timeoutMs), redirect: 'error', cache: 'no-store' });
       if (!response.ok) throw failure('stop-health-unavailable');
       const state = (await response.json()).collection;
       if (!state || state.enabled !== false || state.reason !== 'disabled' || state.alarmAt !== null || state.error) return undefined;
@@ -73,12 +74,7 @@ export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms
       return receipt;
     }
     stage = 'verify-disabled-health';
-    let first;
-    for (let attempt = 0; attempt < 15; attempt++) {
-      first = await health();
-      if (first) break;
-      await sleep(1000);
-    }
+    const first = await waitForReadiness(health, { sleep, clock });
     if (!first) throw failure('stop-disabled-unverified');
     stage = 'verify-stability';
     await sleep(35_000);
