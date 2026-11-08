@@ -70,11 +70,35 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(right.locator('.highway-name')).toMatchAriaSnapshot(`- strong: ${t.commuteNewYork}`);
     await trigger.scrollIntoViewIfNeeded();
     // A tall pill can contain text geometrically while curved corners exclude its final letters.
-    expect(await trigger.evaluate(button => {
-      const range = document.createRange(); range.selectNodeContents(button);
-      return [...range.getClientRects()].filter(line => line.width > 0 && line.height > 0).every(line =>
-        [line.left + 1, line.right - 1].every(x => button.contains(document.elementFromPoint(x, line.bottom - 1))));
-    })).toBe(true);
+    const containment = async (font: string) => {
+      await expect.poll(() => page.locator('header.top').evaluate(header => {
+        const gap = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) - header.getBoundingClientRect().height;
+        return gap >= 0 && gap <= 12;
+      })).toBe(true);
+      await trigger.scrollIntoViewIfNeeded();
+      const observed = await trigger.evaluate(button => {
+        const range = document.createRange(); range.selectNodeContents(button);
+        const points = [...range.getClientRects()].filter(line => line.width > 0 && line.height > 0).flatMap(line =>
+          [line.left + 1, line.right - 1].map(x => {
+            const y = line.bottom - 1, hit = document.elementFromPoint(x, y);
+            return { x, y, contained: button.contains(hit), hit: hit?.tagName, hitClass: hit?.getAttribute('class') };
+          }));
+        return { points, button: button.getBoundingClientRect().toJSON(), header: document.querySelector('header.top')!.getBoundingClientRect().toJSON(), scrollY, viewportHeight: innerHeight };
+      });
+      expect(observed.points.every(point => point.contained), JSON.stringify({ font, observed })).toBe(true);
+    };
+    await containment('native');
+    if (skin === 'turnpike' && lang === 'es') {
+      await trigger.evaluate(button => button.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      await containment('start-aligned-scroll');
+    }
+    if (skin === 'turnpike' && lang === 'es') {
+      for (const font of ['Arial', 'Verdana']) {
+        await page.evaluate(font => { document.body.style.fontFamily = font; }, font);
+        await containment(font);
+      }
+      await page.evaluate(() => { document.body.style.fontFamily = ''; });
+    }
     await reverse.focus();
     await page.keyboard.press('Tab');
     await expect(trigger).toBeFocused();
