@@ -268,3 +268,16 @@ test('onboard fresh GPS stays observed, highlights current not upcoming stop, an
  await expect(strip.locator('[data-current="true"]')).toHaveCount(0);
  await expect(ride.getByTestId('signal-warning')).toContainText('NJ Transit GPS data unavailable — schedule estimates only.');
 });
+
+
+
+for(const stale of [false,true]) test(`missing GPS retains independently fresh departure prediction (stale=${stale})`,async({page})=>{
+ const body=packet(NOW,{observations:stale?packet().observations.map(o=>({...o,observedAt:NOW-600000})):[]});
+ await setup(page,()=>body);
+ const notice=page.getByTestId('live-bus-status');
+ await expect(notice).toContainText('NJ Transit GPS data unavailable.');
+ await expect(notice).toContainText('NJ Transit predicts departure at 7:25 AM');
+ await expect(notice).not.toContainText('schedule estimates only');
+ await expect(notice).not.toContainText('Refreshes about every');
+ await expect(notice.locator('p')).toHaveCount(1);
+});
