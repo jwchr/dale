@@ -79,5 +79,27 @@ test('missing public stop number never substitutes the internal stop ID', async 
   await page.goto('/?live=1');
   await expect(page.locator('.dep').first()).toBeVisible();
   await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
-  await expect(page.locator('.stop-sign-number')).toHaveText(strings.en.selection.numberUnknown);
+  await expect(page.locator('.stop-sign-number')).toHaveText('—');
+});
+
+
+test('physical sign wording stays printed when surrounding UI changes language', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
+  });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset }));
+  await page.route(API + '/v1/departures?**', r => r.abort('failed'));
+  await page.goto('/?live=1');
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
+  const physical = await page.locator('.stop-sign-face').innerText();
+  await expect(page.locator('.stop-sign-face')).toContainText('Bus Stop');
+  await expect(page.locator('.stop-sign-face')).toContainText('New York · Port Authority');
+  await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
+  await page.getByRole('button', { name: 'Español', exact: true }).click();
+  await page.getByRole('button', { name: strings.es.back, exact: true }).click();
+  await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();
+  await expect(page.locator('.stop-sign h3')).toHaveText(strings.es.stopSign.title);
+  expect(await page.locator('.stop-sign-face').innerText()).toBe(physical);
 });

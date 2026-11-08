@@ -1,3 +1,4 @@
+import { strings } from '../../src/ui/i18n';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
@@ -84,7 +85,7 @@ for (const [mode, text] of [
   ['cancelled', 'NJ Transit reports this trip cancelled'],
   ['boarding-skipped', 'skip your boarding stop'],
   ['destination-skipped', 'skip your destination stop'],
-  ['gps-only', 'Live GPS is available: tap this bus, then Lock onto this bus'],
+  ['gps-only', 'GPS location only—no NJ Transit arrival prediction'],
   ['date-unknown', 'NJ Transit omitted the trip date'],
   ['wrong-query', 'Live arrival feed unavailable'],
 ] as const) test(`normal home explains ${mode} without inventing a live arrival`, async ({ page }) => {
@@ -172,13 +173,14 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       const geometry = await button.evaluate(button => {
         const rect = (selector: string) => button.querySelector(selector)!.getBoundingClientRect().toJSON();
         const bounds = button.getBoundingClientRect();
-        return { bounds: bounds.toJSON(), route: rect('.route-badge'), main: rect('.dep-main'), countdown: rect('.dep-right'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
+        return { bounds: bounds.toJSON(), route: rect('.route-badge'), main: rect('.dep-main'), countdown: rect('.dep-right'), boardingColumn: rect('.boarding-clock'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
           textOutside: [...button.querySelectorAll('*')].some(node => node.getBoundingClientRect().right > bounds.right + 1) };
       });
       if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
       else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
       expect(geometry.route.height).toBeGreaterThanOrEqual(44);
-      expect(geometry.countdown.right).toBeLessThanOrEqual(geometry.bounds.right);
+      expect(geometry.countdown.right).toBeLessThanOrEqual(geometry.boardingColumn.right + 1);
+      expect(geometry.countdown.bottom).toBeLessThanOrEqual(geometry.boarding.top);
       expect(geometry.overflow).toBe(0);
       expect(geometry.textOutside).toBe(false);
       if (scale === 100) {
@@ -238,5 +240,5 @@ for (const lang of ['en', 'es'] as const) test(`source age follows the destinati
   await expect(row.locator('.dep-source')).toHaveCount(0);
   await expect(row.locator('.badge-live, .badge-destination-live')).toHaveCount(0);
   await expect(row.locator('.scheduled-warning')).toHaveCount(2);
-  await expect(row.locator('.dep-evidence')).toContainText(lang === 'en' ? 'Live GPS is available' : 'Hay GPS en vivo');
+  await expect(row.locator('.dep-evidence')).toContainText(strings[lang].live.rows.gpsHint);
 });

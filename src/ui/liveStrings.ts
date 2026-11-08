@@ -4,7 +4,7 @@ export const liveStrings = {
       live: 'LIVE ESTIMATE', boardingArrival: 'LIVE ARRIVAL', atYourStop: 'Your stop', scheduleShort: 'Schedule',
       sourceAge: (s: number) => `Prediction by NJ Transit ${s}s ago`, estimateUnavailable: 'Live estimate unavailable',
       notStarted: (time: string) => `No live estimate yet. Scheduled to start its route at ${time}.`,
-      gpsHint: 'Live GPS is available: tap this bus, then Lock onto this bus.', cancelledShort: 'Cancelled', timePassed: 'Time passed',
+      gpsHint: 'GPS location only—no NJ Transit arrival prediction. Tap this bus, then Lock onto this bus.', cancelledShort: 'Cancelled', timePassed: 'Time passed',
       reasons: {
         live: 'Official prediction for your boarding stop.', checking: 'Checking NJ Transit for this stop…', unavailable: 'Live arrival feed unavailable. Showing the schedule.',
         stale: 'The live arrival report is too old. Showing the schedule.', ambiguous: 'NJ Transit reports conflict for this trip. Showing the schedule.',
@@ -36,7 +36,7 @@ export const liveStrings = {
       live: 'ESTIMACIÓN EN VIVO', boardingArrival: 'LLEGADA EN VIVO', atYourStop: 'Tu parada', scheduleShort: 'Horario',
       sourceAge: (s: number) => `Predicción de NJ Transit hace ${s}s`, estimateUnavailable: 'Estimación en vivo no disponible',
       notStarted: (time: string) => `Aún no hay estimación en vivo. Su ruta está programada para empezar a las ${time}.`,
-      gpsHint: 'Hay GPS en vivo: toca este autobús y luego Seguir este autobús.', cancelledShort: 'Cancelado', timePassed: 'Hora pasada',
+      gpsHint: 'Solo ubicación GPS; NJ Transit no ha dado una predicción de llegada. Toca este autobús y luego Seguir este autobús.', cancelledShort: 'Cancelado', timePassed: 'Hora pasada',
       reasons: {
         live: 'Predicción oficial para tu parada de salida.', checking: 'Consultando NJ Transit para esta parada…', unavailable: 'Llegadas en vivo no disponibles. Se muestra el horario.',
         stale: 'El informe de llegada es demasiado antiguo. Se muestra el horario.', ambiguous: 'Los informes de NJ Transit no coinciden. Se muestra el horario.',

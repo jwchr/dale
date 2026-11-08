@@ -8,6 +8,10 @@ Issue #106, existing owner approval: [asset handoff](https://github.com/jwchr/da
 - Routes come only from patterns that permit boarding at this exact origin and later alighting at the saved destination, respecting saved route filters. These are loaded-schedule routes, not a promise that each is running now. The caption tells riders to check departures and match the real sign's number/direction.
 - All dynamic details are accessible HTML outside the decorative illustration. The foreground sign repeats those facts visually; the decorative image/sign group is hidden from screen readers to avoid duplicate announcements. Unknown routes remain unknown.
 
+## Printed wording and app language
+
+Physical sign lettering stays in its source language when the app switches English/Spanish: Bus Stop, verified public stop code (dash if absent), eligible route numbers and New York · Port Authority for the known terminal. Other destinations retain the dataset's proper stop name. The surrounding title, button, instructions and accessible selected-stop explanation still translate. This correction does not claim the current deterministic sign matches the owner's requested original-photo treatment; that photo-faithful replacement remains queued under #113/#106.
+
 ## Approved artwork and crop
 
 The eight metadata-stripped WebPs and their original source manifest are preserved byte-for-byte under `src/assets/stop-scenes`. Unit tests verify every approved size and SHA256. The manifest's original preparation status is historical provenance; this document records integration.

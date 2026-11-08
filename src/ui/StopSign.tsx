@@ -19,6 +19,8 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const scene = open ? resolveStopScene(choice, now) : undefined;
   const routes = open ? stopSignRoutes(ds, from.id, to.id, routeIds) : [];
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
+  // Physical sign wording stays as printed; surrounding controls/explanations translate.
+  const signDestination = to.terminal === 'PABT' ? 'New York · Port Authority' : to.name;
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
   return <>
     {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}>{s.open}</button>)}
@@ -35,10 +37,10 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
             alt="" width="941" height="1672" decoding="async" fetchPriority="low" onError={() => setFailed(true)} />}
           <div className="stop-sign-face">
             <strong className="stop-sign-brand">DALE!</strong>
-            <span>{s.stop}</span>
-            <strong className="stop-sign-number">{from.code || t.selection.numberUnknown}</strong>
+            <span>Bus Stop</span>
+            <strong className="stop-sign-number">{from.code || '—'}</strong>
             <div className="stop-sign-route-tags">{routes.map(route => <strong key={route}>{route}</strong>)}</div>
-            <span>{destination}</span>
+            <span>{signDestination}</span>
           </div>
         </div>
         <figcaption>{s.illustration}</figcaption>
