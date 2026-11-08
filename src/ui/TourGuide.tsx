@@ -14,7 +14,7 @@ export function TourGuide({ t, lang }: { t: Strings; lang: Lang }) {
       <h2 id={`${id}-title`}>{g.title}</h2>
       <p>{g.intro}</p>
       <p className="small muted">{g.note}</p>
-      <ol className="tour-cards">
+      <ol className="tour-cards" role="list">
         {tourPlaces.map(place => <li key={place.id}>
           <article className="tour-card" aria-labelledby={`${id}-${place.id}`}>
             <h3 id={`${id}-${place.id}`}>{place.name[lang]}</h3>

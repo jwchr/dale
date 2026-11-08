@@ -28,6 +28,9 @@ for (const lang of ['en', 'es'] as const) test(`manual Tour guide has sourced lo
   await expect(guide).toHaveAttribute('open', '');
   await expect(guide.getByRole('heading', { name: t.tour.title, exact: true })).toBeVisible();
   await expect(guide.getByRole('article')).toHaveCount(3);
+  const catalog = guide.getByRole('list');
+  await expect(catalog).toHaveAttribute('role', 'list'); // Explicit Safari fallback for markerless grid lists.
+  await expect(catalog.getByRole('listitem')).toHaveCount(3);
   const first = guide.getByRole('article').first();
   await expect(first).toContainText(lang === 'en' ? 'militia training' : 'entrenamiento de milicias');
   await expect(guide).toContainText('42 Court Street');
