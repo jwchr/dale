@@ -21,9 +21,10 @@ for (const lang of ['en', 'es'] as const) test(`phone Bus/Train switch retains f
   const modes = page.getByRole('navigation', { name: j.compare });
   await expect(modes.getByRole('button', { name: j.busMode, exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.penn-open')).toHaveCount(0);
-  const favorites = await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'));
+  const favorites = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!));
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: t.lockBus, exact: true }).click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).not.toBeNull();
   const locked = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.lock.v1.g2')!));
   await page.getByRole('button', { name: t.back, exact: true }).click();
   const train = modes.getByRole('button', { name: j.trainMode, exact: true });
@@ -39,7 +40,8 @@ for (const lang of ['en', 'es'] as const) test(`phone Bus/Train switch retains f
   await train.click();
   await expect(page.getByRole('combobox', { name: j.station, exact: true })).toHaveValue('essex');
   await expect(page.getByText(j.step(2, 5), { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'))).toBe(favorites);
+  // Loading normalizes object key order; every saved value and the array order must survive.
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.lock.v1.g2')!))).toMatchObject({
     dep: locked.dep, leg: locked.leg, session: { id: locked.session.id, phase: locked.session.phase,
       lock: { tripInstanceId: locked.session.lock.tripInstanceId, lockedAt: locked.session.lock.lockedAt } },
