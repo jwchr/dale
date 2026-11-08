@@ -12,7 +12,7 @@ beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), 'dale-history-runtime-'));
   const fixture = spawn(process.execPath, ['scripts/worker-fixture.mjs'], { stdio: 'ignore' });
   await new Promise<void>((resolve, reject) => { fixture.once('error', reject); fixture.once('exit', n => n === 0 ? resolve() : reject(new Error('Synthetic fixture failed'))); });
-  child = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev', '--config', 'worker/wrangler-history-test.jsonc', '--local', '--ip', '127.0.0.1', '--port', String(port), '--persist-to', directory], {
+  child = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev', '--config', 'worker/wrangler-history-test.jsonc', '--local', '--ip', '127.0.0.1', '--port', String(port), '--inspector-port', '0', '--persist-to', directory], {
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = ''; child.stdout?.on('data', s => { output += s; }); child.stderr?.on('data', s => { output += s; });
