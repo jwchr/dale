@@ -24,7 +24,8 @@ import { boardingInfo, destinationGroups } from '../domain/stopInfo';
 import { StopChoice } from './StopChoice';
 import { NearMe } from './NearMe';
 import { Rescue } from './Rescue';
-import { PennGuide } from './PennGuide';
+import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
+import { TravelModeSelector } from './TravelModeSelector';
 import { RiderGuide } from './RiderGuide';
 import { TicketGuide } from './TicketGuide';
 import { SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
@@ -50,7 +51,7 @@ type Screen =
   | { name: 'departure'; dep: Departure; leg: Leg }
   | { name: 'settings' }
   | { name: 'guide' }
-  | { name: 'penn' }
+  | { name: 'penn'; railOnly?: boolean }
   | { name: 'boarding'; dep: Departure; leg: Leg }
   | { name: 'rescue'; fromStopId: string; homeStopId: string; usualRouteId?: string; label: 'home' | 'other' };
 
@@ -173,6 +174,7 @@ type AvailableGuide = 'guide' | 'penn';
 export function App() {
   const [data, retry] = useDataset();
   const [guide, setGuide] = useState<AvailableGuide | undefined>();
+  const journey = useJourneyChecklist(sourceParams.has('demo') || (data.status === 'ready' && !!data.ds.meta.demo));
   const returning = useRef(false);
   useEffect(() => {
     if (returning.current && !guide && data.status === 'ready') {
@@ -182,13 +184,13 @@ export function App() {
     }
   }, [guide, data.status]);
   if (data.status !== 'ready' || guide) return <LoadScreen status={data.status} onRetry={retry} guide={guide}
-    onGuide={setGuide} onBack={() => { returning.current = true; setGuide(undefined); }} />;
-  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} />;
+    journey={journey} onGuide={(value) => { if (value === 'penn') journey.selectMode('train'); setGuide(value); }} onBack={() => { returning.current = true; setGuide(undefined); }} />;
+  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} journey={journey} />;
 }
 
-function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
+function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   status: DatasetState['status']; onRetry: () => void; guide?: AvailableGuide;
-  onGuide: (guide: AvailableGuide) => void; onBack: () => void;
+  onGuide: (guide: AvailableGuide) => void; onBack: () => void; journey: JourneyModel;
 }) {
   const [settings, setSettings] = useSettings();
   const t = strings[settings.lang];
@@ -216,6 +218,8 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
         </div>
       </header>
       <main ref={content}>
+        <TravelModeSelector mode={guide === 'penn' ? 'train' : 'bus'} t={t} trainRef={pennButton}
+          onChange={(mode) => { if (mode === 'train') onGuide('penn'); else onBack(); }} />
         {liveMode && <p><a className="link" href={sourceHref(false)}>{t.live.backup}</a></p>}
         <div className="warn">
           <p role={status === 'error' ? 'alert' : 'status'}>{status === 'error' ? t.loadFailed : status === 'ready' ? t.scheduleReady : t.loading}</p>
@@ -225,17 +229,16 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack }: {
         {!guide && <section className="card"><h1>{t.offlineHelp}</h1><p>{t.offlineHelpNote}</p>
           <div className="choice-list">
             <button ref={busButton} onClick={() => onGuide('guide')}>{t.guide.title}</button>
-            <button ref={pennButton} onClick={() => onGuide('penn')}>{t.journey.title}</button>
           </div>
         </section>}
         {guide === 'guide' && <RiderGuide t={t} />}
-        {guide === 'penn' && <PennGuide t={t} />}
+        {guide === 'penn' && <PennGuide t={t} model={journey} railOnly />}
       </main>
     </div>
   );
 }
 
-function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined }) {
+function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; journey: JourneyModel }) {
   const tz = ds.meta.timezone;
   const [activeLock, setActiveLock] = useState<ActiveLock | undefined>();
   /** A lock saved on this phone before a refresh or close, offered back (never resumed silently). */
@@ -345,6 +348,11 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
       <FeedStatus ctx={ctx} />
       {ds.meta.transcribed && isNjtHoliday(localYmd(now, tz)) && <p className="status-line" data-level="warn" role="note">{t.holidayToday}</p>}
       <main>
+        {(screen.name === 'home' || (screen.name === 'penn' && screen.railOnly)) && <TravelModeSelector
+          mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
+            if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
+            else if (screen.name === 'penn') back();
+          }} />}
         {resumable && !activeLock && <aside className="lock-return" role="note">
           <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
@@ -358,7 +366,7 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
           </button>
         </aside>}
         {liveBus && activeLock && lockOnScreen && <LiveBusStatus state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
-        {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} />}
+        {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
             onSearch={() => setScreen({ name: 'search' })}
@@ -376,7 +384,6 @@ function Main({ ds, fromCache, savedAt }: { ds: Dataset; fromCache?: boolean | u
           {liveMode && <><p>{t.live.intro}</p><p className="small">{t.live.privacy}</p><p className="small">{t.live.limits}</p></>}
           <a className="link" href={sourceHref(!liveMode)}>{liveMode ? t.live.backup : t.live.open}</a>
         </details>}
-        {screen.name === 'home' && <button className="primary wide penn-open" onClick={() => setScreen({ name: 'penn' })}>{t.journey.open}</button>}
         {screen.name === 'search' && (
           <Search ctx={ctx} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
         )}

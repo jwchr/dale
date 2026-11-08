@@ -16,14 +16,14 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   await page.addInitScript((language) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: language })), lang);
   await page.goto('/?now=2026-11-04T07:50');
   const j = strings[lang].journey;
-  await page.getByRole('button', { name: j.open }).click();
+  await page.getByRole('button', { name: j.trainMode }).click();
   await expect(page.getByText(j.practiceNote)).toBeVisible();
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
   await page.getByRole('button', { name: j.returning, exact: true }).click();
   await page.getByRole('button', { name: j.next, exact: true }).click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeFocused();
   await page.getByRole('button', { name: j.returning, exact: true }).click();
-  await page.getByRole('button', { name: j.train, exact: true }).click();
+  await page.getByRole('button', { name: j.trainMode, exact: true }).click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeVisible();
   await page.getByText(j.walks, { exact: true }).click();
   await page.getByLabel(j.walkLabel(j.stations.essex)).fill('7');
@@ -31,13 +31,14 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   expect(violations).toEqual([]);
   await expect(page.getByRole('link', { name: j.tickets })).toHaveAttribute('href', 'https://webtickets.njtransit.com/');
   await page.reload();
-  await page.getByRole('button', { name: j.open }).click();
+  await page.getByRole('button', { name: j.trainMode }).click();
   await expect(page.getByRole('combobox', { name: j.station, exact: true })).toHaveValue('essex');
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeVisible();
   await page.getByText(j.walks, { exact: true }).click();
   await expect(page.getByLabel(j.walkLabel(j.stations.essex))).toHaveValue('7');
-  await page.getByRole('button', { name: j.bus, exact: true }).click();
-  await expect(page.getByText(j.step(1, 5), { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: j.busMode, exact: true }).click();
+  await page.getByRole('button', { name: j.trainMode, exact: true }).click();
+  await expect(page.getByText(j.step(2, 5), { exact: true })).toBeVisible();
 });
 test('GPS loss and an overdue wait offer alternatives while preserving the exact bus', async ({ page }) => {
   await demoTrip(page);
@@ -89,7 +90,7 @@ test('malformed saved lock is removed and does not blank the app', async ({ page
   await page.getByRole('button', { name: 'Lock onto this bus' }).click();
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('arriba.lock.v1')!); s.dep.pattern.stopIds = null; localStorage.setItem('arriba.lock.v1', JSON.stringify(s)); });
   await page.reload();
-  await expect(page.getByRole('button', { name: strings.en.journey.open })).toBeVisible();
+  await expect(page.getByRole('button', { name: strings.en.journey.trainMode })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1'))).toBeNull();
 });
 

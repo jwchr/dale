@@ -348,7 +348,11 @@ main { flex: 1; padding-bottom: 24px; }
 .signal-warning { border: 3px solid #ffca60; background: #241b0c; color: #fff5df; padding: 1rem; margin: 1rem 0; border-radius: .6rem; }
 .signal-warning strong { display: block; font-size: 1.2rem; line-height: 1.4; font-weight: 900; }
 .signal-warning p { margin: .5rem 0 0; }
-.penn-open { margin-bottom: 1rem; }
+.travel-mode { display: flex; gap: 4px; padding: 4px; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); width: fit-content; max-width: 100%; }
+.travel-mode button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; min-width: 108px; padding: 7px 12px; border: 2px solid transparent; border-radius: 10px; background: transparent; color: var(--text); font-weight: 750; }
+.travel-mode button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: currentColor; }
+.travel-mode svg { width: 40px; height: 26px; flex: none; }
+@media (forced-colors: active) { .travel-mode button[aria-pressed="true"] { border-color: Highlight; color: Highlight; } }
 .penn-guide select { display: block; width: 100%; margin: .5rem 0; }
 .penn-guide fieldset { margin-top: 1rem; border: 0; padding: 0; }
 .journey-step { border-left: .35rem solid var(--accent, #f6ba56); }

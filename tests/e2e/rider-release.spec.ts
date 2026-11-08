@@ -51,9 +51,9 @@ test('one local photo is held across navigation; failed image retains original a
   await page.emulateMedia({ forcedColors: 'active' }); await expect(page.locator('.skin-backdrop')).toBeHidden();
 });
 
-for (const mode of ['BUS', 'Train via Secaucus']) test(`New York direction is consistent for ${mode}`, async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50'); await page.locator('.penn-open').click();
-  await page.getByRole('button', { name: mode, exact: true }).click();
+test('rail heading uses New York while station instructions retain New York Penn', async ({ page }) => {
+  await page.goto('/?now=2026-11-04T07:50'); await page.getByRole('button', { name: 'Train', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Hackensack ↔ New York', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'NEW YORK', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'BUS', exact: true })).toBeVisible();
+  await expect(page.locator('.journey-step')).toContainText('New York Penn');
 });

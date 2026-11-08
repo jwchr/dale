@@ -1,6 +1,6 @@
 // Rider-facing copy is composed into i18n.ts; public sources are listed in docs/PENN_GUIDE.md.
 const en = {
-  open: 'Penn Station: bus or train', title: 'Hackensack ↔ New York Penn', intro: 'One journey, one step at a time. Preview the trip before you leave, or use the checklist while travelling.',
+  busMode: 'Bus', trainMode: 'Train', railUnavailable: 'Train guidance only · Live train predictions and current train departures are not connected.', title: 'Hackensack ↔ New York', intro: 'One journey, one step at a time. Preview the trip before you leave, or use the checklist while travelling.',
   scope: '165T · 163/164 at Summit & Essex · 165 local · Anderson Street / Essex Street trains',
   compare: 'Choose how to travel', train: 'Train via Secaucus', bus: 'BUS',
   trainSummary: 'Change trains once at Secaucus Junction to reach New York Penn. Anderson Street and Essex Street serve the same Pascack Valley Line.',
@@ -52,7 +52,7 @@ const en = {
   ],
 };
 const es: typeof en = {
-  open: 'Penn Station: autobús o tren', title: 'Hackensack ↔ New York Penn', intro: 'Un viaje, paso a paso. Practica antes de salir o usa la lista durante el viaje.',
+  busMode: 'Autobús', trainMode: 'Tren', railUnavailable: 'Solo guía de tren · No hay conexión a predicciones en vivo ni a salidas actuales de trenes.', title: 'Hackensack ↔ Nueva York', intro: 'Un viaje, paso a paso. Practica antes de salir o usa la lista durante el viaje.',
   scope: '165T · 163/164 en Summit y Essex · 165 local · Trenes de Anderson Street / Essex Street',
   compare: 'Elige cómo viajar', train: 'Tren vía Secaucus', bus: 'AUTOBÚS',
   trainSummary: 'Cambia de tren una vez en Secaucus Junction para llegar a New York Penn. Anderson Street y Essex Street pertenecen a la misma línea Pascack Valley.',

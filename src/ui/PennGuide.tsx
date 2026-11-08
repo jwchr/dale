@@ -3,14 +3,35 @@ import { initialChecklist, readChecklist, saveChecklist, STATIONS, type JourneyC
 import type { Strings } from './i18n';
 
 const stationUrls = { anderson: 'https://www.njtransit.com/station/anderson-street-station', essex: 'https://www.njtransit.com/station/essex-street-station-pvl' };
-export function PennGuide({ t, demo = false }: { t: Strings; demo?: boolean }) {
-  const j = t.journey;
+/** Lives above screen navigation, so even blocked storage cannot erase progress on a mode switch. */
+export function useJourneyChecklist(demo: boolean) {
   const storage = (() => { try { return window.localStorage; } catch { return undefined; } })();
   const [state, setState] = useState(() => demo ? initialChecklist() : readChecklist(storage));
   const [saved, setSaved] = useState(false);
+  const previousDemo = useRef(demo);
+  const modes = useRef<Partial<Record<JourneyChecklist['mode'], JourneyChecklist>>>({});
+  useEffect(() => {
+    if (demo !== previousDemo.current) {
+      previousDemo.current = demo; modes.current = {};
+      setState(demo ? initialChecklist() : readChecklist(storage));
+    }
+  }, [demo, storage]);
+  useEffect(() => { if (!demo) setSaved(saveChecklist(storage, state)); }, [state, storage, demo]);
+  const selectMode = (mode: JourneyChecklist['mode']) => setState(current => {
+    if (current.mode === mode) return current;
+    modes.current[current.mode] = current;
+    return modes.current[mode] ?? (demo ? { ...initialChecklist(), mode } : readChecklist(storage, mode));
+  });
+  return { state, setState, saved, selectMode };
+}
+export type JourneyModel = ReturnType<typeof useJourneyChecklist>;
+export function PennGuide({ t, demo = false, model, railOnly = false }: {
+  t: Strings; demo?: boolean; model: JourneyModel; railOnly?: boolean;
+}) {
+  const j = t.journey;
+  const { state, setState, saved, selectMode } = model;
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const [focusStep, setFocusStep] = useState(false);
-  useEffect(() => { if (!demo) setSaved(saveChecklist(storage, state)); }, [state, storage, demo]);
   useEffect(() => { if (focusStep) { stepHeading.current?.focus(); setFocusStep(false); } }, [focusStep]);
   const select = (patch: Partial<JourneyChecklist>) => setState((s) => Object.entries(patch).every(([key, value]) => s[key as keyof JourneyChecklist] === value) ? s : { ...s, ...patch, step: 0 });
   const station = j.stations[state.station];
@@ -19,13 +40,13 @@ export function PennGuide({ t, demo = false }: { t: Strings; demo?: boolean }) {
   const step = steps[state.step]!;
   const move = (n: number) => { setState((s) => ({ ...s, step: n })); setFocusStep(true); };
   return <section className="penn-guide">
-    <h1>{j.title}</h1><p>{j.intro}</p><p className="small">{j.scope}</p>
+    <h1>{j.title}</h1>{state.mode === 'train' && <p className="status-line" role="note">{j.railUnavailable}</p>}<p>{j.intro}</p><p className="small">{j.scope}</p>
     <div className="card">
-      <h2>{j.compare}</h2>
-      <div className="choice-list">
-        <button className="chip" aria-pressed={state.mode === 'train'} onClick={() => select({ mode: 'train' })}>{j.train}</button>
-        <button className="chip" aria-pressed={state.mode === 'bus'} onClick={() => select({ mode: 'bus' })}>{j.bus}</button>
-      </div>
+      <h2>{railOnly ? j.train : j.compare}</h2>
+      {!railOnly && <div className="choice-list">
+        <button className="chip" aria-pressed={state.mode === 'train'} onClick={() => selectMode('train')}>{j.train}</button>
+        <button className="chip" aria-pressed={state.mode === 'bus'} onClick={() => selectMode('bus')}>{j.bus}</button>
+      </div>}
       <p>{state.mode === 'train' ? j.trainSummary : j.busSummary}</p>
 
       {state.mode === 'train' && <label>{j.station}<select value={state.station} onChange={(e) => select({ station: e.target.value as JourneyChecklist['station'] })}>
