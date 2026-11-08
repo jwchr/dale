@@ -10,7 +10,9 @@ it('actual pinned Wrangler dry-run output including its known README binds to th
   const temporary=mkdtempSync(join(tmpdir(),'dale-real-upload-proof-'));
   try {
     writeFileSync(join(temporary,'index.js'),'export default {fetch(){return new Response("SYNTHETIC")}};');
-    writeFileSync(join(temporary,'wrangler.json'),JSON.stringify({name:'dale-live',main:'index.js',compatibility_date:'2026-11-06',compatibility_flags:['nodejs_compat'],upload_source_maps:false}));
+    const productionConfig=JSON.parse(readFileSync(resolve('worker/wrangler.jsonc'),'utf8'));
+    expect(productionConfig.upload_source_maps).toBe(false);
+    writeFileSync(join(temporary,'wrangler.json'),JSON.stringify({name:'dale-live',main:'index.js',compatibility_date:'2026-11-06',compatibility_flags:['nodejs_compat'],upload_source_maps:productionConfig.upload_source_maps}));
     const out=join(temporary,'output');
     const compile=spawnSync(process.execPath,[resolve('node_modules/wrangler/bin/wrangler.js'),'deploy','--dry-run','--config',join(temporary,'wrangler.json'),'--outdir',out],{
       env:{PATH:process.env.PATH,WRANGLER_SEND_METRICS:'false',WRANGLER_LOG:'error'},encoding:'utf8',timeout:30000,

@@ -35,7 +35,7 @@ async function run() {
   try { config = JSON.parse(readFileSync(new URL('../worker/wrangler.jsonc', import.meta.url), 'utf8')); }
   catch { throw workerProofError('hosting-config-preflight-failed'); }
   const existingNames = ['FEED', 'HISTORY_ARCHIVE', 'NJT_API_USERNAME', 'NJT_API_PASSWORD', 'HISTORY_COLLECTION'];
-  if (config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled'
+  if (config.upload_source_maps !== false || config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled'
     || config.compatibility_date !== before.runtime.compatibility_date
     || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
     || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
