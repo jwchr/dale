@@ -2,6 +2,9 @@
 
 Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
 
+## Current cadence lifecycle repair (#91)
+- Actual first test42483555788 failed by original expiry, with no lease/sample established; normalON collection stayed healthy. An expired inert setting remains for separate preservation-qualified cleanup. Same sole builder repairs constructor/update deferral using exact-verified-version immediate adoption and actual persisted lease proof, without public controls/newpoller/stop/renewal. Independent review additionally requires durable interrupted-attempt quality and pacing recovery; bounded pending details now survive refusal/rollback until atomic immutable-batch acknowledgment. Original R2 ambiguity/reservation/no-prune safeguards remain. Full verification/review/CI/operator cleanup/deploy/actual actor marker precede any first valid sample. Permanent rate remains30seconds pending Jeff; no actual result claimed.
+
 ## Owner-authorized short cadence test (#91)
 - Jeff now authorizes exactly three minutes at5second pacing, then automatic30seconds; no lasting-rate adjustment without his decision and no extension without asking. Same sole builder implements a persisted one-shot absolute expiry and36attempt cap, same refresh owner/native alarm/token/budget/original census. Protected-main manual settings control verifies full program/runtime/other bindings, never stops recording, and leaves existing safeguards intact. Existing health returns whitelisted bounded aggregates only; private pervehicle clocks omitted, original archives unchanged. No actual test or result yet; independent review/CI and operator activation remain required after current UI121 gate.
 

@@ -51,6 +51,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, await historyContextKey(ds));
             this.journal.setEnabled(env.HISTORY_COLLECTION === 'enabled', clock());
             this.journal.setCadenceTest(env.HISTORY_CADENCE_TEST_UNTIL, clock());
+            // A reset can happen before refresh persists its cache. The durable
+            // attempt reservation remains the conservative shared pace anchor.
+            this.saved.pollAt = Math.max(this.saved.pollAt, this.journal.status(clock()).lastAttemptAt ?? 0);
             if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
             if (env.HISTORY_COLLECTION !== 'enabled') {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
