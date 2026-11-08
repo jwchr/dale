@@ -7,7 +7,7 @@ import type { DepartureBatch, DepartureRequest, DepartureReport } from '../../sr
 const API = 'https://dale-live.test.workers.dev';
 const captureCards = process.env.DALE_CAPTURE_VISUALS === '1';
 const favorite = { id: 'home-live', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
-type Mode = 'boarding-arrival' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
+type Mode = 'boarding-arrival' | 'arrival-only-gps' | 'passed-arrival-gps' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
 function response(queries: DepartureRequest[], mode: Mode, now: number): DepartureBatch {
   const observedAt = mode === 'stale' ? now - 180_000 : now - 20_000;
   const items: DepartureReport[] = queries.map(query => {
@@ -17,6 +17,7 @@ function response(queries: DepartureRequest[], mode: Mode, now: number): Departu
     if (mode === 'boarding-skipped') return { ...common, boardingSkipped: true };
     if (mode === 'destination-skipped') return { ...common, destinationSkipped: true };
     if (mode === 'boarding-arrival') return { ...common, boardingArrival: { stopIndex: query.stopIndex, at: now + 300_000, observedAt, kind: 'arrival' } };
+    if (mode === 'arrival-only-gps' || mode === 'passed-arrival-gps') return { ...common, gpsObservedAt: now - 15_000, ...(mode === 'passed-arrival-gps' ? { departure: { stopIndex: query.stopIndex, at: now - 60_000, observedAt, kind: 'departure' as const } } : {}), arrival: { stopIndex: query.toStopIndex, at: now + 2400_000, observedAt, kind: 'arrival' } };
     if (mode === 'arrival-only') return { ...common, arrival: { stopIndex: query.toStopIndex, at: now + 2400_000, observedAt, kind: 'arrival' } };
     if (mode === 'gps-only') return { ...common, gpsObservedAt: now - 15_000 };
     if (mode === 'date-unknown') return { ...common, problem: 'date-unknown' };
@@ -85,7 +86,7 @@ for (const [mode, text] of [
   ['cancelled', 'NJ Transit reports this trip cancelled'],
   ['boarding-skipped', 'skip your boarding stop'],
   ['destination-skipped', 'skip your destination stop'],
-  ['gps-only', 'GPS location only—no NJ Transit arrival prediction'],
+  ['gps-only', 'GPS available; no current NJ Transit prediction for your boarding stop'],
   ['date-unknown', 'NJ Transit omitted the trip date'],
   ['wrong-query', 'Live arrival feed unavailable'],
 ] as const) test(`normal home explains ${mode} without inventing a live arrival`, async ({ page }) => {
@@ -241,4 +242,26 @@ for (const lang of ['en', 'es'] as const) test(`source age follows the destinati
   await expect(row.locator('.badge-live, .badge-destination-live')).toHaveCount(0);
   await expect(row.locator('.scheduled-warning')).toHaveCount(2);
   await expect(row.locator('.dep-evidence')).toContainText(strings[lang].live.rows.gpsHint);
+});
+
+
+for (const lang of ['en', 'es'] as const) for (const mode of ['arrival-only-gps', 'passed-arrival-gps'] as const) test(`GPS wording qualifies the boarding stop while retaining destination prediction (${lang}, ${mode})`, async ({ page }) => {
+  const state = await setup(page, { lang, now: NOW - 300_000 });
+  state.mode = mode; state.now += 31_000;
+  await page.clock.fastForward(31_000);
+  const row = current(page);
+  await expect(row).toHaveAttribute('data-arrival-kind', mode === 'passed-arrival-gps' ? 'passed' : 'no-prediction');
+  await expect(row.locator('.boarding-clock .badge-sched')).toHaveText(strings[lang].scheduledOnly);
+  await expect(row.locator('.boarding-clock .badge-live')).toHaveCount(0);
+  await expect(row.locator('.destination-clock .badge-destination-live')).toHaveText(strings[lang].live.rows.live);
+  await expect(row.locator('.destination-clock .dep-arrival-time')).toHaveText(lang === 'en' ? '7:55 AM' : '7:55 a.m.');
+  await expect(row.locator('.dep-source')).toHaveText(lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s');
+  await expect(row.locator('.dep-evidence')).toContainText(lang === 'en' ? 'your boarding stop' : 'tu parada de salida');
+  await expect(row.locator('.dep-evidence')).not.toContainText(lang === 'en' ? 'GPS location only—no NJ Transit arrival prediction' : 'Solo ubicación GPS; NJ Transit no ha dado una predicción de llegada');
+  await expect(row.locator('.dep-evidence')).toContainText(strings[lang].live.rows.gpsHint);
+  await row.getByRole('button').click();
+  await expect(page.getByRole('button', { name: strings[lang].lockBus, exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).toBeNull();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual([favorite]);
+  expect(state.trackerCalls).toBe(0);
 });
