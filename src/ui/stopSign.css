@@ -1,0 +1,15 @@
+.stop-sign { margin: .6rem 0; }
+.stop-sign summary { cursor: pointer; min-height: 44px; display: list-item; padding: .7rem .3rem; }
+.stop-sign-content { border: 1px solid var(--line); border-radius: 12px; padding: .75rem; }
+.stop-sign-content h3 { margin-top: 0; }
+.stop-sign-content figure { margin: 1rem 0; }
+.stop-sign-content figcaption { font-size: .875rem; margin-top: .5rem; }
+.stop-sign-content select { display: block; width: 100%; min-height: 44px; margin-top: .5rem; }
+.stop-sign-art { position: relative; isolation: isolate; overflow: hidden; padding: 1.5rem .75rem; border-radius: 12px; background: #243e50; }
+.stop-sign-art > img { position: absolute; top: 0; left: 0; width: 250%; max-width: none; height: auto; z-index: -1; clip-path: inset(0 0 10% 0); }
+.stop-sign-face { display: flex; flex-direction: column; align-items: center; gap: .75rem; max-width: 18rem; margin: auto; padding: 1rem .5rem; background: #fffefa; color: #173b57; border: 6px solid #fffefa; outline: 2px solid #173b57; border-radius: 12px; text-align: center; overflow-wrap: anywhere; box-shadow: 0 3px 10px #0006; }
+.stop-sign-brand { font-size: 1.6rem; border-bottom: 6px solid #ce662d; width: 100%; padding-bottom: .5rem; }
+.stop-sign-number { font-size: clamp(1.5rem, 6vw, 2.25rem); }
+.stop-sign-route-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
+.stop-sign-route-tags strong { background: #173b57; color: #fffefa; padding: .35rem .5rem; border-radius: 6px; }
+@media (forced-colors: active) { .stop-sign-art > img { display: none; } .stop-sign-face { border-color: CanvasText; outline-color: CanvasText; } }
