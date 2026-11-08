@@ -26,8 +26,10 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
       {name:'OTHER',type:'plain_text',text:'preserved'},
       {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'}
     ];
+    let elapsed = 0;
+    if (scenario === 'delayed-off') Date.now = () => 1_000_000 + elapsed;
     const realTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = (fn,ms,...args) => realTimeout(fn, ms >= 1000 ? 0 : ms, ...args);
+    globalThis.setTimeout = (fn,ms,...args) => { if (scenario === 'delayed-off' && ms >= 1000) elapsed += ms; return realTimeout(fn, ms >= 1000 ? 0 : ms, ...args); };
     globalThis.fetch = async (input, options = {}) => {
       const url = new URL(input);
       assert.equal(options.redirect,'error');
@@ -36,7 +38,7 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
         assert.equal(options.headers,undefined);
         assert.ok(patched);
         healthReads++;
-        return Response.json({collection:{enabled:scenario === 'enabled-health', reason:scenario === 'enabled-health'?'collecting':'disabled',alarmAt:scenario === 'alarm'?1:null,observations:healthReads > 1 && scenario === 'advancing'?2:1,batches:1,bytes:123,lastAttemptAt:100,completedAttempt:100}});
+        return Response.json({collection:{enabled:scenario === 'enabled-health' || scenario === 'delayed-off' && elapsed < 30_000, reason:scenario === 'enabled-health' || scenario === 'delayed-off' && elapsed < 30_000?'collecting':'disabled',alarmAt:scenario === 'alarm'?1:null,observations:healthReads > 1 && scenario === 'advancing'?2:1,batches:1,bytes:123,lastAttemptAt:100,completedAttempt:100}});
       }
       assert.equal(url.origin,'https://api.cloudflare.com');
       assert.equal(options.headers.Authorization,'Bearer synthetic-token');
@@ -78,7 +80,7 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
     if (inspect) process.argv[2]='--inspect';
     await import(${JSON.stringify(entry)});
     if (inspect) { assert.equal(patchCount,0); assert.equal(healthReads,0); }
-    else if (!process.exitCode) { assert.equal(patchCount,1); assert.equal(healthReads,2); }
+    else if (!process.exitCode) { assert.equal(patchCount,1); assert.equal(healthReads,scenario === 'delayed-off'?32:2); if(scenario==='delayed-off')assert.equal(elapsed,65_000); }
   `], { env: { NODE_NO_WARNINGS:'1', GITHUB_EVENT_NAME:'workflow_dispatch', GITHUB_REF:'refs/heads/main', GITHUB_REPOSITORY:'jwchr/dale', HISTORY_COLLECTION_MODE:'disabled', CLOUDFLARE_API_TOKEN:'synthetic-token', CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32), DALE_WORKER_URL:'https://dale-live.synthetic.workers.dev' }, encoding:'utf8', timeout:10_000 });
 }
 it.each([stop, deploy])('native disabled entrypoint %s stops without NJT, static preparation or deployment', entry => {
@@ -178,3 +180,5 @@ it('actual stop reports filename-only mismatch as booleans and still refuses it'
   expect(r.stderr).toContain('reason=stop-module-content-changed');
   expect(r.stderr).not.toMatch(/transport-name|synthetic-token|index\.js|original-code-hash/);
 });
+
+it('native active-to-off propagation may take30seconds, then requires35seconds of stable OFF',()=>{const r=run('delayed-off');expect(r.error).toBeUndefined();expect(r.status).toBe(0);expect(r.stderr).toBe('');expect(r.stdout).toContain('counters unchanged across 35 seconds');});

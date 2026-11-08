@@ -1,4 +1,5 @@
 // Manual main-only deployment. Secret values and raw CLI/API errors never leave the runner.
+import { waitForReadiness } from './collection-readiness.mjs';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,13 +94,14 @@ async function run() {
   if (collectionMode === 'enabled') {
     // Read-only collection health does not create a demand observation. Wait for
     // the native alarm's independently verified context+evidence archive.
-    for (let attempt = 0; attempt < 15 && !(collection?.archive?.reason === 'ready'
-      && collection.archive.verifiedObjects >= 2 && collection.archive.lastSuccessAt >= deploymentStartedAt); attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const check = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(10_000), redirect: 'error', cache: 'no-store' });
+    const ready = state => state?.archive?.configured === true && state.archive.reason === 'ready'
+      && state.archive.verifiedObjects >= 2 && state.archive.lastSuccessAt >= deploymentStartedAt && state.scheduleContextStored;
+    if (!ready(collection)) collection = await waitForReadiness(async timeoutMs => {
+      const check = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(timeoutMs), redirect: 'error', cache: 'no-store' });
       if (!check.ok) throw workerProofError('collection-health-failed');
-      collection = (await check.json()).collection;
-    }
+      const current = (await check.json()).collection;
+      return ready(current) ? current : undefined;
+    });
     if (collection?.archive?.configured !== true || collection.archive.reason !== 'ready' || collection.archive.verifiedObjects < 2
       || collection.archive.lastSuccessAt < deploymentStartedAt || !collection.scheduleContextStored) throw workerProofError('archive-readback-unverified');
   }
