@@ -1,3 +1,5 @@
+import { changeFavoriteStops } from '../domain/cityStops';
+import { CommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
@@ -50,6 +52,7 @@ interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
   | { name: 'home' }
   | { name: 'search' }
+  | { name: 'commute'; favoriteId: string; reversed: boolean; end: CommutePickEnd; level: 'city' | 'stop' }
   | { name: 'timetable'; leg: Leg; title: string; date?: string }
   | { name: 'departure'; dep: Departure; leg: Leg }
   | { name: 'settings' }
@@ -256,6 +259,15 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   // A short history: Back returns to the screen the rider came from; going home starts over.
   const [stack, setStack] = useState<Screen[]>([{ name: 'home' }]);
   const screen = stack[stack.length - 1]!;
+  const pickerFocus = useRef<{ favoriteId: string; end: CommutePickEnd; level: 'city' | 'stop' } | undefined>(undefined);
+  useEffect(() => {
+    if (screen.name !== 'home' || !pickerFocus.current) return;
+    const { favoriteId, end, level } = pickerFocus.current;
+    const endpoint = document.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"] [data-end="${end}"]`);
+    (endpoint?.querySelector<HTMLButtonElement>(`.${level === 'city' ? 'city-control' : 'stop-control'}`)
+      ?? endpoint?.querySelector<HTMLButtonElement>('.city-control'))?.focus();
+    pickerFocus.current = undefined;
+  }, [screen.name]);
   const setScreen = (s: Screen) => setStack((st) => {
     if (s.name === 'home') return [s];
     const top = st[st.length - 1]!;
@@ -373,6 +385,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
             onGuide={() => setScreen({ name: 'guide' })}
+            onChoose={(favoriteId, reversed, end, level) => { pickerFocus.current = { favoriteId, end, level }; setScreen({ name: 'commute', favoriteId, reversed, end, level }); }}
             onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
             onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
@@ -389,6 +402,17 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name === 'search' && (
           <Search ctx={ctx} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
         )}
+        {screen.name === 'commute' && (() => {
+          const favorite = favorites.find(f => f.id === screen.favoriteId), leg = favorite && legFor(ds, favorite, screen.reversed);
+          return favorite && leg ? <CommutePicker ds={ds} t={t} lang={settings.lang} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds} end={screen.end} level={screen.level} onCancel={back}
+            onSave={(from, to) => {
+              const updated = changeFavoriteStops(ds, favorite, from, to, screen.reversed);
+              if (!updated) return false;
+              setFavorites(list => list.map(f => f.id === favorite.id ? updated : f));
+              setReversedIds(ids => { const next = new Set(ids); next.delete(favorite.id); return next; });
+              setScreen({ name: 'home' }); return true;
+            }} /> : <p className="warn">{t.noReturnStop}</p>;
+        })()}
         {screen.name === 'timetable' && (
           <Timetable ctx={ctx} leg={screen.leg} title={screen.title} date={screen.date} onDate={(date) => updateTop({ ...screen, date })}
             onDeparture={(dep) => setScreen({ name: 'departure', dep, leg: screen.leg })} />
@@ -525,9 +549,10 @@ function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefine
   return back ? { ...back, routeIds: f.routeIds } : undefined;
 }
 
-function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onAllDay, onDeparture, onRescue }: {
+function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue }: {
   ctx: Ctx; favorites: Favorite[]; count: number; setFavorites: (fn: (l: Favorite[]) => Favorite[]) => void;
   reversedIds: Set<string>; toggleReversed: (id: string) => void;
+  onChoose: (favoriteId: string, reversed: boolean, end: CommutePickEnd, level: 'city' | 'stop') => void;
   onGuide: () => void; onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
 }) {
@@ -564,7 +589,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
               onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
               onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
               onLeavePlan={(plan) => setFavorites((l) => setLeavePlan(l, f.id, reversedIds.has(f.id) ? 'back' : 'out', plan))}
-              onAllDay={onAllDay} onDeparture={onDeparture} onRescue={onRescue} />
+              onAllDay={onAllDay} onDeparture={onDeparture} onRescue={onRescue} onChoose={(end, level) => onChoose(f.id, reversedIds.has(f.id), end, level)} />
           </li>
         ))}
       </ol>
@@ -593,22 +618,22 @@ function commutePlace(stop: Stop | undefined, name: string, printed: boolean, t:
 }
 
 /** City and stop retain separate sign faces and the original visible/source text. */
-function HighwayPlace({ place, label, end }: { place: { name: string; detail: string }; label: string; end: 'from' | 'to' }) {
+function HighwayPlace({ place, label, end, t, onCity, onStop }: { place: { name: string; detail: string }; label: string; end: 'from' | 'to'; t: Strings; onCity?: () => void; onStop?: () => void }) {
+  const city = <><span className="highway-label">{label}</span><strong className="highway-name"><SignText text={place.name} /></strong></>;
+  const stop = <span className="commute-stop-name"><SignText text={place.detail} /></span>;
   return <div className="commute-place" data-end={end}>
-    <div className="highway-sign">
-      <span className="highway-label">{label}</span>
-      <strong className="highway-name"><SignText text={place.name} /></strong>
-    </div>
-    {place.detail && <p className="commute-stop"><span className="commute-stop-name"><SignText text={place.detail} /></span></p>}
+    {onCity ? <button type="button" className="highway-sign city-control" onClick={onCity}>{city}<span className="sr-only"> {t.cityPicker.city}</span><span className="sign-caret" aria-hidden="true">⌄</span></button> : <div className="highway-sign">{city}</div>}
+    {place.detail && (onStop ? <button type="button" className="commute-stop stop-control" title={t.cityPicker.stop} onClick={onStop}>{stop}</button> : <p className="commute-stop">{stop}</p>)}
   </div>;
 }
 
 /** Saved commute presentation preserves the selected direction, departure and existing trip actions. */
-function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue }: {
+function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue, onChoose }: {
   ctx: Ctx; fav: Favorite; count: number; model: UpcomingSet; liveEnabled: boolean; evidence: (d: Departure, toStopId: string) => DepartureEvidence | undefined; editing: boolean; rev: boolean; onReverse: () => void; first: boolean; last: boolean;
   onMove: (d: -1 | 1) => void; onRemove: () => void; onRename: (s: string) => void; onLeavePlan: (p: LeavePlan | undefined) => void;
   onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
+  onChoose: (end: CommutePickEnd, level: 'city' | 'stop') => void;
 }) {
   const { ds, t, now, stopName } = ctx;
   const leg = legFor(ds, fav, rev);
@@ -660,7 +685,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
     );
   }
   return (
-    <article className="card fav" aria-label={customName ? `${fav.label}: ${fullLeg}` : fullLeg}>
+    <article className="card fav" data-favorite-id={fav.id} aria-label={customName ? `${fav.label}: ${fullLeg}` : fullLeg}>
       <div className="commute-header">
         {editing ? (
           <div className="commute-edit">
@@ -672,8 +697,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
           {customName ? <div className="commute-sign"><h2 className="commute-led">{fav.label}</h2></div>
             : <h2 className="sr-only">{fullLeg}</h2>}
           <div className="commute-places">
-            <HighwayPlace place={origin} label={t.commuteFrom} end="from" />
-            {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" />}
+            <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
+            {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" t={t} onCity={() => onChoose('to', 'city')} onStop={() => onChoose('to', 'stop')} />}
           </div>
         </>}
         {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
@@ -714,14 +739,11 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
                   <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
                     <RouteBadge ds={ds} routeId={d.route.id} />
                     <span className="dep-main">
-                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
+                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} countdown={live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.inMin(minutesUntil(now, shown))} t={t}
                         time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
                       {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
                       {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
-                    </span>
-                    <span className="dep-right">
-                      <span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.inMin(minutesUntil(now, shown))}</span>
                     </span>
                   </button>
                   {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined && <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}

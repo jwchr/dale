@@ -8,7 +8,7 @@
 @supports (grid-template-rows: subgrid) {
   .commute-place { grid-row: span 2; grid-template-rows: subgrid; }
 }
-.highway-sign { display: flex; align-items: center; gap: 2px; padding: 7px 3px; border-radius: 10px; position: relative; min-inline-size: 0; }
+.highway-sign { display: flex; align-items: center; gap: 6px; padding: 7px 3px; border-radius: 10px; position: relative; min-inline-size: 0; }
 .highway-label { flex: none; writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
 .highway-name { min-inline-size: 0; font-size: clamp(.85rem, .4rem + 2.3vw, 1.75rem); line-height: 1.08; letter-spacing: -.02em; }
 .highway-name { text-wrap: balance; }
