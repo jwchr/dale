@@ -4,6 +4,22 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 import { STOP_CITY_SOURCE } from '../../src/domain/stopInfo';
 import { strings } from '../../src/ui/i18n';
 
+// Read text by its real rendered line, including spans used for oversized words.
+const renderedSignLines = (nodes: Element[]) => nodes.map(node => {
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  const lines = new Map<number, string>();
+  let text: Node | null;
+  while ((text = walker.nextNode())) {
+    for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
+      const range = document.createRange();
+      range.setStart(text, index); range.setEnd(text, index + 1);
+      const y = Math.round(range.getBoundingClientRect().top);
+      lines.set(y, (lines.get(y) ?? '') + text.textContent![index]);
+    }
+  }
+  return [...lines.values()].map(line => line.trim()).filter(Boolean);
+});
+
 const API = 'https://dale-live.test.workers.dev';
 for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
   for (const lang of ['en', 'es'] as const) test(`paired journey signs and adjacent actions (${skin}, ${lang})`, async ({ page }) => {
@@ -46,23 +62,19 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(geometry.reverse.height).toBeGreaterThanOrEqual(44);
       expect(geometry.overflow).toBe(0);
       // Inspect actual rendered lines: fitting boxes alone can hide isolated final letters.
-      const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(nodes => nodes.map(node => {
-        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-        const lines = new Map<number, string>();
-        let text: Node | null;
-        while ((text = walker.nextNode())) {
-          for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
-            const range = document.createRange();
-            range.setStart(text, index); range.setEnd(text, index + 1);
-            const y = Math.round(range.getBoundingClientRect().top);
-            lines.set(y, (lines.get(y) ?? '') + text.textContent![index]);
-          }
-        }
-        return [...lines.values()].map(line => line.trim()).filter(Boolean);
-      }));
-      expect(lines.flat().filter(line => /^[a-z]$/i.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
+      const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(renderedSignLines);
+      expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
       await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}.png` });
     }
+    await expect(left.locator('.highway-name')).toMatchAriaSnapshot('- strong: Hackensack');
+    await expect(right.locator('.highway-name')).toMatchAriaSnapshot(`- strong: ${t.commuteNewYork}`);
+    await trigger.scrollIntoViewIfNeeded();
+    // A tall pill can contain text geometrically while curved corners exclude its final letters.
+    expect(await trigger.evaluate(button => {
+      const range = document.createRange(); range.selectNodeContents(button);
+      return [...range.getClientRects()].filter(line => line.width > 0 && line.height > 0).every(line =>
+        [line.left + 1, line.right - 1].every(x => button.contains(document.elementFromPoint(x, line.bottom - 1))));
+    })).toBe(true);
     await reverse.focus();
     await page.keyboard.press('Tab');
     await expect(trigger).toBeFocused();
@@ -78,5 +90,14 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await page.getByRole('button', { name: t.reverse, exact: true }).click();
     await expect(left.locator('.highway-name')).toHaveText('Hackensack');
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
+    if (skin === 'garden' && lang === 'es') {
+      from.city = 'Peñañ'; // Non-ASCII final letter must not escape the orphan guard.
+      await page.reload();
+      await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+      await expect(left.locator('.highway-name')).toHaveText('Peñañ');
+      await expect(left.locator('.highway-name')).toMatchAriaSnapshot('- strong: Peñañ');
+      const lines = await left.locator('.highway-name').evaluateAll(renderedSignLines);
+      expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify(lines)).toEqual([]);
+    }
   });
 }

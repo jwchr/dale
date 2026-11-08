@@ -17,7 +17,7 @@
 .commute-stop-name { display: block; }
 .commute-stop { align-self: start; margin: 0; font-size: 1rem; padding: 7px 8px; line-height: 1.25; }
 .commute-sign-actions { display: flex; align-items: center; gap: 6px; min-inline-size: 0; max-inline-size: 100%; }
-.commute-sign-actions .stop-sign-toggle { min-inline-size: 0; }
+.commute-sign-actions .stop-sign-toggle { min-inline-size: 0; border-radius: 1rem; }
 .commute-controls .chip { min-block-size: 44px; }
 /* A soft retroreflective sheen across every sign face. */
 .highway-sign::after { content: ''; position: absolute; inset: 0; pointer-events: none;
