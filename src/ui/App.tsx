@@ -263,7 +263,9 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   useEffect(() => {
     if (screen.name !== 'home' || !pickerFocus.current) return;
     const { favoriteId, end, level } = pickerFocus.current;
-    document.querySelector<HTMLButtonElement>(`[data-favorite-id="${CSS.escape(favoriteId)}"] [data-end="${end}"] .${level === 'city' ? 'city-control' : 'stop-control'}`)?.focus();
+    const endpoint = document.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"] [data-end="${end}"]`);
+    (endpoint?.querySelector<HTMLButtonElement>(`.${level === 'city' ? 'city-control' : 'stop-control'}`)
+      ?? endpoint?.querySelector<HTMLButtonElement>('.city-control'))?.focus();
     pickerFocus.current = undefined;
   }, [screen.name]);
   const setScreen = (s: Screen) => setStack((st) => {

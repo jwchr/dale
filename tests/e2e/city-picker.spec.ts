@@ -6,8 +6,9 @@ import { strings } from '../../src/ui/i18n';
 import type { Favorite } from '../../src/domain/favorites';
 const API = 'https://dale-live.test.workers.dev';
 test.use({ serviceWorkers: 'block' });
-async function setup(page: Page, lang: 'en' | 'es', skin = 'clean', from = '2', to = '3', verified = true) {
+async function setup(page: Page, lang: 'en' | 'es', skin = 'clean', from = '2', to = '3', verified = true, unknownCityStop?: string) {
   const ds = cityDataset();
+  if (unknownCityStop) delete ds.stops.find(stop => stop.id === unknownCityStop)!.city;
   if (!verified) ds.meta.stopCities!.state = 'unavailable';
   const route = ds.patterns.find(p => p.stopIds.includes('2'))!.routeId;
   const favorites: Favorite[] = [
@@ -123,4 +124,18 @@ test('unverified provider city text never defines a city group', async ({ page }
   await page.locator('[data-favorite-id="home"] [data-end="from"] .city-control').click();
   await expect(page.locator('.city-choice strong')).toHaveText([t.commuteNewYork, t.selection.unknownCity]);
   await expect(page.locator('.city-choice')).not.toContainText(['Hackensack', 'Fort Lee']);
+});
+
+
+for (const lang of ['en', 'es'] as const) test(`saving an unknown-city stop restores focus when the street control disappears (${lang})`, async ({ page }) => {
+  const { t, favorites } = await setup(page, lang, 'clean', '2', '3', true, '1');
+  const home = page.locator('[data-favorite-id="home"]');
+  await home.locator('[data-end="from"] .stop-control').click();
+  await page.getByRole('button', { name: t.cityPicker.changeCity, exact: true }).click();
+  await page.locator('.city-choice').filter({ hasText: t.selection.unknownCity }).click();
+  await page.locator('.stop-choice').click();
+  await page.getByRole('button', { name: t.selection.save, exact: true }).click();
+  await expect(home.locator('[data-end="from"] .stop-control')).toHaveCount(0);
+  await expect(home.locator('[data-end="from"] .city-control')).toBeFocused();
+  expect(await stored(page)).toEqual([{ ...favorites[0], fromStopId: '1' }, favorites[1]]);
 });
