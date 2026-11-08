@@ -656,7 +656,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
             {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" />}
           </div>
         </>}
-        {editing && leg && title !== fav.label && <p className="leg">{title}</p>}
+        {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
+        {editing && leg && <p className="leg">{title}</p>}
         {/* One compact row of actions, so the next buses sit right under the signs. */}
         <div className="commute-controls">
           {!editing && leg && !plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
