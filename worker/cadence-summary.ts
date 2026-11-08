@@ -28,7 +28,7 @@ export function publicCadenceSummary(input: CadenceSummary) {
   if (!summary || counts.some(k=>!Number.isSafeInteger(summary[k]) || summary[k]<0)) throw new Error('cadence-summary-invalid');
   return { ...Object.fromEntries(counts.map(k=>[k,summary[k]])), interruptionCoverage: summary.interruptionCoverage,
     sourceDeltaSecondsHistogram: Object.fromEntries(Object.entries(summary.sourceDeltaSecondsHistogram).filter(([k,v])=>
-      (k==='over300'||/^(?:[1-9][0-9]?|[12][0-9]{2}|300)$/.test(k)) && Number.isSafeInteger(v) && v>=0)) };
+      (k==='over300'||/^(?:[1-9][0-9]?|[12][0-9]{2}|300)$/.test(k)) && Number.isSafeInteger(v) && v>=0)) } as CadenceSummary;
 }
 /** Count only actual collector completions; public health/cache reads never call this. */
 export function recordCadencePoll(summary: CadenceSummary, clocks: CadenceClocks, feed: NormalizedFeed, receivedAt: number, upstreamAttempted: boolean) {

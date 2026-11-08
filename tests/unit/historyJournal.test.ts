@@ -211,3 +211,49 @@ it('bounds interruption details with explicit omitted-count/range and never inve
  expect(after.quality.collectorInterruptions.details[0]).toMatchObject({attemptAt:NOW+155000,contextUnknown:true});
  expect(after.quality.collectorInterruptions.details[0]).not.toHaveProperty('contextKey');
 });
+
+it('attributes a last-window interrupted attempt to its original sample even when recovered after expiry, exactly once after ack',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.setCadenceTest(String(NOW+180000),NOW);
+ h.journal.complete(h.journal.beginAttempt(NOW)!,feed(),NOW);
+ h.journal.beginAttempt(NOW+175000);
+ const recovery=h.journal.beginAttempt(NOW+205000)!;
+ h.db.exec("CREATE TRIGGER fail_window_ack BEFORE UPDATE ON dale_history_meta BEGIN SELECT RAISE(ABORT,'synthetic'); END");
+ expect(()=>h.journal.complete(recovery,feed(),NOW+205000)).toThrow();
+ expect(h.journal.status(NOW+205000).cadenceTest!.summary!.interruptedCollectorAttempts).toBe(0);
+ h.db.exec('DROP TRIGGER fail_window_ack');
+ h.journal.complete(recovery,feed(),NOW+205000);h.journal.complete(recovery,feed(),NOW+205000);
+ expect(h.journal.status(NOW+205000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:1,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(recovery)!.body));
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({expiresAt:NOW+180000,count:1,unknownDetails:0});
+});
+it('does not attribute a pre-window normal interruption to a recovery poll inside the sample',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.beginAttempt(NOW);
+ h.journal.setCadenceTest(String(NOW+210000),NOW+30000);
+ h.journal.complete(h.journal.beginAttempt(NOW+35000)!,feed(),NOW+35000);
+ expect(h.journal.status(NOW+35000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:0,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt DESC LIMIT 1').get()!.body));
+ expect(batch.quality.collectorInterruptions.details[0].attemptAt).toBe(NOW);
+});
+it('retains exact original-window attribution when bounded details overflow across the window boundary',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW-600000);
+ for(let i=0;i<=20;i++)h.journal.beginAttempt(NOW-600000+i*30000);
+ h.journal.setCadenceTest(String(NOW+180001),NOW+1);
+ h.journal.beginAttempt(NOW+5001);
+ const recovery=h.journal.beginAttempt(NOW+10001)!;h.journal.complete(recovery,feed(),NOW+10001);
+ expect(h.journal.status(NOW+10001).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:1,interruptionCoverage:'complete'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(recovery)!.body));
+ expect(batch.quality.collectorInterruptions.details).toHaveLength(16);
+ expect(batch.quality.collectorInterruptions.omittedAttemptDetails).toBe(6);
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({count:1,unknownDetails:0});
+});
+
+it('marks legacy overflow attribution unknown instead of claiming a complete zero',()=>{
+ const h=harness();h.journal.setEnabled(true,NOW);h.journal.setCadenceTest(String(NOW+180000),NOW);
+ const meta=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+ meta.pendingCollectorInterruptions={details:[],omittedAttemptDetails:10,firstOmittedAttemptAt:NOW-30000,lastOmittedAttemptAt:NOW+5000};
+ h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
+ const attempt=h.journal.beginAttempt(NOW+10000)!;h.journal.complete(attempt,feed(),NOW+10000);
+ expect(h.journal.status(NOW+10000).cadenceTest!.summary).toMatchObject({interruptedCollectorAttempts:0,interruptionCoverage:'since-upgrade'});
+ const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(attempt)!.body));
+ expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({count:0,unknownDetails:10});
+});

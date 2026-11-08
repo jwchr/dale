@@ -20,10 +20,24 @@ export async function historyContextKey(ds: Dataset) {
 }
 type Reason = 'disabled' | 'starting' | 'collecting' | 'feed-gap' | 'quota-paused' | 'payload-limit' | 'storage-limit' | 'schedule-context-unavailable';
 interface InterruptedAttempt { attemptAt: number; detectedAt: number; contextKey?: string; contextUnknown: boolean }
-interface PendingInterruptions { details: InterruptedAttempt[]; omittedAttemptDetails: number; firstOmittedAttemptAt?: number; lastOmittedAttemptAt?: number }
+interface WindowAttribution { expiresAt: number; count: number; unknownDetails: number }
+interface PendingInterruptions { windowAttribution?: WindowAttribution; details: InterruptedAttempt[]; omittedAttemptDetails: number; firstOmittedAttemptAt?: number; lastOmittedAttemptAt?: number }
 const interruptionCount = (p?: PendingInterruptions) => p ? p.details.length + p.omittedAttemptDetails : 0;
+function attributeInterruptions(p: PendingInterruptions, expiresAt: number): WindowAttribution {
+  if (p.windowAttribution?.expiresAt === expiresAt) return p.windowAttribution;
+  const start = expiresAt - 180_000;
+  let count = p.details.filter(d=>d.attemptAt >= start && d.attemptAt < expiresAt).length, unknownDetails = 0;
+  if (p.omittedAttemptDetails) {
+    if (p.firstOmittedAttemptAt !== undefined && p.lastOmittedAttemptAt !== undefined
+      && p.firstOmittedAttemptAt >= start && p.lastOmittedAttemptAt < expiresAt) count += p.omittedAttemptDetails;
+    else if (!(p.lastOmittedAttemptAt !== undefined && p.lastOmittedAttemptAt < start)
+      && !(p.firstOmittedAttemptAt !== undefined && p.firstOmittedAttemptAt >= expiresAt)) unknownDetails = p.omittedAttemptDetails;
+  }
+  return p.windowAttribution = {expiresAt,count,unknownDetails};
+}
 const interruptionEvidence = (p: PendingInterruptions) => ({ kind: 'interrupted-collector-attempt' as const,
   details: p.details.map(d=>({attemptAt:d.attemptAt,detectedAt:d.detectedAt,...(d.contextKey?{contextKey:d.contextKey}:{}),contextUnknown:d.contextUnknown})),
+  ...(p.windowAttribution?{windowAttribution:{expiresAt:p.windowAttribution.expiresAt,count:p.windowAttribution.count,unknownDetails:p.windowAttribution.unknownDetails}}:{}),
   omittedAttemptDetails:p.omittedAttemptDetails,...(p.firstOmittedAttemptAt!==undefined?{firstOmittedAttemptAt:p.firstOmittedAttemptAt,lastOmittedAttemptAt:p.lastOmittedAttemptAt}:{}),
 });
 interface JournalState {
@@ -138,6 +152,10 @@ export class HistoryJournal {
       let capturedInterruption = false;
       if (state.lastAttemptAt !== undefined && state.completedAttempt !== state.lastAttemptAt && state.lastRecordedInterruptionAt !== state.lastAttemptAt) {
         const pending = state.pendingCollectorInterruptions ??= {details:[],omittedAttemptDetails:0};
+        if (state.cadenceTest) {
+          const attribution = attributeInterruptions(pending,state.cadenceTest.expiresAt);
+          if (state.lastAttemptAt >= attribution.expiresAt - 180_000 && state.lastAttemptAt < attribution.expiresAt) attribution.count++;
+        }
         const contextKey = typeof state.lastAttemptContextKey === 'string' && state.lastAttemptContextKey.length <= 256 ? state.lastAttemptContextKey : undefined;
         if (pending.details.length < 16) pending.details.push({attemptAt:state.lastAttemptAt,detectedAt:now,...(contextKey?{contextKey}:{}),contextUnknown:contextKey===undefined});
         else {
@@ -181,6 +199,7 @@ export class HistoryJournal {
       const diagnostics = Object.fromEntries(Object.entries(feed.diagnostics ?? {}).filter(([key, value]) =>
         ['entities', 'knownTrips', 'corridorRoutes', 'missingServiceDates', 'missingObservationTimes'].includes(key)
         && Number.isSafeInteger(value) && value >= 0));
+      const pendingAttribution = test && state.pendingCollectorInterruptions ? attributeInterruptions(state.pendingCollectorInterruptions,test.expiresAt) : undefined;
       const quality = { ...(state.pendingCollectorInterruptions ? {collectorInterruptions:interruptionEvidence(state.pendingCollectorInterruptions)} : {}), source: LIVE_SOURCE, feedState: feed.feed.state, generatedAt: feed.feed.timestamp, diagnostics,
         censusAvailable: feed.presence !== undefined,
         updateFeedState: updates?.feed.state ?? 'unavailable', updateGeneratedAt: updates?.feed.timestamp,
@@ -209,8 +228,11 @@ export class HistoryJournal {
         this.storage.sql.exec('INSERT INTO dale_history_batches(attempt,received_at,feed_version,context_key,bytes,body) VALUES(?,?,?,?,?,?)',
           attempt, receivedAt, this.feedVersion, this.contextKey, bytes, body);
         if (state.pendingCollectorInterruptions) {
-          if (test?.summary && attempt >= test.expiresAt - 180_000 && attempt < test.expiresAt)
-            test.summary.interruptedCollectorAttempts += interruptionCount(state.pendingCollectorInterruptions);
+          if (test && pendingAttribution) {
+            test.summary ??= emptyCadenceSummary();
+            test.summary.interruptedCollectorAttempts += pendingAttribution.count;
+            if (pendingAttribution.unknownDetails) test.summary.interruptionCoverage = 'since-upgrade';
+          }
           // The insert and metadata acknowledgment commit atomically. Failed
           // insert/ack or storage refusal retains pending evidence for recovery.
           delete state.pendingCollectorInterruptions;

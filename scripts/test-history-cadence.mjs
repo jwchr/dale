@@ -89,7 +89,7 @@ export async function testHistoryCadence(env, { fetchImpl = fetch, clock = Date.
   await sleep(Math.max(0, expiresAt + 1000 - clock()));
   const ended = await waitForReadiness(async timeoutMs => {
     const state = await health(timeoutMs);
-    return healthy(state) && !state.incompleteAttempt && state.effectiveIntervalMs === 30000
+    return healthy(state) && !state.incompleteAttempt && state.pendingInterruptionCount === 0 && state.effectiveIntervalMs === 30000
       && state.cadenceTest?.expiresAt === expiresAt ? state : undefined;
   }, { clock, sleep });
   if (!healthy(ended) || ended.effectiveIntervalMs !== 30000 || ended.cadenceTest?.expiresAt !== expiresAt
