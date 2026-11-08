@@ -18,7 +18,7 @@ export const MAP_FILE = 'map/nj-nyc-20261104.pmtiles';
 /** What the file covers; the map cannot be panned far outside it. */
 const COVERS: [number, number, number, number] = [-74.25, 40.7, -73.9, 41.1];
 
-export interface MapStop { id: string; city?: string; lat: number; lon: number; name: string; state: 'passed' | 'next' | 'alight' | 'ahead' }
+export interface MapStop { id: string; city?: string; lat: number; lon: number; name: string; current?: boolean; state: 'passed' | 'next' | 'alight' | 'ahead' }
 export interface RouteMapProps { stops: MapStop[]; bus?: { lat: number; lon: number }; dark: boolean; label: string; failedText: string; text: MapStrings; presentation?: 'street' | 'transit' }
 
 let protocolAdded = false;
@@ -92,7 +92,7 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
         id: 'stops', type: 'circle', source: 'stops',
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['get', 'state'], 'alight', 9, 'next', 8, 2], 15, ['match', ['get', 'state'], 'alight', 9, 'next', 8, 5]],
-          'circle-color': ['match', ['get', 'state'], 'passed', '#6b7280', 'next', '#ffb02e', 'alight', '#ff5a4f', '#ffffff'],
+          'circle-color': ['case', ['==', ['get', 'current'], true], '#ffb02e', ['match', ['get', 'state'], 'passed', '#6b7280', 'alight', '#ff5a4f', '#ffffff']],
           'circle-stroke-color': ['match', ['get', 'state'], 'alight', '#ffffff', '#111111'],
           'circle-stroke-width': 2,
         },
@@ -141,7 +141,7 @@ function routeData(stops: MapStop[]): Feature {
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: stops.map((s) => [s.lon, s.lat]) } };
 }
 function stopData(stops: MapStop[]): FeatureCollection {
-  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: s.city ? `${s.name} · ${s.city}` : s.name, state: s.state }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
+  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: s.city ? `${s.name} · ${s.city}` : s.name, state: s.state, current: !!s.current }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
 }
 function busData(bus?: { lat: number; lon: number }): FeatureCollection {
   return { type: 'FeatureCollection', features: bus ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [bus.lon, bus.lat] } }] : [] };

@@ -1,7 +1,7 @@
 import { LiveIndicator } from './LiveIndicator';
 // Ride progress (owner request 2026-11-04): an LED status bar ("Next stop … · 3 min behind") and a
 // horizontal strip map of the line, like the maps over subway car doors, with passed stops dimmed,
-// the next stop lit, the rider's stop marked and a progress bar. Evidence: the matched bus's GPS,
+// the current reported stop lit, the rider's stop marked and a progress bar. Evidence: the matched bus's GPS,
 // the rider's own phone GPS (opt-in, on this phone only while ride mode is open, never saved or
 // sent), and the rider's taps on a stop. Without evidence it shows the timetable's position, labeled.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -87,14 +87,17 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
     update({ ...state, milestones: [...state.milestones.filter((m) => m.index < i), { index: i, at: now, source: 'tap' }] });
   }
 
-  // Keep the lit stop in view on the strip.
+  const currentFix = progress.basis === 'bus_gps' ? bus : progress.basis === 'phone_gps' ? phone : undefined;
+  const currentIndex = currentFix ? stopReached(stops, -1, currentFix, fixPosition(stops, dep.stopIndex, currentFix, now))
+    : progress.basis === 'tap' && !progress.projected ? Math.round(progress.position) : undefined;
+  // Keep current position in view; the upcoming stop has its own label.
   const strip = useRef<HTMLOListElement>(null);
   const lastIndex = ids.length - 1;
   const atEnd = progress.reachedIndex >= lastIndex;
-  const nextIndex = Math.min(lastIndex, Math.floor(progress.position) + 1);
+  const nextIndex = Math.min(lastIndex, (currentIndex ?? Math.floor(progress.position)) + 1);
   useEffect(() => {
-    strip.current?.querySelector<HTMLElement>(`[data-i="${nextIndex}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
-  }, [nextIndex]);
+    strip.current?.querySelector<HTMLElement>(`[data-i="${currentIndex ?? nextIndex}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  }, [currentIndex, nextIndex]);
 
   const delay = progress.delayMin;
   const pace = delay === undefined ? p.byTimetable : delay === 0 ? p.onTime : delay > 0 ? p.behind(delay) : p.ahead(-delay);
@@ -112,7 +115,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
       <SignalWarning session={session} now={now} t={t} estimated={progress.basis === 'timetable' || progress.projected} />
       {/* The LED bar: next stop and pace, like the sign over the car doors. */}
       <div className="led-bar" role="status" aria-live="polite">
-        <p className="led-line"><span className="led-key">{atEnd ? p.at : p.next}</span> {nextLabel.town}{nextLabel.detail ? ` · ${nextLabel.detail}` : ''}</p>
+        <p className="led-line"><span className="led-key">{currentIndex === lastIndex ? p.at : p.next}</span> {nextLabel.town}{nextLabel.detail ? ` · ${nextLabel.detail}` : ''}</p>
         <p className="led-line led-pace" data-pace={delay === undefined ? 'unknown' : delay > 0 ? 'behind' : delay < 0 ? 'ahead' : 'on'}>{pace}</p>
       </div>
       <p className="small progress-source">{progress.basis !== 'tap' && progress.basis !== 'phone_gps' && !busIsDemo && <LiveIndicator live={progress.basis === 'bus_gps' && !progress.projected} />}{progress.projected ? `${p.estimated} ` : ''}{source}</p>
@@ -132,10 +135,10 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             const stopState = i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead';
             const reached = state.milestones.find((m) => m.index === i);
             return (
-              <li key={`${id}-${i}`} data-i={i} data-state={stopState} data-reached={passed || undefined}>
+              <li key={`${id}-${i}`} data-i={i} data-state={stopState} data-reached={passed || undefined} data-current={i === currentIndex || undefined}>
                 {/* The visible words are the button's name; the hidden ones only join them into a sentence. */}
                 <button className="strip-stop" onClick={() => tap(i)}>
-                  <span className="strip-name">{label.town}{label.detail && <small><span className="sr-only">, </span>{label.detail}</small>}</span>
+                  <span className="strip-name">{i === currentIndex && <span>{p.at} · </span>}{label.town}{label.detail && <small><span className="sr-only">, </span>{label.detail}</small>}</span>
                   <span className="sr-only">{reached ? p.srReached : p.srScheduled}</span>
                   <span className="strip-dot" aria-hidden="true" />
                   <span className="strip-time">{reached ? clock(reached.at) : clock(stopTimes[i]!.at, stopTimes[i]!.estimated)}</span>
@@ -155,7 +158,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             const i = first + k;
             const s = stops[i] as { lat: number; lon: number };
             const passed = i <= progress.reachedIndex;
-            return { id: ids[i]!, city: stops[i]?.city, lat: s.lat, lon: s.lon, name: stopLabel(name(i)).town, state: i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead' };
+            return { id: ids[i]!, city: stops[i]?.city, lat: s.lat, lon: s.lon, name: stopLabel(name(i)).town, current: i === currentIndex, state: i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead' };
           });
           // The bus dot: the GPS fix itself when that is the evidence, otherwise a point on the line.
           const fix = progress.basis === 'bus_gps' ? bus : progress.basis === 'phone_gps' ? phone : undefined;

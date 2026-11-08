@@ -333,8 +333,8 @@ main { flex: 1; padding-bottom: 24px; }
 .strip-time { font-size: 0.9em; font-variant-numeric: tabular-nums; color: #c8ced8; margin-top: 4px; white-space: nowrap; }
 .strip li[data-state='passed'] .strip-stop { color: #8f96a3; }
 .strip li[data-state='passed'] .strip-dot { background: #6b7280; border-color: #6b7280; }
-.strip li[data-state='next'] .strip-dot { background: #ffb02e; border-color: #ffd36e; box-shadow: 0 0 14px 3px #ffb02e; }
-.strip li[data-state='next'] .strip-name { color: #ffd36e; }
+.strip li[data-current='true'] .strip-dot { background: #ffb02e; border-color: #ffd36e; box-shadow: 0 0 14px 3px #ffb02e; }
+.strip li[data-current='true'] .strip-name { color: #ffd36e; }
 .strip li[data-state='alight'] .strip-dot { width: 24px; height: 24px; margin-top: -3px; background: #ff5a4f; border-color: #fff; box-shadow: 0 0 0 3px #ff5a4f; }
 .strip li[data-state='alight'] .strip-name { color: #ff9a92; }
 .strip-stop:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
@@ -457,7 +457,7 @@ main { flex: 1; padding-bottom: 24px; }
 .line-stations > li::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 6px; background: #007e93; }
 .line-node { z-index: 1; width: 20px; height: 20px; box-sizing: border-box; border: 3px solid #007e93; background: var(--surface); border-radius: 50%; align-self: start; margin-top: 2px; }
 .line-stations > li[data-state='alight'] .line-node { border-color: var(--alert); background: var(--alert); }
-.line-stations > li[data-state='next'] .line-node { background: #ffd23f; }
+.line-stations > li[data-current='true'] .line-node { background: #ffd23f; }
 .line-stations strong { overflow-wrap: anywhere; }
 .line-stations small { display: block; margin-top: .2rem; }
 .line-stations .line-gap { display: block; padding-inline-start: 36px; font-size: .85rem; }
@@ -465,3 +465,5 @@ main { flex: 1; padding-bottom: 24px; }
 .line-bus { font-weight: 750; }
 
 @media (forced-colors: active) { .line-stations > li::before { background: CanvasText; } .line-node { border-color: CanvasText; background: Canvas; } .line-stations > li[data-state='alight'] .line-node { border-style: double; background: Highlight; } }
+
+.line-bus-between { padding: .35rem 0 .35rem 1.5rem; }

@@ -13,6 +13,11 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
   const prediction = updateFresh && !['cancelled', 'confirmation', 'ambiguous'].includes(shown) ? snapshot.predictions.find((p) => p.stopIndex === dep.stopIndex && p.kind === 'departure' && p.observedAt <= now && now - p.observedAt <= LIVE_MAX_AGE_MS) : undefined;
   const predictionTime = prediction ? formatTime12(prediction.at, tz, lang) + (localYmd(prediction.at, tz) !== localYmd(now, tz) ? ' · ' + new Intl.DateTimeFormat(lang, { timeZone: tz, dateStyle: 'medium' }).format(prediction.at) : '') : '';
   const skipped = skippedKnown || (updateFresh && snapshot.updatedAt && now - snapshot.updatedAt <= LIVE_MAX_AGE_MS && snapshot.skippedStops.includes(dep.stopIndex));
+  const compactPrediction = !snapshot?.cancelledAt && prediction;
+  if (shown === 'missing' && !skipped && !hasStopChanges) return <aside className="card live-bus-status warn" data-testid="live-bus-status">
+    <span className="sr-only" role="status">{compactPrediction ? l.gpsMissing : l.missing}</span><strong>{compactPrediction ? l.gpsMissing : l.missing}</strong>
+    {compactPrediction && <p><strong>{l.prediction(predictionTime)}</strong><br />{l.predictionAge(Math.max(0, Math.floor((now - prediction.observedAt) / 1000)))}</p>}
+  </aside>;
   return <aside className={`card live-bus-status ${['missing', 'ambiguous', 'confirmation', 'cancelled'].includes(shown) ? 'warn' : ''}`} data-testid="live-bus-status">
     <span className="sr-only" role="status">{l[shown]}</span>
     <strong className={shown === 'available' ? 'live-glow' : undefined}>{shown !== 'checking' && <LiveIndicator live={shown === 'available'} />}{l[shown]}</strong>

@@ -121,7 +121,7 @@ export function tripProgress(input: ProgressInput): TripProgress {
   // stop: reaching a stop takes evidence, never an estimate.
   const nextStop = Math.min(times.length - 1, Math.floor(best.position + 1e-6) + 1);
   const carried = Math.min(timetablePosition(times, now - delayMs), nextStop - 0.02);
-  const position = Math.min(times.length - 1, Math.max(best.position, carried));
+  const position = best.source === 'tap' ? Math.min(times.length - 1, Math.max(best.position, carried)) : best.position;
   return {
     position, projected: position > best.position + 0.01, basis: best.source, observedAt: best.at,
     delayMin: Math.abs(delayMs) < 60_000 ? 0 : Math.round(delayMs / 60_000), reachedIndex,
