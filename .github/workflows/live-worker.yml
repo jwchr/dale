@@ -2,6 +2,13 @@ name: Deploy live bus pilot
 # Owner-initiated only, after exact-head CI and independent review/merge. No PR secrets or auto deployment.
 on:
   workflow_dispatch:
+    inputs:
+      history_collection:
+        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled also stops an existing collector'
+        type: choice
+        required: true
+        default: disabled
+        options: [disabled, enabled]
 permissions:
   contents: read
 concurrency:
@@ -21,7 +28,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Stop history through Cloudflare only and verify preserved evidence
+        if: inputs.history_collection == 'disabled'
+        run: node scripts/stop-history-collection.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - name: Require the configured deployment secrets before contacting NJ Transit
+        if: inputs.history_collection == 'enabled'
         run: node -e 'const keys=["NJT_API_USERNAME","NJT_API_PASSWORD","CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","DALE_WORKER_URL"];if(keys.some(k=>!process.env[k]?.trim())){console.error("Deployment configuration is incomplete. No NJ Transit request sent.");process.exit(1)}'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -30,12 +45,15 @@ jobs:
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - run: npm ci
+        if: inputs.history_collection == 'enabled'
       - name: Prepare canonical official G2 static schedule (no raw artifacts)
+        if: inputs.history_collection == 'enabled'
         run: npm run worker:prepare
         env:
           NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
       - name: Deploy the reviewed private relay and verify an actual matched bus
+        if: inputs.history_collection == 'enabled'
         run: node scripts/deploy-live-worker.mjs
         env:
           WRANGLER_SEND_METRICS: 'false'
@@ -44,3 +62,4 @@ jobs:
           NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
+          HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}

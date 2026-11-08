@@ -1,5 +1,7 @@
 # Live bus pilot (#89)
 
+The original demand-only pilot below remains historical scope. D60/#91 separately authorizes private indefinite history and a native alarm on the same singleton; see `docs/HISTORY_COLLECTION.md`. That feature defaults disabled, never prunes without a verified archive and is not activated by source/tests. Rider location, raw systemwide feeds, shared reports and paid-service holds remain unchanged.
+
 Owner D52 prioritizes connecting approved bus data to the tracker. Credentials succeeded for both approved bus APIs in #87 / PR #88 (manual run 42329610547, merged revision 4920e2c). Rail access remains pending. This slice is a provisional bus pilot, not completion of the 72-hour M0 investigation or real-ride acceptance.
 
 ## Rider path and honest fallback

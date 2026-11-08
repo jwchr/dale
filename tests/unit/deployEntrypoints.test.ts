@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 // The fetch trap makes this an offline import/preflight check, never a deployment attempt.
 it.each([
   ['prepare-live-worker.mjs', 'Official G2 corridor preparation failed at preflight. No credentials, token or response details are logged. Do not deploy.'],
-  ['deploy-live-worker.mjs', 'Live Worker deployment or validation failed. App activation is held. No raw error or secret values are logged. Check the private hosting setup.'],
+  ['deploy-live-worker.mjs', 'Live Worker deployment or validation failed. Do not infer collection is inactive: verify its actual health/stop state. No raw error or secret values are logged. Check the private hosting setup.'],
 ])('%s loads in native Node and stops at its authorization guard', (entry, message) => {
   const url = new URL(`../../scripts/${entry}`, import.meta.url).href;
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', `

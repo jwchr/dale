@@ -1,0 +1,81 @@
+# Private bus history (#91 / D60)
+
+## Requirement and current status
+
+Keep normalized bus evidence **indefinitely** for historical analysis. Original evidence and canonical context remain in private immutable R2 objects without expiration. Local hot copies may be removed only after the original and its manifest have been checksum/readback verified; lossy summaries cannot replace them. The72-hour acceptance window is a quality observation period, **not retention**.
+
+At the implementation checkpoint this branch has not been deployed or activated. Tourv0.3.193 is a separate published UI release. Project Control's November8 production readback found the existing G2 status responding and `/v1/collection` returning Not found. Its separate authenticated Cloudflare readback verified Workers Free, the existing singleton SQLite binding and77.82kB total SQL; observed daily usage was337DO requests,14.6GB-s,279SQL reads and518writes. These are dated snapshots, not perpetual capacity guarantees. Jeff then explicitly approved R2 within Free usage. Project Control enabled the subscription and created the exact private Standard bucket `dale-history`, initially empty, no public access/CORS/expiration of completed objects. No second bucket, S3 credential or paid Workers upgrade is needed. Latest actual deployment/measurement evidence belongs in #91, not an inference from this static document.
+
+SQLite is durable primary/hot storage. The same Worker writes compressed immutable originals and checksum manifests to its approved R2 binding. Neither R2 objects nor manifests expire or get deleted by this implementation. Finite storage/operation guards pause instead of permitting paid overflow; indefinite retention does not mean unlimited capacity or uninterrupted collection after all Free space is exhausted. Derived-arrival analysis remains separate.
+
+## Architecture and evidence
+
+- Reuse `dale-live`, SQLite `BusFeed/corridor-v1`, canonical G2 normalization, token reuse and the same globally paced30-second refresh. Demand and native alarm work serialize/coalesce. No second poller, scheduler, vendor, service, package, rider tracking or rail access.
+- One private SQL bundle per completed attempt holds normalized GPS observations, source-generation/observation/receipt clocks, static version, route/direction/service-date identity and quality diagnostics. Separate cancellation/skip context retains its own source clock; predicted arrival values are not treated as actual arrivals. A stopped-at sample does not identify the exact instant of arrival.
+- A compact corridor-only per-poll vehicle/trip/source-timestamp census retains unchanged and rejected presence. Deduplicated GPS counts remain separate. An absent bus is not assumed unchanged, cancelled or arrived. Unknown census/oversized omissions stay explicit.
+- Before recording under each static version, retain the complete canonical trip/pattern/stop/calendar/timezone context in private atomic chunks. Old versions are not removed. This preserves retrospective arrival analysis after schedule rollover. Unknown/expired matches remain unknown; refresh finite static coverage through the existing manual reviewed-main workflow.
+- Context keys include a SHA256 of the complete canonical build, so converter/context changes under an unchanged upstream feed version cannot silently reuse different historical schedules. Old context may leave hot SQLite only after its complete original archive and manifest are verified; its durable archive remains.
+- Bundle and dedupe checkpoint commit atomically; a failed write rolls back both. Watermark expiry only removes short-lived dedupe metadata, not historical bundles. Quality-only rows retain missing/stale/invalid/empty polls and omissions. No raw systemwide feed, rider location, credential or token is archived.
+- `/v1/collection` exposes read-only health/counts/clocks/reasons/size/alarm state, never bus identities, coordinates, datasets or private watermarks. Reading it does not poll upstream. There is no public raw-history/export/start endpoint.
+
+## Explicit capacity and cost boundaries
+
+| Bound | Behavior |
+| --- | --- |
+| Historical evidence/context | Retained indefinitely in immutable private R2; no R2 delete/TTL. Only verified local hot copies can be pruned |
+| Hot window | Six hours, keeping maximum-size poll bundles below local caps. Unarchived rows/context never expire |
+| Bundle |128,000UTF-8 bytes; oversized input produces a quality-only omission and does not acknowledge omitted observations |
+| Canonical context |16,000,000bytes/version, Unicode-safe chunks; whole context and checkpoint commit atomically before first evidence |
+| Private payload |250,000,000bytes including retained canonical context; pause without deleting evidence |
+| Actual SQLite | Pause at500,000,000bytes including internal storage/page overhead; retain conservative margin under the Free object limit |
+| Dedupe metadata |256,000bytes; oversized checkpoint fails closed |
+| Local write reservation |12units/collection attempt,8/archive attempt,4/hot-row prune, separately reserved context/control/error costs; cap75,000/day. Conservative optional catch-up preserves remaining normal-day reservations. This models this collector, not actual account usage |
+| R2 bytes | Reserve gzip plus4,096manifest bytes before I/O; pause before9,000,000,000reserved bytes. Failed/ambiguous retries are not refunded |
+| R2 operations | Reserve2ClassA and2ClassB before each object/manifest transaction, including failures/readbacks/retries. Caps500,000A /2,000,000B over34UTC date buckets (boundary margin beyond32days); no calendar-month reset |
+| Capacity retry | Hourly, never a one-second alarm loop or purge |
+
+At most2G2 calls/30seconds is5,760feed calls/day plus bounded authentication. A normal collection/archive/hot-cleanup cycle reserves24storage-write units, or69,120/day at continuous cadence; context/error/control costs and optional catch-up have additional reservations. Partial indexes avoid scanning archived backlogs or entire schedule contexts each poll; there are no per-bus SQL writes. Initial schema and other account/API consumers still require capacity review. Ordinary demand reads may continue with the collection budget paused; their bounded relay KV writes fit the remaining account margin under the observed deployment assumptions.
+
+Archive objects use deterministic raw-SHA256 keys and conditional create, never overwrite. The Worker verifies gzip decompression byte-for-byte, compressed checksum, manifest checksum/readback and canonical-context checksum before saving a receipt. SQLite acknowledgment and archive success metadata are transactional. Failure/ambiguous completion retains all local evidence and retries idempotently with bounded backoff. R2 operations are reserved durably before external I/O; timeout/crash uncertainty is not refunded. No head/list/restore/delete/multipart operation is issued by this collector. Private operator downloads/listing and future other account users are outside this app ledger and must be included in provider/shared-usage checks; the deliberately lower caps leave margin, not a verified provider hard billing switch.
+
+The documented Free account limits include100,000DO requests/day,13,000GB-s/day,100,000SQLite rows written/day,5million rows read/day and5GB total SQL. One continuously active128MB object alone would use about11,060GB-s/day; other account workloads matter. The object-size documentation is internally inconsistent, so do not relax the500MB guard based on the larger table entry. Quotas fail operations, not an authorized paid upgrade.
+
+References checked November8: [pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), [limits](https://developers.cloudflare.com/durable-objects/platform/limits/), [SQLite database size/transactions](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [alarm delivery/retries](https://developers.cloudflare.com/durable-objects/api/alarms/).
+
+### Representative sizing, not live measurements
+
+The test uses the actual journal/SQLite and20synthetic polls with a distinct fresh report per bus every30seconds. Gzip roundtrips are lossless, but compression is an archive estimate, not current storage behavior. Constant24-hour scenario load is intentionally conservative and is not measured NJ Transit service:
+
+| Synthetic concurrent buses | Raw payload/day |250MB runway | Estimated per-bundle gzip/day |
+| --- | --- | --- | --- |
+|10 |15.56MB |16.1days |2.21MB |
+|50 |73.84MB |3.39days |6.09MB |
+|100 |146.69MB |1.70days |10.84MB |
+
+Actual live payload/physical/archive-reservation growth and remaining runway must be measured after activation. The table is the no-archive local-cap scenario, not the steady six-hour verified hot window. R2 gzip originals and manifests are implemented here under Jeff's explicit approval, but production readback is not implied by local tests. Public health exposes conservative archive reservations, last success, oldest unarchived attempt/backlog age and all bounds. Alert/stop before a free guard, retain existing archives and seek an owner decision; never silently upgrade, erase history or describe finite Free storage as unlimited.
+
+## Enable, stop and acceptance
+
+1. Full `npm run verify`, exact-head CI, established independent non-author HIGH review, separate protected merge and reviewed-main deployment. Authors never self-review/merge/release.
+2. Recheck actual Workers plan/shared headroom, existing token permissions, finite canonical coverage and data rights. An old secret name or successful job is insufficient.
+3. Existing main-only manual workflow input `history_collection` defaults to `disabled`. Explicit `enabled` prepares the official schedule and deploys reviewed code with `HISTORY_COLLECTION:enabled`. Disabled runs only the authenticated Cloudflare settings stop below, with no installation, NJ Transit authentication or static download. No timer/public request enables it.
+4. Read back enabled state, persisted alarm, accepted official evidence, current verified canonical-context/evidence archives and exact-bus validation. The deployment script uses read-only health while waiting for native alarm archive acknowledgments. A failed deployment/validation may have deployed code: **do not infer inactive from a failed job**.
+5. To stop, dispatch the same reviewed-main workflow with `disabled`. `scripts/stop-history-collection.mjs` uses the existing Cloudflare account/token and Worker URL only; NJ Transit credentials and availability are irrelevant. It PATCHes only script settings, inherits every other binding by name (including secret, Durable Object and R2 bindings), and changes `HISTORY_COLLECTION` to `disabled`. No code upload, conversion, bucket operation or evidence deletion occurs. The deployment entrypoint also delegates disabled mode before reading static files or NJT secrets.
+   - Before settings inheritance, require a single 100% active version equal to the latest uploaded version, then recheck immediately before PATCH. Staged/unpublished or split versions fail closed rather than accidentally inheriting a draft; the existing release operator must reconcile that Cloudflare state. Existing workflow concurrency prevents competing workflow deployments; other control-plane writers must remain paused during the operation. Cloudflare does not expose a conditional version precondition for this settings call.
+   - Read back unchanged script content etag, runtime and every non-flag binding descriptor, plus the disabled flag. Poll existing read-only health for `enabled:false`, `reason:disabled`, `alarmAt:null`, then wait **35 real seconds** and require unchanged attempt/completed-attempt, observation, batch and byte counters. Public health receives no Cloudflare authorization header. Ordinary rider-requested live reads continue without archiving while disabled.
+   - A failed command is **not** proof that collection stopped or is running: the settings mutation may already have succeeded. Check actual health. Never automatically roll back to enabled; existing evidence remains. No new public control endpoint or token is introduced.
+
+Cloudflare documents [settings-only editing and inherited bindings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/edit/), [latest uploaded versions](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/) and [active deployments](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/).
+6. Confirm counters and original source clocks advance with browsers/Mac off, using health reads that cannot generate their own evidence. Then perform the sustained72-hour quality assessment, including gaps and coverage. This is distinct from retention and historical-arrival accuracy.
+
+## Agency cadence measurement
+
+Actual per-bus update frequency and synchronized/staggered behavior have **not yet been measured**.30-second polling is not agency cadence. Use the same collector's actual per-poll census, agency `observedAt`, feed `generatedAt` and receipt clocks over an initial10–15minute active-service window. Report per-bus timestamp-delta quantiles, duplicate proportions, missing/rejected/gap counts and exact-source-timestamp cohorts separately from changes seen in the same poll. Label sample dates/routes/counts and30-second resolution/aliasing limits. Corridor samples cannot establish whole-fleet synchronization. No additional poller, higher request rate, token request or raw systemwide coordinate archive.
+
+## Verification and remaining gates
+
+Tests cover canonical evidence/prediction separation, conflicts/order/dedupe, unchanged census, immutable schedule context, one-year retention, actual SQLite rollback, restart/stop/version transitions, byte/write caps and demand/alarm concurrency. A real local Cloudflare SQLite/native-alarm test moves from zero to a synthetic sample without a live/departures request; public health omits identities/coordinates/token/checkpoint and raw/control routes are absent.
+
+Archive tests additionally cover corrupted/truncated/mismatched objects/manifests, ambiguous writes, eviction/retry, acknowledgment rollback, unchanged upstream versions with changed canonical builds, Free byte/operation/SQL exhaustion and archive-before-prune for both samples and old contexts. The actual local Cloudflare R2 test verifies original context+evidence objects via the native alarm. These are not production activation/readback, a real cadence measurement, derived arrivals or the separately owned household histogram integration. Those remain explicit #91 acceptance work before claiming the full feature complete. Reuse the existing private offline cadence analyzer; no second service/poller is added.
+
+The disabled-path regression executes both actual native Node entrypoints without NJT credentials, traps static reads and deploy/conversion subprocesses, and permits only synthetic Cloudflare settings/metadata and health calls. It checks inherited binding preservation, staged/split deployment rejection, denied credentials, code/binding changes, uncleared alarm and advancing counters. Its long waits are accelerated; this is not a hosted stop drill or production activation claim. Workflow conditions are checked separately; a hosted workflow run remains a release-operator acceptance step.
