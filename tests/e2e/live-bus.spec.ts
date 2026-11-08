@@ -5,7 +5,7 @@ import { LIVE_SOURCE, type LiveBusSnapshot } from '../../src/domain/liveBus';
 
 const API = 'https://dale-live.test.workers.dev';
 const oldFavorite = { id: 'old', label: 'My printed commute', fromStopId: 'N10', toStopId: 'N20', routeIds: ['165T'] };
-async function setup(page: Page, response: () => LiveBusSnapshot | null, lang = 'en', wallTime = NOW, pinned = false) {
+async function setup(page: Page, response: () => LiveBusSnapshot | null | Promise<LiveBusSnapshot | null>, lang = 'en', wallTime = NOW, pinned = false) {
   await page.clock.install({ time: wallTime });
   await page.addInitScript(({ favorite, lang }) => {
     localStorage.setItem('arriba.favorites.v1', JSON.stringify([favorite]));
@@ -15,7 +15,7 @@ async function setup(page: Page, response: () => LiveBusSnapshot | null, lang = 
   await page.route(API + '/v1/departures?**', (route) => route.abort('failed'));
   await page.route(API + '/v1/schedule', (route) => route.fulfill({ json: liveDataset, headers: { 'access-control-allow-origin': '*' } }));
   await page.route(API + '/v1/live?**', async (route) => {
-    const body = response();
+    const body = await response();
     if (body) await route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
     else await route.abort('failed');
   });
@@ -30,6 +30,32 @@ function packet(now = NOW, patch: Partial<LiveBusSnapshot> = {}): LiveBusSnapsho
     updatedAt: now - 20_000, predictions: [{ stopIndex: 1, at: NOW + 300_000, observedAt: now - 20_000, kind: 'departure' }], skippedStops: [], ...patch };
 }
 const saved = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.lock.v1.g2') ?? 'null'));
+
+test('a fresh report between clock ticks binds immediately; a future receipt still fails closed', async ({ page }) => {
+  let invalidFuture = false, receivedAt = 0;
+  await setup(page, async () => {
+    // Actual browser time advances while the response is in flight, less than a display tick.
+    await page.clock.runFor(500);
+    // Keep the invalid case well outside the30s tolerance even if another display tick fires.
+    receivedAt = await page.evaluate(() => Date.now()) + (invalidFuture ? 60_000 : 0);
+    const sample = packet(receivedAt);
+    return { ...sample, vehicles: { state: 'ok', timestamp: receivedAt }, updates: { state: 'ok', timestamp: receivedAt },
+      observations: [{ ...sample.observations[0]!, observedAt: receivedAt, vehicleId: invalidFuture ? 'bus-B' : 'bus-A' }],
+      updatedAt: receivedAt, predictions: sample.predictions.map(p => ({ ...p, observedAt: receivedAt })) };
+  });
+  await expect(page.getByTestId('live-bus-status')).toContainText('NJ TRANSIT GPS · LIVE REPORT');
+  const first = await saved(page);
+  expect(first.session.lock.vehicleId).toBe('bus-A');
+  expect(first.session.history).toHaveLength(1);
+  expect(first.session.history[0].observedAt).toBe(receivedAt);
+  invalidFuture = true;
+  await page.clock.fastForward(31_000);
+  await expect(page.getByTestId('signal-warning')).toContainText('ESTIMATED POSITION ONLY');
+  const after = await saved(page);
+  expect(after.session.lock.vehicleId).toBe('bus-A');
+  expect(after.session.history).toHaveLength(1);
+  expect(after.session.lock.pending).toBeUndefined();
+});
 
 test('live GPS/prediction → missing feed → explicitly estimated schedule → recovered same bus', async ({ page }) => {
   let body: LiveBusSnapshot | null = packet();

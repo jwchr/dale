@@ -25,7 +25,12 @@ export function useLiveBus(ds: Dataset, session: BusSession | undefined, api: st
         if (current.current?.lock.vehicleId) url.searchParams.set('vehicle', current.current.lock.vehicleId);
         const response = await fetch(url, { signal: ctl.signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
         if (!response.ok) throw new Error('Live feed unavailable');
-        const payload: unknown = await response.json(), now = clock.current, snapshot = parseLiveSnapshot(payload, ds, trip, date, now);
+        const payload: unknown = await response.json(), renderedAt = clock.current;
+        const snapshot = parseLiveSnapshot(payload, ds, trip, date, renderedAt);
+        // The response can arrive between displayed clock ticks. After protocol validation,
+        // use its receipt as the same conservative age bound as home departure evidence.
+        // Keep the original source timestamps and the validator's future-time limit intact.
+        const now = Math.max(renderedAt, snapshot.receivedAt);
         if (stopped || current.current?.id !== id) return;
         const fresh = snapshot.vehicles.state === 'ok' && now - snapshot.receivedAt <= LIVE_MAX_AGE_MS;
         const points = fresh ? snapshot.observations.filter((p) => now - p.observedAt <= LIVE_MAX_AGE_MS && p.observedAt <= now) : [];
