@@ -33,7 +33,7 @@ test('first run: wrong-side guard, save, zero-tap home on return', async ({ page
   await expect(card.locator('[data-end="to"] .commute-stop')).toHaveText('Port Authority');
   await expect(card.locator('.dep-time')).toHaveText(['8:06 AM', '8:06 AM', '8:26 AM']);
   await expect(card.locator('.route-badge')).toHaveText(['165', '165T', '165T']);
-  await expect(card.locator('.dep-sub').first()).toHaveText('arrives 8:55 AM');
+  await expect(card.locator('.destination-clock .dep-arrival-scheduled').first()).toHaveText('8:55 AM');
   await expect(card.getByText('Scheduled only').first()).toBeVisible();
 
   // Reload = a returning rider: the next buses are there with no taps.
@@ -195,7 +195,7 @@ test.describe('real data', () => {
     const card = page.getByRole('article');
     // 8:20 AM at this stop is the filled-in time; the third entry is tomorrow's 8:20 AM.
     await expect(card.locator('.dep-time')).toContainText(['~8:20 AM', '9:10 AM', '~8:20 AM']);
-    await expect(card.locator('.dep-sub').first()).toContainText('arrives 9:00 AM');
+    await expect(card.locator('.destination-clock .dep-arrival-scheduled').first()).toContainText('9:00 AM');
     await expect(card).toContainText('Estimated by Dale');
 
     await card.locator('.dep').first().click();
