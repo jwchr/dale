@@ -98,3 +98,41 @@ describe('collector and existing relay lifecycle', () => {
     expect((await h.health()).observations).toBe(0);
   });
 });
+
+describe('owner-bounded three-minute five-second cadence test',()=>{
+ it('uses the same native poll owner, survives restart without renewal, and returns to30seconds while ON',async()=>{
+  const h=harness();await h.health();
+  const env={...h.env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+180000)};
+  let active=new h.Feed(h.ctx,env);
+  expect((await h.health(active)).effectiveIntervalMs).toBe(5000);
+  for(let i=0;i<36;i++){
+   h.clock(NOW+i*5000);
+   if(i===8)active=new h.Feed(h.ctx,env);
+   await h.alarm(active);
+  }
+  expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(36);
+  expect(h.calls.filter(c=>c==='authenticateUser')).toHaveLength(1);
+  const exhausted=await h.health(active);
+  expect(exhausted.cadenceTest).toMatchObject({expiresAt:NOW+180000,attempts:36,summary:{polls:36,upstreamVehicleAttempts:36}});
+  expect(JSON.stringify(exhausted)).not.toMatch(/bus-A|cadenceClocks|tripInstanceId|latitude|longitude/);
+  expect(exhausted).toMatchObject({enabled:true,effectiveIntervalMs:30000,batches:36});
+  h.clock(NOW+180000);active=new h.Feed(h.ctx,env);await h.alarm(active);
+  expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(36);
+  h.clock(NOW+205000);await h.alarm(active);
+  expect(h.calls.filter(c=>c==='getVehiclePositions')).toHaveLength(37);
+  expect((await h.health(active)).effectiveIntervalMs).toBe(30000);
+ });
+ it.each(['invalid',String(NOW-1),String(NOW+600000)])('refuses malformed/expired/overlong lease %s',async until=>{
+  const h=harness();await h.health();const active=new h.Feed(h.ctx,{...h.env,HISTORY_CADENCE_TEST_UNTIL:until});
+  expect((await h.health(active)).effectiveIntervalMs).toBe(30000);expect(h.calls).toEqual([]);
+ });
+ it('expires after three minutes even if no test attempt could run',async()=>{
+  const h=harness();await h.health();const env={...h.env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+180000)};
+  const active=new h.Feed(h.ctx,env);expect((await h.health(active)).effectiveIntervalMs).toBe(5000);
+  h.clock(NOW+180000);const restarted=new h.Feed(h.ctx,env);
+  expect((await h.health(restarted)).effectiveIntervalMs).toBe(30000);expect(h.calls).toEqual([]);
+  const retry=new h.Feed(h.ctx,{...env,HISTORY_CADENCE_TEST_UNTIL:String(NOW+360000)});
+  expect((await h.health(retry)).effectiveIntervalMs).toBe(30000);
+  expect((await h.health(retry)).cadenceTest.expiresAt).toBe(NOW+180000);
+ });
+});

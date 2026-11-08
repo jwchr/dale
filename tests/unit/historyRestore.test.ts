@@ -78,7 +78,7 @@ it.each(['mixed-archive','active-archive','partial-archive','unconfigured-archiv
 });
 it('only explicit restore-disabled enters existing prepared deployment path; default disabled remains NJT-free',()=>{
   const workflow=readFileSync(new URL('../../.github/workflows/live-worker.yml',import.meta.url),'utf8');
-  expect(workflow).toContain('options: [disabled, enabled, inspect, restore-disabled]');
+  expect(workflow).toContain('options: [disabled, enabled, inspect, restore-disabled, cadence-test]');
   for(const step of workflow.split(/\n      - /).filter(s=>/run: (npm ci|npm run worker:prepare|node scripts\/deploy-live-worker|node -e)/.test(s)))expect(step).toContain("if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled'");
 });
 
