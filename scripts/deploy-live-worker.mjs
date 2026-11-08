@@ -6,25 +6,50 @@ import { spawnSync } from 'node:child_process';
 import { safeNjtFailure, NjtError } from '../worker/njt-client.ts';
 import { liveApiUrl, parseLiveSnapshot } from '../src/domain/liveBus.ts';
 import { stopHistoryCollection, safeStopFailure } from './stop-history-collection.mjs';
+import { readActiveWorkerIdentity, workerProofDiagnostic, workerProofError } from './worker-content-identity.mjs';
+import { verifyUploadedWorker } from './worker-deployment-proof.mjs';
 let temporary;
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw new Error('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled'].includes(collectionMode)) throw new Error('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled'].includes(collectionMode)) throw new Error('collection-mode-invalid');
   if (collectionMode === 'disabled') {
     await stopHistoryCollection(process.env);
     return;
   }
+  const targetEnabled = collectionMode === 'enabled';
   const deploymentStartedAt = Date.now();
   const url = liveApiUrl(process.env.DALE_WORKER_URL);
   const ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8'));
   if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD
     || ds.meta?.source !== 'NJ Transit GTFS BUS G2' || !/^[a-f0-9]{12}$/.test(ds.meta.feedVersion) || ds.meta.realtime?.provider !== 'njt-bus-g2' || ds.meta.demo) throw new Error('configuration-invalid');
+  if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw new Error('reviewed-source-identity-required');
+  const before = await readActiveWorkerIdentity(process.env);
+  if (!before.bindings.some(b => b.name === 'FEED' && b.type === 'durable_object_namespace' && typeof b.namespace_id === 'string' && b.namespace_id)
+    || !before.bindings.some(b => b.name === 'HISTORY_ARCHIVE' && b.type === 'r2_bucket' && b.bucket_name === 'dale-history')
+    || !['NJT_API_USERNAME', 'NJT_API_PASSWORD'].every(name => before.bindings.some(b => b.name === name && b.type === 'secret_text'))) throw new Error('existing-resource-identity-required');
+  const config = JSON.parse(readFileSync(new URL('../worker/wrangler.jsonc', import.meta.url), 'utf8'));
+  const existingNames = ['FEED', 'HISTORY_ARCHIVE', 'NJT_API_USERNAME', 'NJT_API_PASSWORD', 'HISTORY_COLLECTION'];
+  if (config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled'
+    || config.compatibility_date !== before.runtime.compatibility_date
+    || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
+    || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
+    || before.bindings.some(b => !existingNames.includes(b.name))) throw workerProofError('worker-existing-configuration-mismatch');
+  let retained;
+  if (!targetEnabled) {
+    const readback = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
+    retained = readback.ok ? (await readback.json()).collection : undefined;
+    if (!retained || retained.enabled !== false || retained.reason !== 'disabled' || retained.alarmAt !== null || retained.error
+      || retained.archive?.configured !== true || !Number.isSafeInteger(retained.archive.verifiedObjects) || retained.archive.verifiedObjects < 0
+      || !Number.isSafeInteger(retained.archive.reservedBytes) || retained.archive.reservedBytes < 0
+      || !['observations', 'batches', 'bytes'].every(key => Number.isSafeInteger(retained[key]) && retained[key] >= 0)
+      || !before.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw new Error('restore-disabled-precondition');
+  }
   temporary = mkdtempSync(join(tmpdir(), 'dale-worker-secrets-'));
   const secrets = join(temporary, 'secrets.json');
   writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
   const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', '--secrets-file', secrets,
-    '--var', `HISTORY_COLLECTION:${collectionMode}`], {
+    '--var', `HISTORY_COLLECTION:${targetEnabled ? 'enabled' : 'disabled'}`, '--outdir', join(temporary, 'uploaded')], {
     encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 240_000,
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG: 'error' },
   });
@@ -35,8 +60,25 @@ async function run() {
     else if (/limit|quota/i.test(detail)) console.error('Cloudflare reported a resource limit. Do not upgrade automatically.');
     throw new Error('deployment-failed');
   }
+  const uploaded = await verifyUploadedWorker(process.env, join(temporary, 'uploaded'), before);
+  if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw new Error('uploaded-mode-invalid');
   const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
   if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw new Error('health-check-failed');
+  console.log('Reviewed upload artifact matches all active executable/data modules; runtime and other binding descriptors preserved.');
+  if (!targetEnabled) {
+    await stopHistoryCollection(process.env);
+    const check = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
+    const current = check.ok ? (await check.json()).collection : undefined;
+    if (!current || current.enabled !== false || current.reason !== 'disabled' || current.alarmAt !== null || current.error
+      || current.lastAttemptAt !== retained.lastAttemptAt || current.completedAttempt !== retained.completedAttempt
+      || !Number.isSafeInteger(current.observations) || current.observations !== retained.observations
+      || !Number.isSafeInteger(current.batches) || current.batches !== retained.batches
+      || !Number.isSafeInteger(current.bytes) || current.bytes < retained.bytes
+      || current.archive?.configured !== true || !Number.isSafeInteger(current.archive.verifiedObjects) || current.archive.verifiedObjects < retained.archive.verifiedObjects
+      || !Number.isSafeInteger(current.archive.reservedBytes) || current.archive.reservedBytes < retained.archive.reservedBytes) throw new Error('restored-evidence-unverified');
+    console.log('Known reviewed code restored disabled; existing evidence retained and strict module/stop proof passed. Original historical code identity remains unknown. Resume requires a separate authorized action.');
+    return;
+  }
   const status = await fetch(url + '/v1/status', { signal: AbortSignal.timeout(45_000), redirect: 'error', cache: 'no-store' });
   if (!status.ok) throw new Error('live-check-failed');
   const profile = await status.json();
@@ -88,6 +130,8 @@ async function run() {
   }
 }
 try { await run(); } catch (error) {
+  const proof = workerProofDiagnostic(error);
+  if (proof) console.error(`Worker proof diagnostic: reason=${proof.reason}${proof.status === undefined ? '' : ` http=${proof.status}`}.`);
   if ((process.env.HISTORY_COLLECTION_MODE || 'disabled') === 'disabled') console.error(`Stop diagnostic: ${safeStopFailure(error)}.`);
   console.error('Live Worker deployment or validation failed. Do not infer collection is inactive: verify its actual health/stop state. No raw error or secret values are logged. Check the private hosting setup.');
   process.exitCode = 1;

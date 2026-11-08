@@ -18,7 +18,10 @@ Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stan
 - This repository is public. Never commit NJ Transit credentials, tokens, recorded feed responses, rider locations or personal data. Credentials live only in repository or Cloudflare secrets set by the owner.
 
 ## Engineering
-- Smallest working, tested vertical slice first. One web app (`src/`) and, from M3, one Worker (`worker/`); no new packages until two real consumers exist.
+- **Deliver the complete owner-approved outcome. Visual polish and ease of use are acceptance requirements, not optional follow-up.** A functional implementation is unfinished when its approved appearance, graphics, layout or usability is missing. Do not replace a requested full design with borrowed colors/tokens or another partial interpretation, and do not describe that as delivery.
+- **Approved design references control visual acceptance.** Compare the actual rendered screens with the approved mock-up/source, including graphics, typography, spacing, hierarchy and interaction. Use available space efficiently; preserve useful features while removing unnecessary gaps, redundant rows and long scrolling. Verify real narrow-phone layouts, English/Spanish, enlarged text, touch targets and keyboard use. Functional tests alone do not establish visual completion.
+- **Owner approval is required for design-direction, roadmap or approved-scope changes.** Do not independently substitute a design, cut requested features/graphics, or move unfinished approved work to a later phase. Internal implementation steps may be small; shipping a partial outcome requires the owner's explicit agreement. If genuinely blocked, identify the exact blocker and remaining work rather than silently stopping early.
+- Keep one web app (`src/`) and, from M3, one Worker (`worker/`); no new packages until two real consumers exist.
 - Domain logic is pure TypeScript in `src/domain/` with unit tests in `tests/unit/`; UI flows in `tests/e2e/` (Playwright, Pixel 7, pinned `?now=`).
 - Run `npm run verify` locally before every push and batch related fixes into one push. CI runs on pull requests and main only.
 - Use standard libraries (GTFS-Realtime bindings, MapLibre) over custom parsers when the need arrives; record license and version.

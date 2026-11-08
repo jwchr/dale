@@ -2,13 +2,14 @@
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { liveApiUrl } from '../src/domain/liveBus.ts';
+import { readActiveWorkerIdentity, workerProofDiagnostic } from './worker-content-identity.mjs';
 // Only locally constructed, closed diagnostics may reach public Actions logs.
 class StopFailure extends Error {
   constructor(reason, stage, status) { super(reason); this.reason = reason; this.stage = stage; this.status = status; }
 }
 export function safeStopFailure(error) {
-  const stages = ['authorization', 'configuration', 'read-deployments', 'read-versions', 'read-version', 'read-settings', 'settings-patch', 'verify-active-version', 'verify-binding-state', 'verify-preservation', 'verify-disabled-health', 'verify-stability', 'inspect-original-transition'];
-  const reasons = ['manual-main-required', 'stop-configuration-invalid', 'cloudflare-stop-request-failed', 'cloudflare-stop-response-invalid', 'stop-active-version-ambiguous', 'stop-binding-state-invalid', 'stop-version-changed', 'stop-other-bindings-changed', 'stop-disabled-setting-unverified', 'stop-code-changed', 'stop-runtime-changed', 'stop-health-unavailable', 'stop-health-invalid', 'stop-disabled-unverified', 'stop-stability-unverified', 'invalid-json', 'request-timeout', 'unexpected-failure', 'stop-original-transition-unavailable', 'stop-original-preservation-unverified'];
+  const stages = ['authorization', 'configuration', 'read-deployments', 'read-versions', 'read-version', 'read-settings', 'settings-patch', 'verify-active-version', 'verify-binding-state', 'verify-preservation', 'verify-disabled-health', 'verify-stability', 'inspect-original-transition', 'capture-before-content', 'capture-after-content'];
+  const reasons = ['manual-main-required', 'stop-configuration-invalid', 'cloudflare-stop-request-failed', 'cloudflare-stop-response-invalid', 'stop-active-version-ambiguous', 'stop-binding-state-invalid', 'stop-version-changed', 'stop-other-bindings-changed', 'stop-disabled-setting-unverified', 'stop-code-changed', 'stop-runtime-changed', 'stop-health-unavailable', 'stop-health-invalid', 'stop-disabled-unverified', 'stop-stability-unverified', 'invalid-json', 'request-timeout', 'unexpected-failure', 'stop-original-transition-unavailable', 'stop-original-preservation-unverified', 'stop-module-content-changed', 'worker-content-unavailable', 'worker-content-invalid', 'worker-content-limit', 'worker-identity-configuration', 'worker-identity-request-failed', 'worker-identity-response-invalid', 'worker-identity-version-ambiguous', 'worker-identity-metadata-invalid', 'worker-identity-state-changed', 'worker-content-entrypoint-invalid', 'worker-content-type-unsupported', 'worker-content-duplicate'];
   if (!(error instanceof StopFailure) || !stages.includes(error.stage) || !reasons.includes(error.reason)) return 'stage=unknown reason=unexpected-failure';
   return `stage=${error.stage} reason=${error.reason}${Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? ` http=${error.status}` : ''}`;
 }
@@ -36,24 +37,24 @@ export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms
       if (!latest || deployment?.versions?.length !== 1 || deployment.versions[0].percentage !== 100 || deployment.versions[0].version_id !== latest) throw failure('stop-active-version-ambiguous');
       return latest;
     }
-    const beforeId = await active();
-    const before = await api(`/versions/${encodeURIComponent(beforeId)}`);
-    const settings = await api('/settings');
-    const bindings = settings.bindings;
-    stage = 'verify-binding-state';
-    if (!before.resources?.script?.etag || !before.resources.script_runtime || !Array.isArray(bindings) || bindings.some(b => typeof b.name !== 'string' || !b.name || !b.type) || new Set(bindings.map(b => b.name)).size !== bindings.length) throw failure('stop-binding-state-invalid');
+    stage = 'capture-before-content';
+    const before = await readActiveWorkerIdentity(env, { fetchImpl });
+    const beforeId = before.versionId;
+    const bindings = before.bindings;
     const others = list => list.filter(b => b.name !== 'HISTORY_COLLECTION').sort((a,b) => a.name.localeCompare(b.name));
     if (await active() !== beforeId) throw failure('stop-version-changed');
     const form = new FormData();
     form.set('settings', JSON.stringify({ bindings: [...others(bindings).map(b => ({ name: b.name, type: 'inherit' })), { name: 'HISTORY_COLLECTION', type: 'plain_text', text: 'disabled' }] }));
     await api('/settings', form);
-    const afterSettings = await api('/settings');
-    const after = await api(`/versions/${encodeURIComponent(await active())}`);
+    stage = 'capture-after-content';
+    const after = await readActiveWorkerIdentity(env, { fetchImpl });
     stage = 'verify-preservation';
-    if (!Array.isArray(afterSettings.bindings) || !isDeepStrictEqual(others(bindings), others(afterSettings.bindings))) throw failure('stop-other-bindings-changed');
-    if (afterSettings.bindings.filter(b => b.name === 'HISTORY_COLLECTION').length !== 1 || !afterSettings.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw failure('stop-disabled-setting-unverified');
-    if (after.resources?.script?.etag !== before.resources.script.etag) throw failure('stop-code-changed');
-    if (!isDeepStrictEqual(after.resources?.script_runtime, before.resources.script_runtime)) throw failure('stop-runtime-changed');
+    if (!isDeepStrictEqual(others(bindings), others(after.bindings))) throw failure('stop-other-bindings-changed');
+    if (after.bindings.filter(b => b.name === 'HISTORY_COLLECTION').length !== 1 || !after.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'disabled')) throw failure('stop-disabled-setting-unverified');
+    // ETags are retained as metadata, but executable identity requires the stronger
+    // exact complete module proof. No byte normalization or missing-module waiver.
+    if (!isDeepStrictEqual(after.content, before.content)) throw failure('stop-module-content-changed');
+    if (!isDeepStrictEqual(after.runtime, before.runtime)) throw failure('stop-runtime-changed');
     async function health() {
       // Never send the control-plane credential to this public read-only endpoint.
       const response = await fetchImpl(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
@@ -80,9 +81,12 @@ export async function stopHistoryCollection(env, { fetchImpl = fetch, sleep = ms
     await sleep(35_000);
     const second = await health();
     if (!second || !isDeepStrictEqual(first, second)) throw failure('stop-stability-unverified');
+    console.log(`Stop code proof: completeModulesEqual=true metadataEtagEqual=${before.etag === after.etag}.`);
     console.log('History collection disabled; alarm cleared and collection counters unchanged across 35 seconds. Deployed code, other bindings and retained evidence preserved.');
   } catch (error) {
     if (error instanceof StopFailure) throw error;
+    const proof = workerProofDiagnostic(error);
+    if (proof) throw failure(proof.reason, proof.status);
     // Never forward exception messages, response bodies, URLs, identifiers or stacks.
     throw failure(error instanceof SyntaxError ? 'invalid-json' : ['TimeoutError', 'AbortError'].includes(error?.name) ? 'request-timeout' : 'unexpected-failure');
   }
@@ -128,6 +132,8 @@ export async function inspectHistoryStop(env, { fetchImpl = fetch } = {}) {
     if (!codeEqual || !runtimeEqual || !bindingsEqual) throw failure('stop-original-preservation-unverified');
   } catch (error) {
     if (error instanceof StopFailure) throw error;
+    const proof = workerProofDiagnostic(error);
+    if (proof) throw failure(proof.reason, proof.status);
     throw failure(error instanceof SyntaxError ? 'invalid-json' : ['TimeoutError', 'AbortError'].includes(error?.name) ? 'request-timeout' : 'unexpected-failure');
   }
 }

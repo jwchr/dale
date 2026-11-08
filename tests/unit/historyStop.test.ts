@@ -18,7 +18,7 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
     syncBuiltinESMExports();
     const scenario = ${JSON.stringify(scenario)};
     const inspect = ${JSON.stringify(inspect)};
-    let patched = false, healthReads = 0, patchCount = 0, versionReads = 0;
+    let patched = false, healthReads = 0, patchCount = 0, versionReads = 0, captures = 0;
     const bindings = [
       {name:'FEED',type:'durable_object_namespace',namespace_id:'synthetic-namespace'},
       {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},
@@ -47,11 +47,19 @@ function run(scenario = 'ok', entry = stop, inspect = false) {
       if (scenario === 'non-json') return new Response('PRIVATE_SENTINEL_raw_response',{status:200});
       if (scenario === 'denied') return new Response('',{status:403});
       let result;
-      if (path === '/deployments') result={deployments:[{versions:[{version_id:inspect || patched?'v2':'v1',percentage:scenario === 'split'?50:100}]}]};
-      else if (path === '/versions') { versionReads++; result={items:inspect?[{id:scenario === 'staged' || (scenario === 'inspect-race' && versionReads > 1)?'draft':'v2'},{id:'v1'}]:[{id:scenario === 'staged'?'draft':patched?'v2':'v1'}]}; }
+      if (path === '/deployments') result={deployments:[{versions:[{version_id:scenario==='capture-race' && captures>0?'draft':inspect || patched?'v2':'v1',percentage:scenario === 'split'?50:100}]}]};
+      else if (path === '/versions') { versionReads++; result={items:inspect?[{id:scenario === 'staged' || (scenario === 'inspect-race' && versionReads > 1)?'draft':'v2'},{id:'v1'}]:[{id:scenario === 'staged' || (scenario==='capture-race' && captures>0)?'draft':patched?'v2':'v1'}]}; }
       else if (path.startsWith('/versions/')) {
         const current = inspect ? path.endsWith('/v2') : patched;
-        result={resources:{bindings:scenario === 'malformed-bindings'?{}:bindings.filter(b=>!(current && scenario === 'binding-loss' && b.name==='FEED')).map(b=>b.name==='HISTORY_COLLECTION' && (current || scenario==='wrong-pair')?{...b,text:'disabled'}:b),script:{etag:current && scenario === 'code-change'?'changed':'original-code-hash'},script_runtime:{compatibility_date:current && scenario === 'runtime-change'?'2026-10-02':'2026-10-01',compatibility_flags:[]}}};
+        result={id:scenario==='wrong-version-response'?'wrong':path.split('/').at(-1),resources:{bindings:scenario === 'malformed-bindings'?{}:bindings.filter(b=>!(current && scenario === 'binding-loss' && b.name==='FEED')).map(b=>b.name==='HISTORY_COLLECTION' && (current || scenario==='wrong-pair')?{...b,text:'disabled'}:b),script:{etag:current && scenario === 'code-change'?'changed':'original-code-hash'},script_runtime:{compatibility_date:current && scenario === 'runtime-change'?'2026-10-02':'2026-10-01',compatibility_flags:[]}}};
+      }
+      else if (path === '/content/v2') {
+        assert.equal(inspect,false,'FORBIDDEN_HISTORICAL_CONTENT');
+        captures++;
+        const form=new FormData();
+        if(scenario==='aux-change')form.set('data.bin',new Blob([patched?'changed':'original'],{type:'application/octet-stream'}),'data.bin');
+        form.set('index.js',new Blob([patched && scenario==='module-change'?'export default {changed:true}':'export default {}'],{type:'application/javascript+module'}),'index.js');
+        const response=new Response(form);response.headers.set('cf-entrypoint','index.js');return response;
       }
       else if (path === '/settings' && options.method === 'PATCH') {
         patchCount++;
@@ -78,7 +86,7 @@ it.each([stop, deploy])('native disabled entrypoint %s stops without NJT, static
   expect(result.error).toBeUndefined(); expect(result.status).toBe(0);
   expect(result.stderr).toBe(''); expect(result.stdout).toContain('counters unchanged across 35 seconds');
 });
-it.each(['denied','staged','split','binding-loss','code-change','runtime-change','enabled-health','alarm','advancing','hostile','timeout','non-json'])('stop fails closed for %s without raw diagnostics or rollback', scenario => {
+it.each(['denied','staged','split','binding-loss','module-change','runtime-change','enabled-health','alarm','advancing','hostile','timeout','non-json'])('stop fails closed for %s without raw diagnostics or rollback', scenario => {
   const result=run(scenario);
   expect(result.error).toBeUndefined(); expect(result.status).toBe(1);
   expect(result.stdout).toBe(''); expect(result.stderr).toContain('Cloudflare-only stop was not fully verified');
@@ -97,12 +105,12 @@ it('disabled workflow reaches native stop before every enabled-only dependency',
 });
 
 it.each([
-  ['denied','stage=read-deployments reason=cloudflare-stop-request-failed http=403'],
-  ['non-json','stage=read-deployments reason=invalid-json'],
-  ['timeout','stage=read-deployments reason=request-timeout'],
-  ['hostile','stage=read-deployments reason=unexpected-failure'],
+  ['denied','stage=capture-before-content reason=worker-identity-request-failed http=403'],
+  ['non-json','stage=capture-before-content reason=invalid-json'],
+  ['timeout','stage=capture-before-content reason=request-timeout'],
+  ['hostile','stage=capture-before-content reason=unexpected-failure'],
   ['binding-loss','stage=verify-preservation reason=stop-other-bindings-changed'],
-  ['code-change','stage=verify-preservation reason=stop-code-changed'],
+  ['module-change','stage=verify-preservation reason=stop-module-content-changed'],
   ['runtime-change','stage=verify-preservation reason=stop-runtime-changed'],
 ])('emits a closed safe diagnostic for %s', (scenario, diagnostic) => {
   const result=run(scenario);
@@ -145,4 +153,20 @@ it('inspection workflow supplies no NJT credentials and uses only the GET-only c
   const step=workflow.split(/\n      - /).find(s=>s.includes('run: node scripts/stop-history-collection.mjs --inspect'))!;
   expect(step).toContain("if: inputs.history_collection == 'inspect'");
   expect(step).not.toMatch(/NJT_API_|npm|worker:prepare|deploy-live-worker/);
+});
+
+it('does not confuse an etag-only change with executable equality: complete exact modules are required', () => {
+  const result=run('code-change');
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('completeModulesEqual=true metadataEtagEqual=false');
+});
+
+it.each([
+  ['capture-race','worker-identity-state-changed'],
+  ['wrong-version-response','worker-identity-metadata-invalid'],
+  ['aux-change','stop-module-content-changed'],
+])('strict current content proof refuses %s', (scenario, reason)=>{
+  const result=run(scenario);expect(result.error).toBeUndefined();expect(result.status).toBe(1);
+  expect(result.stderr).toContain('reason='+reason);expect(result.stdout).toBe('');
+  expect(result.stderr).not.toMatch(/synthetic-token|PRIVATE_SENTINEL|AssertionError|FORBIDDEN/);
 });
