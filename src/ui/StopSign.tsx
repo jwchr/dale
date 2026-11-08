@@ -7,6 +7,7 @@ import './stopSign.css';
 // Import URLs, not image bytes. Only the chosen image is requested after opening.
 const pictures = import.meta.glob('../assets/stop-scenes/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
+/** Lazy boarding-sign panel; the caller places its linked disclosure button among trip actions. */
 export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   ds: Dataset; from: Stop; to: Stop; routeIds: string[]; now: number; t: Strings; actions: (trigger: ReactNode) => ReactNode;
 }) {

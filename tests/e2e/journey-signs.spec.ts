@@ -28,8 +28,8 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(right.locator('.highway-name')).toHaveText(t.commuteNewYork);
     await expect(right.locator('.commute-stop')).toHaveText(t.commutePabt);
     const trigger = page.getByRole('button', { name: t.stopSign.open, exact: true });
-    const reverse = page.getByRole('button', { name: new RegExp(t.reverse) });
-    for (const [width, scale] of [[390, 100], [305, 100], [320, 130]] as const) {
+    const reverse = page.getByRole('button', { name: t.reverse, exact: true });
+    for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
       await page.setViewportSize({ width, height: 850 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
       const geometry = await page.locator('.commute-header').evaluate(header => {
@@ -45,6 +45,22 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(geometry.trigger.height).toBeGreaterThanOrEqual(44);
       expect(geometry.reverse.height).toBeGreaterThanOrEqual(44);
       expect(geometry.overflow).toBe(0);
+      // Inspect actual rendered lines: fitting boxes alone can hide isolated final letters.
+      const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(nodes => nodes.map(node => {
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        const lines = new Map<number, string>();
+        let text: Node | null;
+        while ((text = walker.nextNode())) {
+          for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
+            const range = document.createRange();
+            range.setStart(text, index); range.setEnd(text, index + 1);
+            const y = Math.round(range.getBoundingClientRect().top);
+            lines.set(y, (lines.get(y) ?? '') + text.textContent![index]);
+          }
+        }
+        return [...lines.values()].map(line => line.trim()).filter(Boolean);
+      }));
+      expect(lines.flat().filter(line => /^[a-z]$/i.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
       await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}.png` });
     }
     await reverse.focus();
@@ -59,7 +75,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(page.locator('.stop-sign')).toBeHidden();
     if (skin === 'clean') expect((await new AxeBuilder({ page }).include('.commute-header').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
     await reverse.click();
-    await page.getByRole('button', { name: new RegExp(t.reverse) }).click();
+    await page.getByRole('button', { name: t.reverse, exact: true }).click();
     await expect(left.locator('.highway-name')).toHaveText('Hackensack');
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
   });
