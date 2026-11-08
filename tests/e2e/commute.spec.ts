@@ -17,7 +17,7 @@ async function saveCommute(page: Page, query: string, pick: RegExp, dest: RegExp
 test('first run: wrong-side guard, save, zero-tap home on return', async ({ page }) => {
   await page.goto(URL);
   await expect(page.getByRole('note').first()).toContainText('Demo data');
-  await expect(page.locator('footer')).toContainText('may not be real time'); // NJ Transit data terms
+  await expect(page.locator('footer.foot')).toContainText('may not be real time'); // NJ Transit data terms
   await saveCommute(page, 'maple', /Maple Ave & Main St \(to Demo Terminal\)/, /Port Authority Bus Terminal/);
 
   // Buses on this side go the other way: the app points across the street.
@@ -186,8 +186,8 @@ test.describe('real data', () => {
   test('NJ Transit source line, no demo banner, filled-in times read as estimates', async ({ page }) => {
     await page.route('**/data/corridor.json', (route) => route.fulfill({ json: realStyle }));
     await page.goto('/?now=2026-11-04T07:50');
-    await expect(page.locator('footer')).toContainText('obtained from NJ Transit and redistributed from Dale');
-    await expect(page.locator('footer')).toContainText('may not be real time');
+    await expect(page.locator('footer.foot')).toContainText('obtained from NJ Transit and redistributed from Dale');
+    await expect(page.locator('footer.foot')).toContainText('may not be real time');
     await expect(page.locator('.demo-banner')).toHaveCount(0);
 
     await saveCommute(page, '30002', /MAIN ST AT ELM/, /PORT AUTHORITY BUS TERMINAL/);
@@ -214,7 +214,7 @@ test.describe('real data', () => {
     await expect(page.locator('.demo-banner')).toHaveCount(0);
     fail = false;
     await page.getByRole('button', { name: 'Try again' }).click();
-    await expect(page.locator('footer')).toContainText('obtained from NJ Transit');
+    await expect(page.locator('footer.foot')).toContainText('obtained from NJ Transit');
   });
 
   test("a saved copy from the service worker says when it was saved", async ({ page }) => {
