@@ -50,14 +50,16 @@ export function CommutePicker({ ds, t, lang, initialFrom, initialTo, routeIds, e
     {(!check.ok && check.reason === 'not-served' || error) && <p className="warn" role="alert">{t.notServed}</p>}
     <div className="choice-list"><button type="submit" className="primary save-trip">{t.selection.save}</button><button type="button" className="chip" onClick={onCancel}>{s.cancel}</button></div>
   </form>;
-  const visible = city === undefined ? groups.filter(group => folded(cityLabel(group.city)).includes(folded(query.trim())))
+  const showSearch = (city === undefined ? groups.length : groups.find(group => group.city === city)?.stops.length ?? 0) > 5;
+  const searchQuery = showSearch ? query.trim() : '';
+  const visible = city === undefined ? groups.filter(group => folded(cityLabel(group.city)).includes(folded(searchQuery)))
     : groups.filter(group => group.city === city);
-  const stops = visible.flatMap(group => group.stops).filter(stop => folded(query.trim()).split(/\s+/).every(word => folded(`${stop.name} ${stop.code ?? ''}`).includes(word)));
+  const stops = visible.flatMap(group => group.stops).filter(stop => folded(searchQuery).split(/\s+/).every(word => folded(`${stop.name} ${stop.code ?? ''}`).includes(word)));
   return <section className="card commute-picker">
     <h1 ref={heading} tabIndex={-1}>{stage === 'from' ? t.commuteFrom : t.commuteToLabel}: {city === undefined ? s.city : s.stop}</h1>
     {city !== undefined && <div className="picker-city"><strong>{cityLabel(city)}</strong><button type="button" className="link" onClick={() => { setCity(undefined); setQuery(''); }}>{s.changeCity}</button></div>}
-    <label htmlFor={id}>{city === undefined ? s.searchCity : s.searchStop}</label>
-    <input id={id} name="city-stop-search" className="search" type="search" value={query} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={event => setQuery(event.currentTarget.value)} />
+    {showSearch && <><label htmlFor={id}>{city === undefined ? s.searchCity : s.searchStop}</label>
+    <input id={id} name="city-stop-search" className="search" type="search" value={query} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={event => setQuery(event.currentTarget.value)} /></>}
     <ul className="results city-stop-results">{city === undefined ? visible.map(group => <li key={group.city}><button type="button" className="city-choice" onClick={() => { setCity(group.city); setQuery(''); }}><strong>{cityLabel(group.city)}</strong><span className="muted small">{group.stops.length}</span></button></li>)
       : stops.map(stop => <li key={stop.id}><StopChoice ds={ds} stop={stop} t={t} onPick={pick} /></li>)}</ul>
     {(city === undefined ? !visible.length : !stops.length) && <p role="status">{s.empty}</p>}
