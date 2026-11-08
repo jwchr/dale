@@ -37,12 +37,23 @@ export async function testHistoryCadence(env, { fetchImpl = fetch, clock = Date.
     if (!response.ok || (await response.json()).success !== true) throw new Error('test-setting-unverified');
   };
   await patch(true);
-  const active = await identity();
   const expected = [...before.bindings, { name: FLAG, type: 'plain_text', text: String(expiresAt) }].sort((a,b)=>a.name.localeCompare(b.name));
-  if (!isDeepStrictEqual(active.content, before.content) || !isDeepStrictEqual(active.runtime, before.runtime)
-    || !isDeepStrictEqual(active.bindings, expected)) throw new Error('test-preservation-unverified');
-  const running = await health();
-  if (!healthy(running) || running.effectiveIntervalMs !== 5000 || running.cadenceTest?.expiresAt !== expiresAt) throw new Error('test-activation-unverified');
+  const activated = await waitForReadiness(async timeoutMs => {
+    const current = await readActiveWorkerIdentity(env, { fetchImpl: (input, options) => {
+      const remaining = expiresAt - clock();
+      if (remaining <= 0) throw new Error('test-activation-unverified');
+      return fetchImpl(input, { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(Math.max(1, Math.min(10_000, remaining)))]) });
+    } });
+    if (!isDeepStrictEqual(current.content, before.content) || !isDeepStrictEqual(current.runtime, before.runtime)) throw new Error('test-preservation-unverified');
+    // An unchanged old binding view is propagation, never proof of activation.
+    if (isDeepStrictEqual(current.bindings, before.bindings)) return undefined;
+    if (!isDeepStrictEqual(current.bindings, expected)) throw new Error('test-preservation-unverified');
+    const running = await health(Math.min(timeoutMs, Math.max(1, expiresAt - clock())));
+    return healthy(running) && running.effectiveIntervalMs === 5000 && running.cadenceTest?.expiresAt === expiresAt
+      ? current : undefined;
+  }, { clock, sleep, timeoutMs: Math.max(1, expiresAt - clock()) });
+  if (!activated) throw new Error('test-activation-unverified');
+  const active = activated;
   console.log('One-shot test active: five-second pacing; absolute expiry within three minutes; at most36 attempts. Regular pacing remains30seconds.');
   await sleep(Math.max(0, expiresAt + 1000 - clock()));
   const ended = await waitForReadiness(async timeoutMs => {
