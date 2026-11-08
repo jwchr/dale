@@ -1,3 +1,4 @@
+import { AppHeader } from './AppHeader';
 import { changeFavoriteStops } from '../domain/cityStops';
 import { CommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
@@ -215,14 +216,14 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <header className="top">
+      <AppHeader>
         {guide ? <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>
           : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <div className="choice-list">
           <button className="chip" lang="en" aria-pressed={settings.lang === 'en'} onClick={() => setSettings({ ...settings, lang: 'en' })}>English</button>
           <button className="chip" lang="es" aria-pressed={settings.lang === 'es'} onClick={() => setSettings({ ...settings, lang: 'es' })}>Español</button>
         </div>
-      </header>
+      </AppHeader>
       <main ref={content}>
         <TravelModeSelector mode={guide === 'penn' ? 'train' : 'bus'} t={t} trainRef={pennButton}
           onChange={(mode) => { if (mode === 'train') onGuide('penn'); else onBack(); }} />
@@ -352,13 +353,13 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <header className="top">
+      <AppHeader>
         {screen.name !== 'home' ? (
           <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
         ) : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
         <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
-      </header>
+      </AppHeader>
       {ds.meta.demo && <div className="demo-banner" role="note">{t.demoBanner}{demoInAddress() && <> <a className="link demo-leave" href={leaveDemoHref()}>{t.leaveDemo}</a></>}</div>}
       <FeedStatus ctx={ctx} />
       {ds.meta.transcribed && isNjtHoliday(localYmd(now, tz)) && <p className="status-line" data-level="warn" role="note">{t.holidayToday}</p>}
@@ -1096,7 +1097,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="muted small">{t.skinNote}</p>
       <h2>{t.theme}</h2>
       <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
-      {!['clean', 'garden'].includes(settings.skin) && <p className="muted small">{t.themeCleanOnly}</p>}
+      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
       <h2>{t.departuresShown}</h2>
       <div className="choice-list">{opt('count', 3, '3')}{opt('count', 5, '5')}</div>
       <h2>{t.guide.title}</h2>
