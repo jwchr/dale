@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
+  "upload_source_maps": false,
   "vars": { "HISTORY_COLLECTION": "disabled" },
   "r2_buckets": [{ "binding": "HISTORY_ARCHIVE", "bucket_name": "dale-history" }],
   "observability": { "enabled": false },
