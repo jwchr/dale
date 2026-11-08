@@ -4,8 +4,9 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 import { LIVE_SOURCE } from '../../src/domain/liveBus';
 import type { DepartureBatch, DepartureRequest, DepartureReport } from '../../src/domain/liveDepartures';
 const API = 'https://dale-live.test.workers.dev';
+const captureCards = process.env.DALE_CAPTURE_VISUALS === '1';
 const favorite = { id: 'home-live', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
-type Mode = 'boarding-arrival' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
+type Mode = 'boarding-arrival' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
 function response(queries: DepartureRequest[], mode: Mode, now: number): DepartureBatch {
   const observedAt = mode === 'stale' ? now - 180_000 : now - 20_000;
   const items: DepartureReport[] = queries.map(query => {
@@ -15,19 +16,21 @@ function response(queries: DepartureRequest[], mode: Mode, now: number): Departu
     if (mode === 'boarding-skipped') return { ...common, boardingSkipped: true };
     if (mode === 'destination-skipped') return { ...common, destinationSkipped: true };
     if (mode === 'boarding-arrival') return { ...common, boardingArrival: { stopIndex: query.stopIndex, at: now + 300_000, observedAt, kind: 'arrival' } };
+    if (mode === 'arrival-only') return { ...common, arrival: { stopIndex: query.toStopIndex, at: now + 2400_000, observedAt, kind: 'arrival' } };
     if (mode === 'gps-only') return { ...common, gpsObservedAt: now - 15_000 };
     if (mode === 'date-unknown') return { ...common, problem: 'date-unknown' };
-    return { ...common, departure: { stopIndex: query.stopIndex, at: now + 300_000, observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + 2400_000, observedAt, kind: 'arrival' } };
+    const delay = mode === 'long-time' ? 5 * 3600_000 : 0;
+    return { ...common, departure: { stopIndex: query.stopIndex, at: now + delay + 300_000, observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + delay + 2400_000, observedAt, kind: 'arrival' } };
   });
   return { v: 1, source: LIVE_SOURCE, feedVersion: liveDataset.meta.feedVersion, receivedAt: now, vehicles: { state: 'ok', timestamp: now - 10_000 }, updates: { state: mode === 'stale' ? 'stale' : 'ok', timestamp: observedAt }, items };
 }
-async function setup(page: Page, options: { lang?: 'en' | 'es'; now?: number; pinned?: boolean; wallTime?: number } = {}) {
+async function setup(page: Page, options: { lang?: 'en' | 'es'; now?: number; pinned?: boolean; wallTime?: number; skin?: string } = {}) {
   const state = { mode: 'live' as Mode, now: options.now ?? NOW, calls: 0, trackerCalls: 0 };
   await page.clock.install({ time: options.wallTime ?? state.now });
-  await page.addInitScript(({ favorite, lang }) => {
+  await page.addInitScript(({ favorite, lang, skin }) => {
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([favorite]));
-    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
-  }, { favorite, lang: options.lang ?? 'en' });
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin, theme: 'light', count: 3 }));
+  }, { favorite, lang: options.lang ?? 'en', skin: options.skin ?? 'clean' });
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset, headers: { 'access-control-allow-origin': '*' } }));
   await page.route(API + '/v1/departures?**', r => {
     state.calls++;
@@ -51,7 +54,7 @@ test('normal upcoming home shows official estimates automatically, retaining sch
   await expect(row.locator('.destination-clock .dep-place')).toHaveText('Port Authority');
   await expect(row.locator('.dep-arrival-time')).toHaveText('8:00 AM');
   await expect(row.locator('.destination-clock .badge-destination-live')).toHaveText('LIVE ESTIMATE');
-  await expect(row.locator('.dep-evidence')).toContainText('NJ Transit · reported 20s ago');
+  await expect(row.locator('.dep-evidence')).toHaveText('Prediction by NJ Transit 20s ago');
   expect(state.trackerCalls).toBe(0); expect(state.calls).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).toBeNull();
   await row.getByRole('button').click();
@@ -95,7 +98,7 @@ for (const [mode, text] of [
 test('Spanish normal arrivals fit320px and pass accessibility without selecting a bus', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 }); await setup(page, { lang: 'es' });
   await expect(current(page).locator('.badge-live')).toHaveText('ESTIMACIÓN EN VIVO');
-  await expect(current(page).locator('.dep-evidence')).toContainText('NJ Transit · informado hace');
+  await expect(current(page).locator('.dep-evidence')).toHaveText('Predicción de NJ Transit hace 20s');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
 });
@@ -154,4 +157,86 @@ test('live icons reflect each source, respect reduced motion, and can be paused 
   await expect(row.locator('.boarding-clock .live-symbol')).toHaveAttribute('data-live', 'false');
   await expect(row.locator('.boarding-clock .badge-sched')).toHaveText('Scheduled only');
   expect(await row.locator('.boarding-clock .live-symbol').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+});
+
+
+for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
+  for (const lang of ['en', 'es'] as const) test(`compact departure cards retain clocks and controls (${skin}, ${lang})`, async ({ page }) => {
+    const state = await setup(page, { lang, skin });
+    const row = current(page), button = row.getByRole('button');
+    const source = lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s';
+    await expect(row.locator('.dep-evidence')).toHaveText(source);
+    for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
+      const geometry = await button.evaluate(button => {
+        const rect = (selector: string) => button.querySelector(selector)!.getBoundingClientRect().toJSON();
+        const bounds = button.getBoundingClientRect();
+        return { bounds: bounds.toJSON(), route: rect('.route-badge'), main: rect('.dep-main'), countdown: rect('.dep-right'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
+          textOutside: [...button.querySelectorAll('*')].some(node => node.getBoundingClientRect().right > bounds.right + 1) };
+      });
+      if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
+      else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
+      expect(geometry.route.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.countdown.right).toBeLessThanOrEqual(geometry.bounds.right);
+      expect(geometry.overflow).toBe(0);
+      expect(geometry.textOutside).toBe(false);
+      if (scale === 100) {
+        expect(Math.abs(geometry.boarding.top - geometry.arrival.top)).toBeLessThan(2);
+        expect(geometry.arrival.left).toBeGreaterThan(geometry.boarding.left);
+      } else expect(geometry.arrival.top).toBeGreaterThan(geometry.boarding.bottom);
+      if (captureCards) await row.screenshot({ path: `test-results/departure-${skin}-${lang}-${width}-${scale}.png` });
+    }
+    state.mode = 'long-time'; state.now += 31000;
+    await page.clock.fastForward(31000);
+    await page.setViewportSize({ width: 305, height: 900 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
+    await expect(row.locator('.dep-time')).toHaveText(lang === 'en' ? '12:25 PM' : '12:25 p.m.');
+    for (const family of ['', 'Verdana']) {
+      await page.evaluate(family => { document.body.style.fontFamily = family; }, family);
+      const numeric = await row.locator('.dep-time').evaluate(clock => {
+        const text = clock.firstChild!;
+        const value = text.textContent!, match = /\d{1,2}:\d{2}/.exec(value)!;
+        const range = document.createRange(); range.setStart(text, match.index); range.setEnd(text, match.index + match[0].length);
+        return { value, fontFamily: getComputedStyle(clock).fontFamily, fontSize: getComputedStyle(clock).fontSize,
+          rects: [...range.getClientRects()].filter(line => line.width > 0).map(line => line.toJSON()) };
+      });
+      expect(numeric.rects.length, JSON.stringify(numeric)).toBe(1);
+    }
+    await page.evaluate(() => { document.body.style.fontFamily = ''; });
+    const badgeLines = await row.locator('.badge-live, .badge-destination-live').evaluateAll(nodes => nodes.map(node => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT), lines = new Map<number, string>();
+      let text: Node | null;
+      while ((text = walker.nextNode())) for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
+        const range = document.createRange(); range.setStart(text, index); range.setEnd(text, index + 1);
+        const y = Math.round(range.getBoundingClientRect().top);
+        lines.set(y, (lines.get(y) ?? '') + text.textContent![index]);
+      }
+      return [...lines.values()].map(line => line.trim()).filter(Boolean);
+    }));
+    expect(badgeLines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify(badgeLines)).toEqual([]);
+    await expect(row.locator('.boarding-clock .badge-live')).toMatchAriaSnapshot(`- strong: ${lang === 'en' ? 'LIVE ESTIMATE' : 'ESTIMACIÓN EN VIVO'}`);
+    if (captureCards) await row.screenshot({ path: `test-results/departure-${skin}-${lang}-long-clock.png` });
+    await button.focus(); await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: lang === 'en' ? 'Lock onto this bus' : 'Seguir este autobús', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).toBeNull();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual([favorite]);
+  });
+}
+
+for (const lang of ['en', 'es'] as const) test(`source age follows the destination-only prediction and never GPS (${lang})`, async ({ page }) => {
+  const state = await setup(page, { lang, now: NOW - 300_000 });
+  state.mode = 'arrival-only'; state.now += 31000;
+  await page.clock.fastForward(31000);
+  const row = current(page);
+  await expect(row.locator('.boarding-clock .badge-sched')).toHaveText(lang === 'en' ? 'Scheduled only' : 'Solo horario');
+  await expect(row.locator('.boarding-clock .scheduled-warning')).toHaveAccessibleName(lang === 'en' ? 'Live estimate unavailable' : 'Estimación en vivo no disponible');
+  await expect(row.locator('.destination-clock .badge-destination-live')).toBeVisible();
+  await expect(row.locator('.dep-source')).toHaveText(lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s');
+  state.mode = 'gps-only'; state.now += 31000;
+  await page.clock.fastForward(31000);
+  await expect(row.locator('.dep-source')).toHaveCount(0);
+  await expect(row.locator('.badge-live, .badge-destination-live')).toHaveCount(0);
+  await expect(row.locator('.scheduled-warning')).toHaveCount(2);
+  await expect(row.locator('.dep-evidence')).toContainText(lang === 'en' ? 'Live GPS is available' : 'Hay GPS en vivo');
 });

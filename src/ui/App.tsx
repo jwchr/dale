@@ -1,7 +1,8 @@
+import { SignText } from './SignText';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
@@ -591,20 +592,6 @@ function commutePlace(stop: Stop | undefined, name: string, printed: boolean, t:
   return { name: landmark?.[1] ?? town, detail: `${landmark ? `${landmark[2]} · ` : ''}${place.slice(split + 3)}` };
 }
 
-/** Keep whole words together when they fit; provide balanced, readable breaks for
- * words wider than a sign at enlarged text sizes. Text/copy/accessibility stay intact. */
-function SignText({ text }: { text: string }) {
-  return text.split(/(\s+)/).map((word, index) => {
-    if (!word.trim()) return word;
-    const characters = Array.from(word);
-    const count = Math.ceil(characters.length / 4);
-    return <span className="sign-word" key={index}>{Array.from({ length: count }, (_, part) => <Fragment key={part}>
-      {part > 0 && <wbr />}
-      <span className="sign-word-part">{characters.slice(Math.floor(part * characters.length / count), Math.floor((part + 1) * characters.length / count)).join('')}</span>
-    </Fragment>)}</span>;
-  });
-}
-
 /** City and stop retain separate sign faces and the original visible/source text. */
 function HighwayPlace({ place, label, end }: { place: { name: string; detail: string }; label: string; end: 'from' | 'to' }) {
   return <div className="commute-place" data-end={end}>
@@ -727,12 +714,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
                   <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
                     <RouteBadge ds={ds} routeId={d.route.id} />
                     <span className="dep-main">
-                      {live ? <DepartureTimes evidence={live} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
-                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} /> : <>
-                        <span className="dep-time"><TimeText ctx={ctx} at={shown} estimated={d.estimated} /></span>
-                        {soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
-                        <span className="dep-subline"><span className="dep-sub">{arr ? <>{t.arrives} <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /></> : d.pattern.headsign}</span><span className="badge-sched">{t.scheduledOnly}</span></span>
-                      </>}
+                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
+                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
+                      {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
                       {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
                     </span>
@@ -740,7 +724,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
                       <span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.inMin(minutesUntil(now, shown))}</span>
                     </span>
                   </button>
-                  {live && <p id={reasonId} className="dep-evidence">{observedAt && <span>{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}{' · '}</span>}{reason}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
+                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined && <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
                 </li>;
               })}
             </ul>

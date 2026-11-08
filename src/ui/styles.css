@@ -420,22 +420,48 @@ main { flex: 1; padding-bottom: 24px; }
 
 .dep-destination-original { display: block; font-size: .75rem; line-height: 1.3; margin-top: 3px; }
 
-/* At phone width, give both location clocks the full row beneath route/countdown. */
-.dep-has-live { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; }
-.dep-has-live > .route-badge { grid-column: 1; grid-row: 1; justify-self: start; }
-.dep-has-live > .dep-right { grid-column: 3; grid-row: 1; }
-.dep-has-live > .dep-main { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
-.dep-paired { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.dep-clock { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
-.dep-clock > span { max-width: 100%; overflow-wrap: anywhere; }
-.dep-clock .dep-time { white-space: normal; }
-.dep-date { display: block; font-size: .75rem; font-weight: 400; line-height: 1.3; white-space: normal; }
-.dep-place { font-size: .83rem; font-weight: 650; overflow-wrap: anywhere; }
-.dep-has-live .dep-time, .dep-arrival-time { font-size: clamp(1.15rem, 5.8vw, 1.5rem); font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.dep-arrival-scheduled { font-size: 1rem; font-variant-numeric: tabular-nums; }
-.dep-paired .badge-live, .dep-paired .badge-destination-live, .dep-paired .badge-sched { font-size: .68rem; max-width: 100%; white-space: normal; text-align: start; }
+/* Home cards keep the route beside both clocks, rather than in its own empty row. */
+.fav .deps > li { container-type: inline-size; }
+.fav .deps .dep { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 6px; padding: 8px; }
+.fav .deps .dep > .route-badge { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: start; min-inline-size: 54px; min-block-size: 44px; padding-inline: 4px; font-size: 1.15rem; }
+.fav .deps .dep > .dep-main { grid-column: 2; grid-row: 2; min-inline-size: 0; }
+.fav .deps .dep > .dep-right { grid-column: 2; grid-row: 1; justify-self: end; min-inline-size: 0; max-inline-size: 100%; margin: 0; text-align: end; }
+.fav .deps .dep-min { font-size: .85rem; overflow-wrap: anywhere; }
+.fav .deps .dep-evidence { margin: 3px 4px 7px; }
+.dep-source, .dep-reason { display: block; }
+.dep-paired { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 4px; }
+.dep-clock { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-inline-size: 0; }
+@supports (grid-template-rows: subgrid) {
+  .dep-clock { display: grid; grid-template-rows: subgrid; grid-row: span 4; align-items: start; }
+}
+.dep-clock > span { max-inline-size: 100%; min-inline-size: 0; overflow-wrap: anywhere; }
+.dep-clock-line { display: flex; align-items: flex-start; gap: 2px; }
+/* Keep the numeric clock intact; the AM/PM suffix may still wrap at its space. */
+.dep-clock .dep-time, .dep-arrival-time, .dep-arrival-scheduled { white-space: normal; overflow-wrap: normal; word-break: normal; }
+.dep-date { overflow-wrap: anywhere; display: block; font-size: .75rem; font-weight: 400; line-height: 1.3; white-space: normal; }
+.dep-place { font-size: .75rem; font-weight: 650; overflow-wrap: anywhere; }
+.dep-clock .dep-time, .dep-arrival-time, .dep-arrival-scheduled { font-size: 1rem; font-size: clamp(1rem, 6cqi, 1.5rem); font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.dep-paired .badge-live, .dep-paired .badge-destination-live, .dep-paired .badge-sched { font-size: .68rem; max-inline-size: 100%; white-space: normal; text-align: start; justify-self: start; }
 .badge-destination-live { border: 1px solid currentColor; border-radius: 4px; padding: 1px 5px; font-weight: 750; }
 .dep-paired .dep-original, .dep-paired .dep-destination-original { margin: 0; font-size: .75rem; line-height: 1.3; }
+@container (min-width: 26rem) {
+  .fav .deps .dep { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fav .deps .dep > .route-badge, .fav .deps .dep > .dep-main, .fav .deps .dep > .dep-right { grid-row: 1; }
+  .fav .deps .dep > .dep-right { grid-column: 3; }
+}
+
+/* Reserve enough effective width for two clock numbers plus their source icons.
+   Larger text/narrower cards read sequentially beside the badge instead of splitting digits. */
+@container (max-width: 14rem) {
+  .dep-paired { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* At enlarged text sizes, keep full clocks readable rather than splitting digits. */
+@container (max-width: 9rem) {
+  .fav .deps .dep > .route-badge { grid-row: 1; }
+  .fav .deps .dep > .dep-main { grid-column: 1 / -1; }
+  .dep-paired { grid-template-columns: minmax(0, 1fr); }
+}
 
 .live-symbol { width: 1.1em; height: 1.1em; display: inline-block; vertical-align: -.15em; flex: 0 0 auto; margin-inline-end: .3em; }
 .live-symbol[data-live='true'] { color: #087443; filter: drop-shadow(0 0 3px rgba(50, 215, 120, .5)); }
@@ -446,7 +472,7 @@ main { flex: 1; padding-bottom: 24px; }
 @keyframes live-broadcast { 0%, 100% { opacity: .65; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.06); } }
 @media (prefers-reduced-motion: no-preference) { :root:not([data-live-motion='off']) .live-symbol[data-live='true'] { animation: live-broadcast 2.4s ease-in-out infinite; } }
 :root[data-page-visible='false'] .live-symbol { animation-play-state: paused; }
-.dep-paired .badge-live, .dep-paired .badge-destination-live, .dep-paired .badge-sched { display: inline-flex; align-items: center; }
+.dep-paired .badge-live, .dep-paired .badge-destination-live, .dep-paired .badge-sched { display: inline-block; }
 @media (forced-colors: active) { .live-symbol { color: CanvasText; filter: none; } .live-glow { text-shadow: none; } }
 
 .map-views { margin-block: .5rem; }
@@ -467,3 +493,5 @@ main { flex: 1; padding-bottom: 24px; }
 @media (forced-colors: active) { .line-stations > li::before { background: CanvasText; } .line-node { border-color: CanvasText; background: Canvas; } .line-stations > li[data-state='alight'] .line-node { border-style: double; background: Highlight; } }
 
 .line-bus-between { padding: .35rem 0 .35rem 1.5rem; }
+
+.dep-clock-line .live-symbol { margin-inline-end: 0; inline-size: .85em; block-size: 1.2em; flex: none; }

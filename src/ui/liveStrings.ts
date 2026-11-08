@@ -2,7 +2,7 @@ export const liveStrings = {
   en: {
     rows: {
       live: 'LIVE ESTIMATE', boardingArrival: 'LIVE ARRIVAL', atYourStop: 'Your stop', scheduleShort: 'Schedule',
-      sourceAge: (s: number) => `NJ Transit · reported ${s}s ago`,
+      sourceAge: (s: number) => `Prediction by NJ Transit ${s}s ago`, estimateUnavailable: 'Live estimate unavailable',
       notStarted: (time: string) => `No live estimate yet. Scheduled to start its route at ${time}.`,
       gpsHint: 'Live GPS is available: tap this bus, then Lock onto this bus.', cancelledShort: 'Cancelled', timePassed: 'Time passed',
       reasons: {
@@ -34,7 +34,7 @@ export const liveStrings = {
   es: {
     rows: {
       live: 'ESTIMACIÓN EN VIVO', boardingArrival: 'LLEGADA EN VIVO', atYourStop: 'Tu parada', scheduleShort: 'Horario',
-      sourceAge: (s: number) => `NJ Transit · informado hace ${s}s`,
+      sourceAge: (s: number) => `Predicción de NJ Transit hace ${s}s`, estimateUnavailable: 'Estimación en vivo no disponible',
       notStarted: (time: string) => `Aún no hay estimación en vivo. Su ruta está programada para empezar a las ${time}.`,
       gpsHint: 'Hay GPS en vivo: toca este autobús y luego Seguir este autobús.', cancelledShort: 'Cancelado', timePassed: 'Hora pasada',
       reasons: {
