@@ -1096,7 +1096,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="muted small">{t.skinNote}</p>
       <h2>{t.theme}</h2>
       <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
-      {!['clean', 'garden'].includes(settings.skin) && <p className="muted small">{t.themeCleanOnly}</p>}
+      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
       <h2>{t.departuresShown}</h2>
       <div className="choice-list">{opt('count', 3, '3')}{opt('count', 5, '5')}</div>
       <h2>{t.guide.title}</h2>

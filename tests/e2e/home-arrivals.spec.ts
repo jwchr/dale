@@ -265,3 +265,26 @@ for (const lang of ['en', 'es'] as const) for (const mode of ['arrival-only-gps'
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual([favorite]);
   expect(state.trackerCalls).toBe(0);
 });
+
+
+for (const lang of ['en', 'es'] as const) test(`Garden live indicator remains distinct on forest-green panels with a light preference (${lang})`, async ({ page }) => {
+  await setup(page, { skin: 'garden', lang });
+  const row = current(page);
+  await expect(row.locator('.badge-live')).toHaveText(strings[lang].live.rows.live);
+  await expect(row.locator('.badge-destination-live')).toHaveText(strings[lang].live.rows.live);
+  await expect(row.locator('.dep-source')).toHaveText(strings[lang].live.rows.sourceAge(20));
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const colors = await row.evaluate(row => ({
+    icon: getComputedStyle(row.querySelector('.live-symbol[data-live="true"]')!).color,
+    panel: getComputedStyle(row.querySelector('button.dep')!).backgroundColor,
+  }));
+  const icon = colors.icon.match(/[\d.]+/g)!.map(Number), panel = colors.panel.match(/[\d.]+/g)!.map(Number);
+  // Conservative brightest possible underlay, including the pulse's minimum .65 opacity.
+  const alpha = panel[3] ?? 1;
+  const background = panel.slice(0, 3).map(channel => channel * alpha + 255 * (1 - alpha));
+  const stroke = icon.slice(0, 3).map((channel, i) => channel * .65 + background[i]! * .35);
+  const luminance = (rgb: number[]) => rgb.map(channel => channel / 255).map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4).reduce((sum, channel, i) => sum + channel * [.2126, .7152, .0722][i]!, 0);
+  const contrast = (luminance(stroke) + .05) / (luminance(background) + .05);
+  expect(contrast, JSON.stringify({ ...colors, minimumPulseContrast: contrast })).toBeGreaterThanOrEqual(3);
+  expect(colors.icon).toBe('rgb(137, 243, 172)');
+});

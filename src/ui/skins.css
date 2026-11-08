@@ -1,4 +1,4 @@
-/* Dale styles (owner request 2026-11-04, D46): Turnpike (default), Parkway, NYC night and Clean.
+/* Dale styles (owner request 2026-11-04, D46): Garden State (default), Turnpike, Parkway, NYC night and Clean.
    Original artwork inspired by the road and the city: no official shields, logos or sign designs.
    Loaded after styles.css, so a style's tokens win over the light/dark ones (same specificity). */
 
@@ -26,8 +26,8 @@
 .skin-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
 .skin-backdrop svg { display: block; }
 
-/* ---------- Tokens for the three scene styles ---------- */
-:root[data-skin='turnpike'], :root[data-skin='parkway'], :root[data-skin='nyc'] {
+/* ---------- Scene palettes; Garden State restores the owner-confirmed green/gold reference ---------- */
+:root[data-skin='turnpike'], :root:is([data-skin='parkway'], [data-skin='garden']), :root[data-skin='nyc'] {
   --text: #eef3f8; --muted: #b9c6d3; --line: #3a4756; --brand-ink: #ffffff;
   --warn-bg: #3a2f0b; --warn-ink: #ffe08a; --alert: #ff7b72; --alert-fill: #c62828; --focus: #ffd23f;
   --glass-border: rgba(255, 255, 255, 0.10); --glass-edge: rgba(255, 255, 255, 0.14);
@@ -39,7 +39,7 @@
   --glass: rgba(14, 18, 24, 0.55); --glass-strong: rgba(22, 27, 34, 0.84);
   --sign-bg: #0b6b3f; --sign-ink: #ffffff; --sign-rim: #ffffff; --plate-bg: #10151b; --plate-ink: #ffd23f;
 }
-:root[data-skin='parkway'] {
+:root:is([data-skin='parkway'], [data-skin='garden']) {
   --bg: #0c2219; --surface: #15281f; --brand: #0d5c3a; --brand-text: #f3d27a; --accent: #f3c642; --express: #f3c642;
   --muted: #c3d3c6; --glass: rgba(10, 26, 18, 0.55); --glass-strong: rgba(18, 36, 27, 0.84);
   --sign-bg: #0d5c3a; --sign-ink: #fffbea; --sign-rim: #f3c642; --plate-bg: #2a2418; --plate-ink: #f8e3a0;
@@ -50,24 +50,24 @@
   --sign-bg: #111214; --sign-ink: #ffffff; --sign-rim: #ffffff; --plate-bg: #1c1d21; --plate-ink: #ffffff;
 }
 /* The scene sits behind the page: the page itself must not paint over it (only the root does). */
-:root[data-skin='turnpike'], :root[data-skin='parkway'], :root[data-skin='nyc'] { background: var(--bg); }
-:root[data-skin='turnpike'] body, :root[data-skin='parkway'] body, :root[data-skin='nyc'] body { background: transparent; }
+:root[data-skin='turnpike'], :root:is([data-skin='parkway'], [data-skin='garden']), :root[data-skin='nyc'] { background: var(--bg); }
+:root[data-skin='turnpike'] body, :root:is([data-skin='parkway'], [data-skin='garden']) body, :root[data-skin='nyc'] body { background: transparent; }
 
 /* Screens other than home, and home's loose controls, sit on a frosted panel so no text is drawn
    straight over the scene's bright horizon or lane lines. */
-:root[data-skin='turnpike'] main > section:not(.card), :root[data-skin='parkway'] main > section:not(.card), :root[data-skin='nyc'] main > section:not(.card) {
+:root[data-skin='turnpike'] main > section:not(.card), :root:is([data-skin='parkway'], [data-skin='garden']) main > section:not(.card), :root[data-skin='nyc'] main > section:not(.card) {
   background: var(--glass); border: 1px solid var(--glass-border); border-radius: 16px; padding: 4px 12px 12px; box-shadow: var(--glass-shadow); }
-:root[data-skin='turnpike'] main > .row-between, :root[data-skin='parkway'] main > .row-between, :root[data-skin='nyc'] main > .row-between,
-:root[data-skin='turnpike'] main > button, :root[data-skin='parkway'] main > button, :root[data-skin='nyc'] main > button,
-:root[data-skin='turnpike'] main > aside, :root[data-skin='parkway'] main > aside, :root[data-skin='nyc'] main > aside {
+:root[data-skin='turnpike'] main > .row-between, :root:is([data-skin='parkway'], [data-skin='garden']) main > .row-between, :root[data-skin='nyc'] main > .row-between,
+:root[data-skin='turnpike'] main > button, :root:is([data-skin='parkway'], [data-skin='garden']) main > button, :root[data-skin='nyc'] main > button,
+:root[data-skin='turnpike'] main > aside, :root:is([data-skin='parkway'], [data-skin='garden']) main > aside, :root[data-skin='nyc'] main > aside {
   background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: 14px; }
-:root[data-skin='turnpike'] main > .row-between, :root[data-skin='parkway'] main > .row-between, :root[data-skin='nyc'] main > .row-between { padding: 2px 6px; }
+:root[data-skin='turnpike'] main > .row-between, :root:is([data-skin='parkway'], [data-skin='garden']) main > .row-between, :root[data-skin='nyc'] main > .row-between { padding: 2px 6px; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root[data-skin] main > section:not(.card), :root[data-skin] main > .row-between, :root[data-skin] .foot { -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 }
 
 /* The footer sits on the scene: give it its own panel so the small print stays legible. */
-:root[data-skin='turnpike'] .foot, :root[data-skin='parkway'] .foot, :root[data-skin='nyc'] .foot {
+:root[data-skin='turnpike'] .foot, :root:is([data-skin='parkway'], [data-skin='garden']) .foot, :root[data-skin='nyc'] .foot {
   background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: 14px; padding: 10px 12px; margin: 0 0 16px; }
 
 /* ---------- Turnpike: overhead green signs on a gantry, asphalt panels ---------- */
@@ -86,18 +86,20 @@
 :root[data-skin='turnpike'] .dep-next .dep-sub, :root[data-skin='turnpike'] .dep-next .badge-sched { color: #e3f4ea; border-color: #e3f4ea; }
 :root[data-skin='turnpike'] .wordmark { background: var(--sign-bg); color: #fff; padding: 2px 12px; border: 2px solid #fff; border-radius: 8px; box-shadow: 0 0 0 2px var(--sign-bg); }
 
-/* ---------- Parkway: forest-green signs with a gold rim, timber plates ---------- */
-:root[data-skin='parkway'] .highway-sign { background: linear-gradient(180deg, #116b45, var(--sign-bg)); color: var(--sign-ink); border: 3px solid var(--sign-rim);
+/* ---------- Approved Garden State / Parkway appearance: forest green, gold rim, timber plates ----------
+   Reference: in-Dale75fd141 Parkway, explicitly confirmed by owner on2026-11-08.
+   Share the complete treatment while preserving both saved skin identities and compact layout. */
+:root:is([data-skin='parkway'], [data-skin='garden']) .highway-sign { background: linear-gradient(180deg, #116b45, var(--sign-bg)); color: var(--sign-ink); border: 3px solid var(--sign-rim);
   box-shadow: 0 0 0 3px var(--sign-bg), 0 10px 18px rgba(0, 0, 0, 0.45); margin: 3px; border-radius: 16px; }
-:root[data-skin='parkway'] .highway-label { background: var(--sign-rim); color: #10261b; letter-spacing: 0.14em; }
-:root[data-skin='parkway'] .commute-stop { background: repeating-linear-gradient(90deg, #2a2418 0 22px, #302819 22px 24px); color: var(--plate-ink); border-color: #4a3d25; margin-left: 3px; margin-right: 3px; }
-:root[data-skin='parkway'] .route-badge { background: var(--sign-bg); color: #fffbea; border: 2px solid var(--sign-rim); box-shadow: none; border-radius: 12px 12px 18px 18px; }
-:root[data-skin='parkway'] .route-badge[data-express='true'] { background: var(--sign-rim); color: #10261b; border-color: #10261b; }
-:root[data-skin='parkway'] .dep { background: var(--glass-strong); border: 1px solid var(--glass-edge); }
-:root[data-skin='parkway'] .dep-next { border: 2px solid var(--sign-rim); box-shadow: 0 0 0 1px #000, 0 10px 20px rgba(0, 0, 0, 0.4); }
-:root[data-skin='parkway'] .dep-min { color: var(--sign-rim); }
-:root[data-skin='parkway'] .wordmark { color: #fffbea; text-shadow: 0 2px 0 #0d5c3a; }
-:root[data-skin='parkway'] .wordmark .bang { color: var(--sign-rim); -webkit-text-stroke: 0; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .highway-label { background: var(--sign-rim); color: #10261b; letter-spacing: 0.14em; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .commute-stop { background: repeating-linear-gradient(90deg, #2a2418 0 22px, #302819 22px 24px); color: var(--plate-ink); border-color: #4a3d25; margin-left: 3px; margin-right: 3px; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .route-badge { background: var(--sign-bg); color: #fffbea; border: 2px solid var(--sign-rim); box-shadow: none; border-radius: 12px 12px 18px 18px; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .route-badge[data-express='true'] { background: var(--sign-rim); color: #10261b; border-color: #10261b; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .dep { background: var(--glass-strong); border: 1px solid var(--glass-edge); }
+:root:is([data-skin='parkway'], [data-skin='garden']) .dep-next { border: 2px solid var(--sign-rim); box-shadow: 0 0 0 1px #000, 0 10px 20px rgba(0, 0, 0, 0.4); }
+:root:is([data-skin='parkway'], [data-skin='garden']) .dep-min { color: var(--sign-rim); }
+:root:is([data-skin='parkway'], [data-skin='garden']) .wordmark { color: #fffbea; text-shadow: 0 2px 0 #0d5c3a; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .wordmark .bang { color: var(--sign-rim); -webkit-text-stroke: 0; }
 
 /* ---------- NYC night: a skyline after dark, black signs with taxi-yellow accents ----------
    Deliberately not the MTA's sign system: no line colors, no station-sign stripe, no express diamond. */
@@ -121,7 +123,7 @@
   border-radius: 50%; background: var(--accent); color: #111; -webkit-text-stroke: 0; font-size: 0.8em; }
 
 /* The rows are mostly opaque in the scene styles; skipping their blur keeps scrolling smooth on phones. */
-:root[data-skin='turnpike'] .dep, :root[data-skin='parkway'] .dep, :root[data-skin='nyc'] .dep { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-skin='turnpike'] .dep, :root:is([data-skin='parkway'], [data-skin='garden']) .dep, :root[data-skin='nyc'] .dep { -webkit-backdrop-filter: none; backdrop-filter: none; }
 
 /* ---------- Comfort and contrast fallbacks ---------- */
 @media (prefers-reduced-transparency: reduce) {
@@ -146,55 +148,6 @@
 :root[data-skin='clean'] main > section:not(.card), :root[data-skin='clean'] main > .row-between,
 :root[data-skin='clean'] main > button, :root[data-skin='clean'] main > aside {
   background: var(--surface); border-radius: 14px; padding: 8px 12px;
-}
-
-/* Garden State: the Household prototype's river blue, warm paper and amber boards.
-   Presentation only; the maintained app owns every departure, lock and interaction. */
-:root[data-skin='garden'] {
-  --bg: #f4f3ee; --surface: #fffefa; --text: #253e50; --muted: #506571; --line: #b9c7cd;
-  --brand: #315c7b; --brand-text: #315c7b; --brand-ink: #fffefa; --accent: #d6ad48; --express: #865b16;
-  --warn-bg: #f5edd7; --warn-ink: #604709; --alert: #a62c24; --alert-fill: #b32620; --focus: #244a66;
-  --glass: rgba(255, 254, 250, .96); --glass-strong: #fffefa;
-  --glass-border: #c8d2d5; --glass-edge: #c8d2d5; --glass-shadow: 0 4px 24px #19344c12;
-  color-scheme: light; background: var(--bg);
-}
-:root[data-skin='garden'] body { background: transparent; }
-:root[data-skin='garden'] .app { max-width: 680px; }
-:root[data-skin='garden'] .top { border-radius: 0 0 12px 12px; }
-:root[data-skin='garden'] .wordmark { letter-spacing: -.04em; font-size: 1.6rem; }
-:root[data-skin='garden'] .wordmark .bang { color: var(--express); -webkit-text-stroke: 0; }
-:root[data-skin='garden'] .card { border: 1px solid var(--line); border-radius: 12px; }
-:root[data-skin='garden'] main > section:not(.card), :root[data-skin='garden'] main > .row-between,
-:root[data-skin='garden'] main > button, :root[data-skin='garden'] main > aside,
-:root[data-skin='garden'] .foot { background: var(--surface); border-radius: 12px; padding: 8px 12px; }
-:root[data-skin='garden'] .highway-sign { background: #28644e; color: #fffef0; border: 2px solid #fffef0; box-shadow: 0 0 0 1px #28644e; border-radius: 8px; }
-:root[data-skin='garden'] .highway-label { letter-spacing: .12em; }
-:root[data-skin='garden'] .commute-stop { background: #090d10; color: #ffc34e; border: 2px solid #414443; border-radius: 5px; font-family: 'Courier New', monospace; text-shadow: 0 0 5px #ffb72933; }
-:root[data-skin='garden'] .route-badge { background: #090d10; color: #ffc34e; border: 1px solid #414443; border-radius: 5px; box-shadow: none; font-family: 'Courier New', monospace; }
-:root[data-skin='garden'] .route-badge[data-express='true'] { border-width: 3px; border-color: #b47d24; }
-:root[data-skin='garden'] .dep { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: none; }
-:root[data-skin='garden'] .dep-next { border: 2px solid var(--brand); box-shadow: inset 4px 0 var(--brand); }
-:root[data-skin='garden'] .dep-min { color: var(--brand-text); }
-:root[data-skin='garden'] .photo-backdrop { filter: blur(2px) brightness(.9); }
-:root[data-skin='garden'] .skin-backdrop::after { content: ''; position: absolute; inset: 0; background: #eef2ef44; }
-:root[data-skin='garden'][data-theme='dark'] {
-  --bg: #10191d; --surface: #17262e; --text: #eef1eb; --muted: #bccdd5; --line: #536b78;
-  --brand: #315c7b; --brand-text: #b8daee; --brand-ink: #fffefa; --express: #edc26c; --focus: #edc26c;
-  --warn-bg: #3b311b; --warn-ink: #ffe09a; --alert: #ffa49b;
-  --glass: rgba(23, 38, 46, .97); --glass-strong: #17262e; --glass-border: #536b78; --glass-edge: #536b78;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-skin='garden']:not([data-theme='light']) {
-    --bg: #10191d; --surface: #17262e; --text: #eef1eb; --muted: #bccdd5; --line: #536b78;
-    --brand: #315c7b; --brand-text: #b8daee; --brand-ink: #fffefa; --express: #edc26c; --focus: #edc26c;
-    --warn-bg: #3b311b; --warn-ink: #ffe09a; --alert: #ffa49b;
-    --glass: rgba(23, 38, 46, .97); --glass-strong: #17262e; --glass-border: #536b78; --glass-edge: #536b78;
-    color-scheme: dark;
-  }
-}
-@media (forced-colors: active) {
-  :root[data-skin='garden'] .commute-stop, :root[data-skin='garden'] .route-badge { text-shadow: none; }
 }
 
 @media (forced-colors: active) {

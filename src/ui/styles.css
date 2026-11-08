@@ -389,6 +389,8 @@ main { flex: 1; padding-bottom: 24px; }
 /* Which Dale this is, always in view (owner request 2026-11-05). */
 .top-version { margin-left: auto; margin-right: 4px; min-width: 0; max-width: 11em; font-size: 0.72rem; line-height: 1.2; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .nowrap { white-space: nowrap; }
+/* Enlarged header metadata must wrap before reaching the settings control. */
+.top-version .nowrap { white-space: normal; }
 
 /* Secondary scheduled express: smaller than a departure row, with no extra tap target. */
 .next-express { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; margin: 8px 0; padding: 5px 8px; font-size: .82rem; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
@@ -460,7 +462,7 @@ main { flex: 1; padding-bottom: 24px; }
 .live-symbol { width: 1.1em; height: 1.1em; display: inline-block; vertical-align: -.15em; flex: 0 0 auto; margin-inline-end: .3em; }
 .live-symbol[data-live='true'] { color: #087443; filter: drop-shadow(0 0 3px rgba(50, 215, 120, .5)); }
 .live-symbol[data-live='false'] { color: var(--alert); }
-:root[data-theme='dark'] .live-symbol[data-live='true'], :root[data-skin='turnpike'] .live-symbol[data-live='true'], :root[data-skin='parkway'] .live-symbol[data-live='true'], :root[data-skin='nyc'] .live-symbol[data-live='true'] { color: #89f3ac; }
+:root[data-theme='dark'] .live-symbol[data-live='true'], :root[data-skin='turnpike'] .live-symbol[data-live='true'], :root:is([data-skin='parkway'], [data-skin='garden']) .live-symbol[data-live='true'], :root[data-skin='nyc'] .live-symbol[data-live='true'] { color: #89f3ac; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .live-symbol[data-live='true'] { color: #89f3ac; } }
 .live-glow { text-shadow: 0 0 9px rgba(60, 215, 125, .35); }
 @keyframes live-broadcast { 0%, 100% { opacity: .65; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.06); } }
