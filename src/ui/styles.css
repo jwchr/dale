@@ -355,7 +355,7 @@ main { flex: 1; padding-bottom: 24px; }
 .home-toolbar .travel-mode { margin: 0; gap: 2px; padding: 2px; }
 .home-toolbar .travel-mode button { min-width: 0; gap: 4px; padding: 6px; font-size: .875rem; }
 .home-toolbar .travel-mode svg { width: 25px; height: 20px; }
-.home-toolbar .find-stop { flex: 1 1 5rem; min-width: 0; padding: 6px 8px; font-size: .875rem; }
+.home-toolbar .find-stop { flex: 1 1 4rem; min-width: 0; padding: 6px 8px; font-size: .875rem; }
 .favorites-tools { justify-content: flex-end; }
 .travel-mode svg { width: 40px; height: 26px; flex: none; }
 @media (forced-colors: active) { .travel-mode button[aria-pressed="true"] { border-color: Highlight; color: Highlight; } }

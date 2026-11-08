@@ -24,10 +24,16 @@ for (const lang of ['en', 'es'] as const) test(`compact home, legacy label and t
   await expect(page.locator('[data-end="from"] .highway-name')).toHaveText('Hackensack');
   await expect(page.locator('[data-end="from"] .commute-stop')).toHaveText('STATE ST AT LAWRENCE ST');
   await expect(page.locator('.commute-sign')).toHaveCount(0);
-  const nav = await page.locator('.home-toolbar .travel-mode').boundingBox();
-  const find = await page.getByRole('button', { name: t.findStop, exact: true }).boundingBox();
-  expect(Math.abs(nav!.y - find!.y)).toBeLessThan(2);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // A 320px desktop viewport with a classic scrollbar leaves 305px for the page.
+  // Exercise that available width too; the Spanish label used to wrap its whole control.
+  for (const width of [320, 305]) {
+    await page.setViewportSize({ width, height: 780 });
+    const nav = await page.locator('.home-toolbar .travel-mode').boundingBox();
+    const find = await page.getByRole('button', { name: t.findStop, exact: true }).boundingBox();
+    expect(Math.abs(nav!.y - find!.y)).toBeLessThan(2);
+    expect(find!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
   // Future-day labels must fit inside their own clock, not collide with the destination time.
   expect(await page.locator('.dep-clock > span').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(saved);
