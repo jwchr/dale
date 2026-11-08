@@ -86,9 +86,15 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.stop-sign')).toBeHidden();
     if (skin === 'clean') expect((await new AxeBuilder({ page }).include('.commute-header').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-    await reverse.click();
+    await reverse.focus();
+    await page.keyboard.press('Enter');
+    await expect(left.locator('.highway-name')).toHaveText(t.commuteNewYork);
+    await expect(reverse).toHaveAttribute('aria-pressed', 'true');
+    await expect(reverse).toBeFocused();
     await page.getByRole('button', { name: t.reverse, exact: true }).click();
     await expect(left.locator('.highway-name')).toHaveText('Hackensack');
+    await expect(reverse).toHaveAttribute('aria-pressed', 'false');
+    await expect(reverse).toBeFocused();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
     if (skin === 'garden' && lang === 'es') {
       from.city = 'Peñañ'; // Non-ASCII final letter must not escape the orphan guard.

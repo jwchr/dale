@@ -636,6 +636,19 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
   // After the form closes, focus returns to the control that opened it.
   const planButton = useRef<HTMLButtonElement>(null);
   const closedForm = useRef(false);
+  const reverseButton = useRef<HTMLButtonElement>(null);
+  const restoreReverseFocus = useRef(false);
+  // Changing direction resets the boarding-sign panel and remounts its controls.
+  // Restore only the initiating button's focus; do not steal focus from other actions.
+  const reverseTrip = () => {
+    restoreReverseFocus.current = document.activeElement === reverseButton.current;
+    onReverse();
+  };
+  useEffect(() => {
+    if (restoreReverseFocus.current) reverseButton.current?.focus();
+    restoreReverseFocus.current = false;
+  }, [rev]);
+
   useEffect(() => { if (!planning && closedForm.current) planButton.current?.focus(); closedForm.current = planning; }, [planning]);
   const soonest = liveEnabled ? undefined : earliestArrival(ahead.slice(0, count), now, plan);
   const anyEstimated = rows.some((r) => r.d.estimated || r.arr?.estimated);
@@ -684,11 +697,11 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
             {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
             <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</button>
             <div className="commute-sign-actions">
-              <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+              <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
               {trigger}
             </div>
           </div>} /> : <div className="commute-controls">
-            <button className="chip commute-reverse" aria-pressed={rev} onClick={onReverse}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
+            <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
           </div>}
       </div>
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
