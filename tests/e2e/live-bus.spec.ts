@@ -281,3 +281,9 @@ for(const stale of [false,true]) test(`missing GPS retains independently fresh d
  await expect(notice).not.toContainText('Refreshes about every');
  await expect(notice.locator('p')).toHaveCount(1);
 });
+
+test('missing GPS never renders a departure prediction on a cancelled snapshot',async({page})=>{
+ const body=packet(NOW,{observations:[],cancelledAt:NOW-1000});
+ await setup(page,()=>body);
+ await expect(page.getByTestId('live-bus-status')).not.toContainText('NJ Transit predicts departure');
+});
