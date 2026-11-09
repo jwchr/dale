@@ -15,7 +15,7 @@ const geometry: RouteGeometry = { v: 1, feedVersion: VERSION, sourceSHA256: SHA,
   trips: { T1: { shapeId: 'test', stopIds: ['1', '2', '3'], stopMeters: [0, ab, ab + bc] } } };
 const favorite = { id: 'distance-test', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
 async function setup(page: Page, lang: 'en' | 'es' = 'en', mismatch = false) {
-  const state = { now: NOW, geometryCalls: 0, departuresCalls: 0, trackerCalls: 0, failed: false, gpsConflict: false, lat: (a.lat! + b.lat!) / 2, lon: (a.lon! + b.lon!) / 2, observedAt: NOW - 15000 };
+  const state = { now: NOW, geometryCalls: 0, departuresCalls: 0, trackerCalls: 0, holdDepartures: undefined as Promise<void> | undefined, failed: false, gpsConflict: false, lat: (a.lat! + b.lat!) / 2, lon: (a.lon! + b.lon!) / 2, observedAt: NOW - 15000 };
   await page.clock.install({ time: NOW });
   await page.addInitScript(({ favorite, lang }) => {
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([favorite]));
@@ -24,12 +24,14 @@ async function setup(page: Page, lang: 'en' | 'es' = 'en', mismatch = false) {
   const gps = () => ({ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: state.observedAt, lat: state.lat, lon: state.lon });
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
   await page.route(API + '/v1/geometry?**', r => { state.geometryCalls++; return r.fulfill({ json: mismatch ? { ...geometry, feedVersion: 'mismatched' } : geometry }); });
-  await page.route(API + '/v1/departures?**', r => {
+  await page.route(API + '/v1/departures?**', async r => {
     state.departuresCalls++; if (state.failed) return r.abort('failed');
     const queries = JSON.parse(new URL(r.request().url()).searchParams.get('q')!) as DepartureRequest[];
-    return r.fulfill({ json: { v: 1, source: LIVE_SOURCE, feedVersion: VERSION, receivedAt: state.now,
+    const body = { v: 1, source: LIVE_SOURCE, feedVersion: VERSION, receivedAt: state.now,
       vehicles: { state: 'ok', timestamp: state.now - 10000 }, updates: { state: 'ok', timestamp: state.now - 10000 },
-      items: queries.map(query => query.tripId === 'T1' && query.serviceDate === '20261104' ? { query, ...(state.gpsConflict ? { gpsProblem: 'ambiguous' } : { gps: gps() }), gpsObservedAt: state.observedAt } : { query }) } });
+      items: queries.map(query => query.tripId === 'T1' && query.serviceDate === '20261104' ? { query, ...(state.gpsConflict ? { gpsProblem: 'ambiguous' } : { gps: gps() }), gpsObservedAt: state.observedAt } : { query }) };
+    if (state.holdDepartures) await state.holdDepartures;
+    return r.fulfill({ json: body });
   });
   await page.route(API + '/v1/live?**', r => {
     state.trackerCalls++; if (state.failed) return r.abort('failed');
@@ -104,10 +106,27 @@ test('home keeps original distance and source time on missing feed, then rejects
   await expect(distance).toHaveAttribute('data-observed-at', originalAt!);
   // Resume without advancing the source timestamp: a newer receipt is not newer GPS.
   state.failed = false;
+  let releaseResume!: () => void;
+  state.holdDepartures = new Promise<void>(resolve => { releaseResume = resolve; });
+  const priorCalls = state.departuresCalls;
+  const resumedResponse = page.waitForResponse(r => r.url().startsWith(API + '/v1/departures?'));
   await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  await expect.poll(() => state.departuresCalls).toBe(priorCalls + 1);
+  await expect(distance).toHaveAttribute('data-stale', 'true'); // recovery is deliberately still in flight
+  state.holdDepartures = undefined; releaseResume();
+  const resumed = await resumedResponse; await resumed.finished();
+  // The old source timestamp already matches before the response; it is not an
+  // acceptance barrier. Wait for the duplicate sample's AVAILABLE render, so the
+  // next visibility event cannot be dropped by the still-running previous poll.
+  await expect(distance).toHaveAttribute('data-stale', 'false');
   await expect(distance).toHaveAttribute('data-observed-at', originalAt!);
+  expect((await resumed.json()).items.find((i: { query: DepartureRequest }) => i.query.tripId === 'T1').gps.observedAt).toBe(Number(originalAt));
   state.now += 1000; state.observedAt = state.now - 500; state.lat = 0; state.lon = 0;
+  const offRouteResponse = page.waitForResponse(r => r.url().startsWith(API + '/v1/departures?'));
   await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  const offRoute = await offRouteResponse; await offRoute.finished();
+  expect((await offRoute.json()).items.find((i: { query: DepartureRequest }) => i.query.tripId === 'T1').gps).toMatchObject({ lat: 0, lon: 0, observedAt: state.observedAt });
+  await expect(row).toBeVisible();
   await expect(distance).toHaveCount(0);
   expect(state.geometryCalls).toBe(1);
 });

@@ -1,3 +1,4 @@
+import { rollbackEnabled } from './enabled-rollback.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { preservationPins, requireEnabledResources, canonicalIdentity, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled } from './enabled-continuity.mjs';
 // Manual main-only deployment. Secret values and raw CLI/API errors never leave the runner.
@@ -16,7 +17,13 @@ let temporary;
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled', 'rollback-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (collectionMode === 'rollback-enabled') {
+    if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
+    const result = await rollbackEnabled(process.env);
+    console.log(`Pinned enabled rollback checked over ${result.durationMs}ms; native completion/archive advanced and exact canonical context/resources/content retained. Interrupted-attempt backlog ${result.interruptionsBefore}/${result.interruptionsAfter}; zero-gap and every-object durability are not inferred.`);
+    return;
+  }
   if (collectionMode === 'disabled') {
     await stopHistoryCollection(process.env);
     return;
@@ -29,7 +36,7 @@ async function run() {
   let ds;
   try { ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8')); }
   catch { throw workerProofError('schedule-preflight-failed'); }
-  if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD
+  if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || (!preserve && (!process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD))
     || ds.meta?.source !== 'NJ Transit GTFS BUS G2' || !/^[a-f0-9]{12}$/.test(ds.meta.feedVersion) || ds.meta.realtime?.provider !== 'njt-bus-g2' || ds.meta.demo) throw workerProofError('configuration-invalid');
   if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
   const before = await readActiveWorkerIdentity(process.env);
@@ -75,8 +82,8 @@ async function run() {
   }
   temporary = mkdtempSync(join(tmpdir(), 'dale-worker-secrets-'));
   const secrets = join(temporary, 'secrets.json');
-  writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
-  const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', '--secrets-file', secrets,
+  if (!preserve) writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
+  const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', ...(preserve ? [] : ['--secrets-file', secrets]),
     '--var', `HISTORY_COLLECTION:${targetEnabled ? 'enabled' : 'disabled'}`, '--outdir', join(temporary, 'uploaded')], {
     encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 240_000,
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG: 'error' },

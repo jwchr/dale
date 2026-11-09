@@ -8,13 +8,21 @@ on:
         type: choice
         required: true
         default: disabled
-        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled]
+        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled]
       canonical_context_key:
-        description: 'preserve-enabled only: operator-verified current feedVersion:SHA256 of exact canonical schedule; changed source fails before upload'
+        description: 'preserve-enabled/rollback-enabled: operator-verified current feedVersion:SHA256 canonical context; must remain identical'
         type: string
         required: false
       expected_worker_version:
-        description: 'preserve-enabled only: operator-verified current active Worker version UUID (also retained rollback reference)'
+        description: 'preserve-enabled/rollback-enabled: operator-verified CURRENT active Worker UUID (not the rollback target)'
+        type: string
+        required: false
+      rollback_reference:
+        description: 'rollback-enabled only: prior verified enabled reference JSON (non-secret version/content/runtime/binding/context hashes)'
+        type: string
+        required: false
+      rollback_reference_sha256:
+        description: 'rollback-enabled only: the reference digest printed with that prior independently qualified reference'
         type: string
         required: false
 permissions:
@@ -74,7 +82,7 @@ jobs:
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - run: npm ci
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollback-enabled'
       - name: Prepare official G2 schedule; preserve exact current context when requested (no raw artifacts)
         if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
         run: npm run worker:prepare
@@ -100,3 +108,15 @@ jobs:
           HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}
           HISTORY_CANONICAL_CONTEXT: ${{ inputs.canonical_context_key }}
           HISTORY_EXPECTED_WORKER_VERSION: ${{ inputs.expected_worker_version }}
+      - name: Explicit pinned enabled rollback; no preparation, secret-force or resource mutation
+        if: inputs.history_collection == 'rollback-enabled'
+        run: node scripts/deploy-live-worker.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
+          HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}
+          HISTORY_CANONICAL_CONTEXT: ${{ inputs.canonical_context_key }}
+          HISTORY_EXPECTED_WORKER_VERSION: ${{ inputs.expected_worker_version }}
+          HISTORY_ROLLBACK_REFERENCE: ${{ inputs.rollback_reference }}
+          HISTORY_ROLLBACK_REFERENCE_SHA256: ${{ inputs.rollback_reference_sha256 }}

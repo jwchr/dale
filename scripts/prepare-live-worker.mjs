@@ -1,3 +1,4 @@
+import { makeRollbackReference, referenceDigest } from './enabled-rollback.mjs';
 // Deployment-time official static feed. ZIP, credentials and token never become artifacts or repo files.
 import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity } from './worker-content-identity.mjs';
@@ -50,6 +51,11 @@ try {
   mkdirSync(new URL('../worker/generated/', import.meta.url), { recursive: true });
   writeFileSync(new URL('../worker/generated/corridor.json', import.meta.url), retained?.text ?? JSON.stringify(ds));
   writeFileSync(new URL('../worker/generated/route-geometry.json', import.meta.url), JSON.stringify(geometry));
+  if (retained) {
+    const reference = makeRollbackReference(identity, retained.context);
+    console.log(`Prior enabled rollback reference (non-secret hashes only; not review/deployment clearance): ${JSON.stringify(reference)}`);
+    console.log(`Rollback reference digest: ${referenceDigest(reference)}`);
+  }
   if (retained) writeFileSync(new URL('../worker/generated/preservation.json', import.meta.url), JSON.stringify({ v: 1, context: retained.context, identity, checkpoint: retained.checkpoint }), { mode: 0o600 });
   console.log(`Official G2 corridor prepared: ${ds.routes.length} variants, ${ds.trips.length} trips, ${ds.stops.length} stops.`);
 } catch {

@@ -20,7 +20,7 @@ function deployment(scenario: string) {
     fs.readFileSync = (path, ...args) => String(path).includes('generated/corridor') ? (scenario === 'local-context-change' ? JSON.stringify({...JSON.parse(text), meta:{...JSON.parse(text).meta,builtAt:'changed'}}) : text)
       : String(path).includes('generated/preservation') ? JSON.stringify(receipt) : originalRead(path, ...args);
     cp.spawnSync = (exe, args) => {
-      assert.equal(exe, process.execPath); assert.ok(args.includes('HISTORY_COLLECTION:enabled')); assert.ok(!args.includes('HISTORY_COLLECTION:disabled'));
+      assert.equal(exe, process.execPath); assert.ok(args.includes('HISTORY_COLLECTION:enabled')); assert.ok(!args.includes('HISTORY_COLLECTION:disabled')); assert.ok(!args.includes('--secrets-file'));
       uploaded++; clock += 10000;
       const out = args[args.indexOf('--outdir') + 1]; temporary = out.slice(0, -'/uploaded'.length);
       fs.mkdirSync(out, {recursive:true}); fs.writeFileSync(join(out, 'index.js'), 'export default {}'); return {status:0};
