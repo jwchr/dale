@@ -32,7 +32,10 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
       await page.setViewportSize({ width, height: 780 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      expect(await page.locator('.highway-name, .dep-clock > span').evaluateAll(nodes => nodes.every(n => n.scrollWidth <= n.clientWidth + 1))).toBe(true);
+      const overflow = await page.locator('.highway-name, .dep-clock > span').evaluateAll(nodes => nodes
+        .filter(node => node.scrollWidth > node.clientWidth + 1)
+        .map(node => ({ text: node.textContent, width: node.clientWidth, scroll: node.scrollWidth, font: getComputedStyle(node).fontSize })));
+      expect(overflow, JSON.stringify({ width, scale, overflow })).toEqual([]);
       await expect(page.getByRole('button', { name: t.settings, exact: true })).toBeVisible();
     }
     await page.evaluate(() => { document.documentElement.style.fontSize = '100%'; scrollTo(0, 0); });

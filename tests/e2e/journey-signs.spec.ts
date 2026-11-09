@@ -62,6 +62,19 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(geometry.trigger.height).toBeGreaterThanOrEqual(44);
       expect(geometry.reverse.height).toBeGreaterThanOrEqual(44);
       expect(geometry.overflow).toBe(0);
+      // Check actual glyph runs, not only a centered box around left-aligned text.
+      const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect(), lines = new Map<number, { left: number; right: number }>();
+        for (const part of node.querySelectorAll('.sign-word-part')) {
+          const rect = part.getBoundingClientRect(), y = Math.round(rect.top), line = lines.get(y);
+          lines.set(y, { left: Math.min(line?.left ?? Infinity, rect.left), right: Math.max(line?.right ?? -Infinity, rect.right) });
+        }
+        return { fontSize: parseFloat(getComputedStyle(node).fontSize), offsets: [...lines.values()].map(line => Math.abs((line.left + line.right - box.left - box.right) / 2)) };
+      }));
+      for (const name of names) {
+        expect(name.offsets.every(offset => offset < 2), JSON.stringify({ width, scale, name })).toBe(true);
+        if (width === 390 && scale === 100) expect(name.fontSize).toBeGreaterThanOrEqual(18);
+      }
       // Inspect actual rendered lines: fitting boxes alone can hide isolated final letters.
       const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(renderedSignLines);
       expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
