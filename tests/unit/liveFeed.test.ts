@@ -120,6 +120,33 @@ describe('single paced private live relay', () => {
     expect(limited.observations.some((o) => o.vehicleId === 'locked-bus')).toBe(true);
     expect(new Set(limited.observations.filter((o) => o.tripInstanceId === 'T1@20261104').map((o) => o.vehicleId)).size).toBeGreaterThan(1);
   });
+  it('rejects newest equal-time contradictory locked fixes while retaining distinct buses and reassignment evidence', async () => {
+    for (const reverse of [false, true]) {
+      const reports = [
+        { id: 'a', vehicle: vehicle() },
+        { id: 'a-conflict', vehicle: vehicle({ position: { latitude: 40.88, longitude: -74.04 } }) },
+        { id: 'b', vehicle: vehicle({ vehicle: { id: 'bus-B' } }) },
+        { id: 'moving', vehicle: vehicle({ vehicle: { id: 'locked-bus' }, trip: { ...descriptor, tripId: 'T2' } }) },
+      ];
+      if (reverse) reports.reverse();
+      const h = harness(() => binaryFeed(reports));
+      const snapshot = parseLiveSnapshot(await (await h.object.fetch(request('/v1/live?trip=T1&date=20261104&vehicle=locked-bus'))).json(), ds, 'T1', '20261104', NOW);
+      expect(snapshot.vehicles.state).toBe('invalid');
+      expect(snapshot.observations.some(o => o.vehicleId === 'bus-A')).toBe(false);
+      expect(snapshot.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ vehicleId: 'bus-B', tripInstanceId: 'T1@20261104' }),
+        expect.objectContaining({ vehicleId: 'locked-bus', tripInstanceId: 'T2@20261104' }),
+      ]));
+    }
+  });
+  it('accepts identical newest duplicates and a newer resolved sample without letting old contradictions win', async () => {
+    const reports = [{ id: 'old-a', vehicle: vehicle() }, { id: 'old-b', vehicle: vehicle({ position: { latitude: 40.88, longitude: -74.04 } }) },
+      { id: 'new-a', vehicle: vehicle({ timestamp: NOW / 1000 - 1 }) }, { id: 'new-b', vehicle: vehicle({ timestamp: NOW / 1000 - 1 }) }];
+    const h = harness(() => binaryFeed(reports));
+    const snapshot = parseLiveSnapshot(await (await h.object.fetch(request())).json(), ds, 'T1', '20261104', NOW);
+    expect(snapshot.vehicles.state).toBe('ok'); expect(snapshot.observations).toHaveLength(1);
+    expect(snapshot.observations[0]?.observedAt).toBe(NOW - 1000);
+  });
   it('drops old normalized stop indices after a schedule change while preserving token reuse and pacing', async () => {
     const h = harness(); await h.object.fetch(request());
     const changed = structuredClone(ds); changed.meta.feedVersion = 'next-feed';

@@ -1,3 +1,5 @@
+import { RouteDistance } from './RouteDistance';
+import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { DestinationArrival } from './DestinationArrival';
 // Ride mode (issue #34): shown after the rider says "I boarded". Big get-off guidance when Dale can
 // honestly count stops (every stop listed, fresh unambiguous bus GPS); otherwise a plain statement of
@@ -18,6 +20,7 @@ import { StripMap } from './StripMap';
 import { useScreenWakeLock } from './useScreenWakeLock';
 
 interface Props {
+  routeDistance?: ReportedRouteDistance;
   ds: Dataset;
   session: BusSession;
   alightIndex: number;
@@ -47,7 +50,7 @@ const fullBySession = new Map<string, boolean>();
 const alerted = new Map<string, number>();
 const URGENT: RideStage[] = ['one', 'request', 'last_next', 'arrived', 'passed'];
 
-export function RideMode({ ds, session, alightIndex, now, t, lang, onEvent, onAdvanceDemo, gateText, badge, onOpenTrip }: Props) {
+export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang, onEvent, onAdvanceDemo, gateText, badge, onOpenTrip }: Props) {
   const r = t.ride;
   const dep = session.departure;
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
@@ -140,6 +143,7 @@ export function RideMode({ ds, session, alightIndex, now, t, lang, onEvent, onAd
         <h3 id={`ride-title-${session.id}`} tabIndex={-1} ref={heading}>{r.title(dest)}</h3>
         <button className="ghost" onClick={() => setFull(!showFull)}>{showFull ? r.exitFull : r.fullScreen}</button>
       </div>
+      <RouteDistance value={routeDistance} lang={lang} now={now} onboard />
       <DestinationArrival ds={ds} session={session} index={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} />
       {!session.stopChanges?.indices.length && <StripMap ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} />}
       <p className="ride-message" aria-live={stage && URGENT.includes(stage) ? 'assertive' : 'polite'}>{message}</p>

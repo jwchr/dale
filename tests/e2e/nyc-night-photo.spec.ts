@@ -108,6 +108,7 @@ test('switching to the night photo preserves an existing exact-bus lock', async 
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: 'garden' }));
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'first', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My commute' }]));
   });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed')); await page.route(API + '/v1/live?**', r => r.abort('failed'));
   await page.goto('/?live=1'); await page.locator('.dep').first().click();

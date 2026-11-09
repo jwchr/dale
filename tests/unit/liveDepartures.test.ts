@@ -118,3 +118,33 @@ describe('bounded read-only departure batch on the existing relay', () => {
     expect(parseDepartureBatch(JSON.parse(text), ds, [q], NOW).items[0]?.departure?.at).toBe(NOW + 300_000); expect(calls).toHaveLength(3);
   });
 });
+
+
+describe('bounded coalesced GPS distance evidence', () => {
+  it('delivers and validates only the original exact-trip observation, with its actual timestamp', () => {
+    const b = parseDepartureBatch(batch(), ds, [q], NOW), item = b.items[0]!;
+    expect(item.gps).toEqual(positions().observations[0]);
+    expect(item.gps?.observedAt).toBe(item.gpsObservedAt);
+    for (const patch of [{ tripInstanceId: 'T2@20261104' }, { observedAt: NOW }, { lat: 91 }, { vehicleId: '' }]) {
+      const bad = structuredClone(b); Object.assign(bad.items[0]!.gps!, patch);
+      expect(() => parseDepartureBatch(bad, ds, [q], NOW)).toThrow();
+    }
+  });
+  it('keeps a valid boarding prediction independently live when contradictory GPS prevents distance', () => {
+    const v = positions(), point = v.observations[0]!;
+    const item = summarizeDepartures(ds, [q], { ...v, observations: [point, { ...point, lat: point.lat + .001 }] }, updates(), NOW)[0]!;
+    const b = { ...batch(), items: [item] };
+    expect(parseDepartureBatch(b, ds, [q], NOW).items[0]?.gpsProblem).toBe('ambiguous');
+    expect(item.gps).toBeUndefined(); expect(departureEvidence(b, item, NOW).kind).toBe('live');
+    const contradiction = { ...b, items: [{ ...item, gps: point }] };
+    expect(() => parseDepartureBatch(contradiction, ds, [q], NOW)).toThrow();
+  });
+  it('omits GPS coordinates for equal-time contradictory samples, uncertain dates or multiple vehicles', () => {
+    const v = positions(), point = v.observations[0]!;
+    for (const bad of [
+      { ...v, observations: [point, { ...point, lat: point.lat + .001 }] },
+      { ...v, observations: [point, { ...point, vehicleId: 'another' }] },
+      { ...v, unresolvedDateTrips: [q.tripId] },
+    ]) expect(summarizeDepartures(ds, [q], bad, updates(), NOW)[0]?.gps).toBeUndefined();
+  });
+});

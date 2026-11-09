@@ -16,6 +16,7 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
   }, { lang, favorites });
   await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
   const images: string[] = [];
@@ -74,6 +75,7 @@ test('missing public stop number never substitutes the internal stop ID', async 
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
   });
   await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
   await page.goto('/?live=1');
@@ -89,6 +91,7 @@ test('physical sign wording stays printed when surrounding UI changes language',
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
   });
   await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.goto('/?live=1');

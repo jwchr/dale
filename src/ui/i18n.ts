@@ -1,3 +1,4 @@
+import { routeDistanceStrings } from './routeDistanceStrings';
 import { cityPickerStrings } from './cityPickerStrings';
 import { mapStrings } from './mapStrings';
 import { arrivalStrings } from './arrivalStrings';
@@ -19,6 +20,7 @@ const stop_ = (name: string) => (name.endsWith('.') ? name : `${name}.`);
 const tidy = (text: string) => text.replace(/\.\.(?=\s|$)/g, '.');
 
 const en = {
+  distance: routeDistanceStrings.en,
   cityPicker: cityPickerStrings.en,
   live: liveStrings.en,
   selection: selectionStrings.en,
@@ -615,6 +617,7 @@ const en = {
 export type Strings = typeof en;
 
 const es: Strings = {
+  distance: routeDistanceStrings.es,
   cityPicker: cityPickerStrings.es,
   live: liveStrings.es,
   selection: selectionStrings.es,

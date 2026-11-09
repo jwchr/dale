@@ -23,6 +23,14 @@ export function summarizeDepartures(ds: Dataset, queries: DepartureRequest[], ve
       if (dep.length > 1 || arr.length > 1 || boardArrival.length > 1 || (dep[0] && boardArrival[0] && boardArrival[0].at > dep[0].at) || (arr[0] && (dep[0] ?? boardArrival[0]) && arr[0].at < (dep[0] ?? boardArrival[0])!.at)) report.problem = 'ambiguous';
       else { report.departure = dep[0]; report.boardingArrival = boardArrival[0]; report.arrival = arr[0]; }
     }
+    // Same snapshot, same exact trip: no additional upstream request. Equal-time
+    // contradictory fixes remain unknown rather than choosing arbitrary coordinates.
+    if (!report.problem && report.gpsObservedAt !== undefined) {
+      const latest = points.filter(p => p.observedAt === report.gpsObservedAt);
+      const unique = new Set(latest.map(p => JSON.stringify([p.vehicleId, p.lat, p.lon, p.stopCall ?? null])));
+      if (unique.size === 1) report.gps = latest[0];
+      else report.gpsProblem = 'ambiguous';
+    }
     return report;
   });
 }

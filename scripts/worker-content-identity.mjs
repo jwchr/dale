@@ -1,7 +1,7 @@
 // Private, bounded content/v2 proof. Never writes or logs downloaded module bytes.
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-const PROOF_REASONS = ['worker-content-unavailable', 'worker-content-invalid', 'worker-content-limit', 'worker-identity-configuration', 'worker-identity-request-failed', 'worker-identity-response-invalid', 'worker-identity-version-ambiguous', 'worker-identity-metadata-invalid', 'worker-identity-state-changed', 'worker-upload-artifact-invalid', 'worker-upload-proof-failed', 'worker-content-entrypoint-invalid', 'worker-content-type-unsupported', 'worker-content-duplicate', 'worker-upload-content-mismatch', 'worker-upload-runtime-mismatch', 'worker-upload-bindings-mismatch', 'worker-existing-configuration-mismatch', 'manual-main-required', 'collection-mode-invalid', 'configuration-invalid', 'reviewed-source-identity-required', 'existing-resource-identity-required', 'restore-disabled-precondition', 'deployment-failed', 'uploaded-mode-invalid', 'health-check-failed', 'restored-evidence-unverified', 'live-check-failed', 'invalid-profile', 'collection-health-failed', 'archive-readback-unverified', 'collection-state-unverified', 'exact-bus-check-failed', 'schedule-preflight-failed', 'hosting-config-preflight-failed', 'disabled-archive-shape-invalid'];
+const PROOF_REASONS = ['enabled-qualification-unverified', 'enabled-rollback-unverified', 'enabled-rollback-refused', 'enabled-continuity-unverified', 'worker-content-unavailable', 'worker-content-invalid', 'worker-content-limit', 'worker-identity-configuration', 'worker-identity-request-failed', 'worker-identity-response-invalid', 'worker-identity-version-ambiguous', 'worker-identity-metadata-invalid', 'worker-identity-state-changed', 'worker-upload-artifact-invalid', 'worker-upload-proof-failed', 'worker-content-entrypoint-invalid', 'worker-content-type-unsupported', 'worker-content-duplicate', 'worker-upload-content-mismatch', 'worker-upload-runtime-mismatch', 'worker-upload-bindings-mismatch', 'worker-existing-configuration-mismatch', 'manual-main-required', 'collection-mode-invalid', 'configuration-invalid', 'reviewed-source-identity-required', 'existing-resource-identity-required', 'restore-disabled-precondition', 'deployment-failed', 'uploaded-mode-invalid', 'health-check-failed', 'restored-evidence-unverified', 'live-check-failed', 'invalid-profile', 'collection-health-failed', 'archive-readback-unverified', 'collection-state-unverified', 'exact-bus-check-failed', 'schedule-preflight-failed', 'hosting-config-preflight-failed', 'disabled-archive-shape-invalid'];
 class WorkerProofError extends Error {
   constructor(reason, status) { super(reason); this.reason = reason; this.status = status; }
 }
@@ -85,9 +85,11 @@ export async function workerContentIdentity(response) {
   return { entrypoint, modules };
 }
 
-// Script-scoped content is bound ONLY to the active/latest version bracketed here.
+// Script-scoped content is bound ONLY to the bracketed ACTIVE version. Latest is
+// required by default; an explicit UUID pin permits a previously published rollback target.
 // It is never a historical version download or permission to infer old code bytes.
-export async function readActiveWorkerIdentity(env, { fetchImpl = fetch } = {}) {
+export async function readActiveWorkerIdentity(env, { fetchImpl = fetch, expectedVersionId } = {}) {
+  if (expectedVersionId !== undefined && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(expectedVersionId)) throw workerProofError('worker-identity-configuration');
   if (env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_REF !== 'refs/heads/main' || env.GITHUB_REPOSITORY !== 'jwchr/dale'
     || !/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID ?? '') || !env.CLOUDFLARE_API_TOKEN?.trim()) throw workerProofError('worker-identity-configuration');
   const root = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/dale-live`;
@@ -104,8 +106,8 @@ export async function readActiveWorkerIdentity(env, { fetchImpl = fetch } = {}) 
   async function active() {
     const deployment = (await api('/deployments')).deployments?.[0];
     const latest = (await api('/versions')).items?.[0]?.id;
-    if (typeof latest !== 'string' || !latest || deployment?.versions?.length !== 1 || deployment.versions[0].percentage !== 100 || deployment.versions[0].version_id !== latest) throw workerProofError('worker-identity-version-ambiguous');
-    return latest;
+    if (typeof latest !== 'string' || !latest || deployment?.versions?.length !== 1 || deployment.versions[0].percentage !== 100 || (expectedVersionId === undefined ? deployment.versions[0].version_id !== latest : deployment.versions[0].version_id !== expectedVersionId)) throw workerProofError('worker-identity-version-ambiguous');
+    return deployment.versions[0].version_id;
   }
   const versionId = await active();
   const version = await api(`/versions/${encodeURIComponent(versionId)}`);

@@ -1,3 +1,7 @@
+import { qualifyEnabled } from './enabled-qualification.mjs';
+import { rollbackEnabled } from './enabled-rollback.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { preservationPins, requireEnabledResources, canonicalIdentity, readCanonicalBytes, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled, CODE_DEFERRAL_MS, waitForTransitionProgress } from './enabled-continuity.mjs';
 // Manual main-only deployment. Secret values and raw CLI/API errors never leave the runner.
 import { waitForReadiness } from './collection-readiness.mjs';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,18 +18,33 @@ let temporary;
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled', 'restore-disabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled', 'rollback-enabled', 'qualify-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (collectionMode === 'qualify-enabled') {
+    const receipt = await qualifyEnabled(process.env);
+    console.log('Enabled qualification observation: ' + JSON.stringify(receipt));
+    console.log('Observation only: no preparation, actor-version attestation, rollback eligibility or operation permission established.');
+    return;
+  }
+  if (collectionMode === 'rollback-enabled') {
+    if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
+    const result = await rollbackEnabled(process.env);
+    console.log(`Post-deferral proof: acknowledgedAt=${result.acknowledgedAt} boundaryAt=${result.boundaryAt} nativeAttemptAt=${result.nativeAttemptAt} archiveSuccessAt=${result.archiveSuccessAt}.`);
+    console.log(`Pinned enabled rollback checked over ${result.durationMs}ms; native completion/archive advanced and exact canonical context/resources/content retained. Interrupted-attempt backlog ${result.interruptionsBefore}/${result.interruptionsAfter}; zero-gap and every-object durability are not inferred.`);
+    return;
+  }
   if (collectionMode === 'disabled') {
     await stopHistoryCollection(process.env);
     return;
   }
-  const targetEnabled = collectionMode === 'enabled';
+  const preserve = collectionMode === 'preserve-enabled';
+  const targetEnabled = collectionMode === 'enabled' || preserve;
+  const pins = preserve ? preservationPins(process.env) : undefined;
   const deploymentStartedAt = Date.now();
   const url = liveApiUrl(process.env.DALE_WORKER_URL);
   let ds;
   try { ds = JSON.parse(readFileSync(new URL('../worker/generated/corridor.json', import.meta.url), 'utf8')); }
   catch { throw workerProofError('schedule-preflight-failed'); }
-  if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD
+  if (!url || !process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID || (!preserve && (!process.env.NJT_API_USERNAME || !process.env.NJT_API_PASSWORD))
     || ds.meta?.source !== 'NJ Transit GTFS BUS G2' || !/^[a-f0-9]{12}$/.test(ds.meta.feedVersion) || ds.meta.realtime?.provider !== 'njt-bus-g2' || ds.meta.demo) throw workerProofError('configuration-invalid');
   if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
   const before = await readActiveWorkerIdentity(process.env);
@@ -41,6 +60,25 @@ async function run() {
     || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
     || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
     || before.bindings.some(b => !existingNames.includes(b.name))) throw workerProofError('worker-existing-configuration-mismatch');
+  let continuityBefore;
+  if (preserve) {
+    requireEnabledResources(before, pins);
+    let receipt;
+    try {
+      const text = readFileSync(new URL('../worker/generated/preservation.json', import.meta.url), 'utf8');
+      if (Buffer.byteLength(text) > 32_000) throw new Error('Oversized checkpoint');
+      receipt = JSON.parse(text);
+    } catch { throw workerProofError('enabled-continuity-unverified'); }
+    if (receipt.v !== 1 || receipt.context !== pins.context || before.versionId !== pins.versionId
+      || !isDeepStrictEqual(receipt.identity, before)
+      || !before.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'enabled')) throw workerProofError('enabled-continuity-unverified');
+    const canonical = canonicalIdentity(JSON.stringify(ds), pins.context), retained = await readPreservedCanonical(process.env);
+    if (canonical.text !== retained.text) throw workerProofError('enabled-continuity-unverified');
+    preservesEnabled(receipt.checkpoint, retained.checkpoint);
+    continuityBefore = retained.checkpoint;
+    // Keep version/module/runtime/resource equality bracketed across public readbacks.
+    if (!isDeepStrictEqual(before, await readActiveWorkerIdentity(process.env))) throw workerProofError('enabled-continuity-unverified');
+  }
   let retained, archiveBefore;
   if (!targetEnabled) {
     const readback = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
@@ -52,8 +90,9 @@ async function run() {
   }
   temporary = mkdtempSync(join(tmpdir(), 'dale-worker-secrets-'));
   const secrets = join(temporary, 'secrets.json');
-  writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
-  const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', '--secrets-file', secrets,
+  if (!preserve) writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
+  const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', ...(preserve ? [] : ['--secrets-file', secrets]),
+    ...(preserve ? ['--durable-objects-code-update-mode', `deferred ${CODE_DEFERRAL_MS / 1000}s`] : []),
     '--var', `HISTORY_COLLECTION:${targetEnabled ? 'enabled' : 'disabled'}`, '--outdir', join(temporary, 'uploaded')], {
     encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 240_000,
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG: 'error' },
@@ -65,10 +104,13 @@ async function run() {
     else if (/limit|quota/i.test(detail)) console.error('Cloudflare reported a resource limit. Do not upgrade automatically.');
     throw workerProofError('deployment-failed');
   }
+  const mutationAcknowledgedAt = Date.now();
   const uploaded = await verifyUploadedWorker(process.env, join(temporary, 'uploaded'), before);
   if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw workerProofError('uploaded-mode-invalid');
-  const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
-  if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');
+  if (!preserve) {
+    const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');
+  }
   console.log('Reviewed upload artifact matches all active executable/data modules; runtime and other binding descriptors preserved.');
   if (!targetEnabled) {
     await stopHistoryCollection(process.env);
@@ -82,6 +124,20 @@ async function run() {
       || !preservesArchiveEvidence(archiveBefore, disabledArchiveEvidence(current.archive))) throw workerProofError('restored-evidence-unverified');
     if (archiveBefore.kind === 'unreported') console.log('Disabled health omits archive receipt counters and backlog: unknown remains unknown. Same private bucket binding preserved; no archive-count or object-durability result inferred.');
     console.log('Known reviewed code restored disabled; retained journal evidence and strict module/stop proof passed. Private archive receipts need separate readback. Original historical code identity remains unknown. Resume requires a separate authorized action.');
+    return;
+  }
+  if (preserve) {
+    const after = await readCanonicalBytes(process.env, { expectedContext: pins.context });
+    if (after.text !== JSON.stringify(ds)) throw workerProofError('enabled-continuity-unverified');
+    const transition = await waitForTransitionProgress(continuityBefore,
+      timeoutMs => readEnabledCheckpoint(process.env, ds.meta.feedVersion, { timeoutMs }), mutationAcknowledgedAt);
+    const checkpoint = transition.checkpoint;
+    if (!isDeepStrictEqual(uploaded, await readActiveWorkerIdentity(process.env))) throw workerProofError('enabled-continuity-unverified');
+    console.log(`Post-deferral proof: acknowledgedAt=${transition.acknowledgedAt} boundaryAt=${transition.boundaryAt} nativeAttemptAt=${checkpoint.completedAttempt} nativeSuccessAt=${checkpoint.lastSuccessAt} archiveSuccessAt=${checkpoint.archive.lastSuccessAt}.`);
+    console.log('Existing enabled collector preserved: exact canonical bytes/context, runtime/resources/bindings, native alarm and advancing verified archive checked. No demand feed request, activation, stop or rate change.');
+    console.log(`Enabled preservation observation interval: ${continuityBefore.at} to ${checkpoint.at} (${checkpoint.at - continuityBefore.at}ms). This is bounded observation, not sustained continuity.`);
+    console.log(`Interrupted-attempt backlog before/after: ${continuityBefore.pendingInterruptionCount}/${checkpoint.pendingInterruptionCount}. This is not proof of zero interruption or every stored object. Separate operator evidence remains required.`);
+    console.log('Distance geometry/current GPS/public acceptance remains separate. On failure, hold release; no automatic stop or rollback is attempted. Prior pinned Worker identity remains the operator rollback reference; preserve enabled binding, namespace, bucket and every evidence object.');
     return;
   }
   const status = await fetch(url + '/v1/status', { signal: AbortSignal.timeout(45_000), redirect: 'error', cache: 'no-store' });

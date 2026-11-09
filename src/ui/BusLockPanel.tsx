@@ -1,3 +1,7 @@
+import { useRouteGeometry } from './useRouteGeometry';
+import { RouteDistance } from './RouteDistance';
+import { reportedRouteDistance } from '../domain/routeDistance';
+import { liveApiUrl } from '../domain/liveBus';
 import { LiveIndicator } from './LiveIndicator';
 import { DestinationArrival } from './DestinationArrival';
 import { WaitingMap } from './WaitingMap';
@@ -16,6 +20,8 @@ import type { RescueOption } from '../domain/rescue';
 import { RideMode } from './RideMode';
 import { ShareUpdate } from './ShareUpdate';
 import { useScreenWakeLock } from './useScreenWakeLock';
+
+const terminalLock = (session: BusSession) => ['needs_confirmation', 'cancelled', 'ended'].includes(session.lock.status) || ['ended', 'left'].includes(session.phase);
 
 interface Props {
   ds: Dataset;
@@ -54,6 +60,10 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
   const showScheduleMarker = projection.kind !== 'unavailable' && (projection.kind !== 'overdue_unknown' || gpsLost(session, now));
   const last = lock.last;
   const lastRecord = session.history.slice().reverse().find((p) => p.vehicleId === last?.vehicleId && p.observedAt === last?.observedAt);
+  const geometry = useRouteGeometry(ds, liveApiUrl(import.meta.env.VITE_LIVE_API_URL));
+  const routeDistance = lastRecord?.source === 'official' && !session.stopChanges?.indices.length && !terminalLock(session) ? reportedRouteDistance(ds, geometry, dep.tripId, dep.serviceDate,
+    session.phase === 'onboard' ? alightIndex : dep.stopIndex, last, now, lastRecord.receivedAt, lock.vehicleId) : undefined;
+  if (routeDistance && lock.status !== 'tracked') routeDistance.stale = true;
   const date = dep.serviceDate;
   const dateText = lang === 'es' ? `${+date.slice(6, 8)}/${+date.slice(4, 6)}/${date.slice(0, 4)}` : `${+date.slice(4, 6)}/${+date.slice(6, 8)}/${date.slice(0, 4)}`;
   const minutesPast = Math.max(0, Math.floor((now - dep.departs) / 60_000));
@@ -110,6 +120,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
       </p>
       {!ds.meta.demo && !ds.meta.realtime && <p className="muted small">{b.liveUnavailable}</p>}
 
+      {session.phase !== 'onboard' && <RouteDistance value={routeDistance} lang={lang} now={now} />}
       {session.phase !== 'onboard' && <DestinationArrival ds={ds} session={session} index={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} />}
       {(!ds.meta.realtime || ds.meta.demo) && <SignalWarning session={session} now={now} t={t} estimated={!terminal && !passed && ['scheduled_only', 'stale', 'vanished'].includes(lock.status) && showScheduleMarker} />}
       {offerAlternatives(session, now) && <Alternatives t={t} onBuses={onAlternatives} onGuide={onPenn} />}
@@ -137,7 +148,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
         {/* After NJ Transit cancels the trip the waiting controls go, but the backups are what matter. */}
         {session.phase === 'waiting' && lock.status === 'cancelled' && <BackupDeadlines ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} gateText={gateText} badge={badge} onOpen={onOpenBackup} />}
         {session.phase === 'arrived' && <div className="lock-actions"><button className="primary" onClick={() => record('boarded')}>{b.boarded}</button><button onClick={() => record('left')}>{b.left}</button></div>}
-        {session.phase === 'onboard' && <><RideMode ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} onAdvanceDemo={onAdvanceDemo} gateText={gateText} badge={badge} onOpenTrip={onOpenBackup} /><p className="small">{b.ridePrivacy}</p><button onClick={() => record('end')}>{b.stopRide}</button></>}
+        {session.phase === 'onboard' && <><RideMode routeDistance={routeDistance} ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} onAdvanceDemo={onAdvanceDemo} gateText={gateText} badge={badge} onOpenTrip={onOpenBackup} /><p className="small">{b.ridePrivacy}</p><button onClick={() => record('end')}>{b.stopRide}</button></>}
         {/* On board, ride mode carries its own share button (it may fill the screen). */}
         {session.phase !== 'onboard' && <ShareUpdate ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} />}
         {canReportCapacity && <div className="lock-capacity">

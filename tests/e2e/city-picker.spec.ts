@@ -21,6 +21,7 @@ async function setup(page: Page, lang: 'en' | 'es', skin = 'clean', from = '2', 
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
     localStorage.setItem('arriba.penn-guide.v1.bus', JSON.stringify({ mode: 'bus', station: 'essex', direction: 'return', travelling: true, step: 3, walks: { summit: 8 } }));
   }, { lang, skin, favorites });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.route(API + '/v1/live?**', r => r.abort('failed'));

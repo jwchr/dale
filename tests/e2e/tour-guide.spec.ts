@@ -14,6 +14,7 @@ for (const lang of ['en', 'es'] as const) test(`manual Tour guide has sourced lo
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: language, skin: 'garden', theme: 'light' }));
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
   }, lang);
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: liveDataset }));
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
   await page.route(API + '/v1/live?**', route => route.abort('failed'));
@@ -61,6 +62,7 @@ test('manual history is available before saving a favorite', async ({ page }) =>
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en' }));
     localStorage.setItem('arriba.favorites.v1.g2', '[]');
   });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: liveDataset }));
   await page.goto('/?live=1');
   await page.locator('.tour-guide summary').click();
