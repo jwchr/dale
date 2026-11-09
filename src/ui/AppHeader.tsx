@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 
 /** Reserve the real sticky-header height when text size, language or viewport changes. */
-export function AppHeader({ children }: { children: ReactNode }) {
+export function AppHeader({ children, rail = false }: { children: ReactNode; rail?: boolean }) {
   const header = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const node = header.current;
@@ -17,5 +17,5 @@ export function AppHeader({ children }: { children: ReactNode }) {
       root.style.removeProperty('--sticky-header-height');
     };
   }, []);
-  return <header ref={header} className="top">{children}</header>;
+  return <header ref={header} className={rail ? 'top rail-header' : 'top'}>{children}</header>;
 }

@@ -216,7 +216,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <AppHeader>
+      <AppHeader rail={guide === 'penn'}>
         {guide && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
         {(!guide || guide === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <div className="choice-list">
@@ -353,7 +353,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <AppHeader>
+      <AppHeader rail={screen.name === 'penn'}>
         {screen.name !== 'home' ? (
           <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
         ) : null}

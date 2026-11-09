@@ -535,6 +535,6 @@ main { flex: 1; padding-bottom: 24px; }
 
 .commute-picker button { min-block-size: 48px; }
 
-.top:has(.wordmark) { gap: 6px; flex-wrap: wrap; }
+.top.rail-header { gap: 6px; flex-wrap: wrap; }
 
-.top:has(.wordmark) .top-version { flex: 1 1 0; min-width: 4.5em; }
+.top.rail-header .top-version { flex: 1 1 0; min-width: 4.5em; }
