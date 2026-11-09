@@ -216,9 +216,9 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <AppHeader>
-        {guide ? <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>
-          : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
+      <AppHeader rail={guide === 'penn'}>
+        {guide && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
+        {(!guide || guide === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <div className="choice-list">
           <button className="chip" lang="en" aria-pressed={settings.lang === 'en'} onClick={() => setSettings({ ...settings, lang: 'en' })}>English</button>
           <button className="chip" lang="es" aria-pressed={settings.lang === 'es'} onClick={() => setSettings({ ...settings, lang: 'es' })}>Español</button>
@@ -353,10 +353,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   return (
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
-      <AppHeader>
+      <AppHeader rail={screen.name === 'penn'}>
         {screen.name !== 'home' ? (
           <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
-        ) : <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
+        ) : null}
+        {(screen.name === 'home' || screen.name === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
         <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
       </AppHeader>

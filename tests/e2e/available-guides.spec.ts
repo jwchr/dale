@@ -18,7 +18,10 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.getByRole('button', { name: t.guide.title, exact: true })).toBeFocused();
     await page.getByRole('button', { name: j.trainMode, exact: true }).click();
     await expect(page.getByRole('heading', { name: j.title, exact: true })).toBeFocused();
-    await page.getByRole('button', { name: j.next, exact: true }).click();
+    await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
+    await expect(page.locator('.journey-help')).not.toHaveAttribute('open');
+    await page.locator('.journey-checklist > summary').click();
+  await page.getByRole('button', { name: j.next, exact: true }).click();
     await expect(page.getByText(j.step(2, 5), { exact: true })).toBeVisible();
     expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
     recover = true;
@@ -45,9 +48,11 @@ for (const lang of ['en', 'es'] as const) {
     const other = strings[lang === 'en' ? 'es' : 'en'];
     await expect(page.locator('html')).toHaveAttribute('lang', lang === 'en' ? 'es' : 'en');
     await expect(page.getByRole('heading', { name: other.journey.title, exact: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
     release();
     await expect(page.getByText(other.scheduleReady)).toBeVisible();
     await expect(page.getByRole('heading', { name: other.journey.title, exact: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
     await page.getByRole('button', { name: other.back, exact: true }).click();
     await expect(page.getByRole('button', { name: other.settings, exact: true })).toBeVisible();
   });

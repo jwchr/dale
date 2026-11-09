@@ -15,19 +15,21 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
   const time = (minute: number) => formatTime12(Date.UTC(2000, 0, 1, 0, minute), 'UTC', 'en');
   return <section className="card rail-preview" aria-labelledby={`${id}-title`}>
     <div className="rail-heading"><h2 id={`${id}-title`}>{r.title}</h2><span className="badge-sched">{r.sample}</span></div>
-    <p className="small">{r.availability}</p>
+    <p className="small rail-notice">{r.notice}</p>
     <label htmlFor={`${id}-day`}>{r.day}</label><select id={`${id}-day`} value={day} onChange={e => setDay(e.target.value as RailDay)}>
       <option value="weekday">{r.weekday}</option><option value="weekend">{r.weekend}</option>
     </select>
     <ul className="rail-options" role="list">
       {journeys.map(journey => {
         const [first, second] = journey.legs;
-        const train = first.train ?? second.train;
+        const pvlLeg = first.line === 'pascack-valley' ? first : second;
+        const train = pvlLeg.train;
         return <li key={journey.id}>
           <details className="rail-option">
             <summary>
-              <span className="rail-clocks"><span><small>{name(first.from.station)}</small><strong>{time(first.from.minute)}</strong></span><span aria-hidden="true">→</span><span><small>{name(second.to.station)}</small><strong>{time(second.to.minute)}</strong></span></span>
-              <span className="small">{r.summary(journey.durationMin, train!)} · {r.steps}</span>
+              <span className="rail-run"><span className="rail-number">{r.trainFrom(train!, name(pvlLeg.from.station))}</span><span>{r.via}</span></span>
+              <span className="rail-clocks"><span><small>{r.departure} · {name(first.from.station)}</small><strong>{time(first.from.minute)}</strong></span><span><small>{second.to.event === 'call' ? r.stationTime : r.arrival} · {name(second.to.station)}</small><strong>{time(second.to.minute)}</strong></span></span>
+              <span className="rail-row-foot"><span>{r.duration(journey.durationMin)}</span><span>{r.steps} <span aria-hidden="true">⌄</span></span></span>
             </summary>
             <ol className="rail-steps">
               <li><strong>{r.board(name(first.from.station), time(first.from.minute))}</strong><p>{direction === 'outbound' ? r.outBoard(train!) : r.returnBoard}</p></li>
@@ -38,6 +40,6 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
         </li>;
       })}
     </ul>
-    <details className="small rail-source"><summary>{r.source}</summary><p>{r.sourceText}</p><p>{r.transferNote}</p></details>
+    <details className="small rail-source"><summary>{r.source}</summary><p>{r.availability}</p><p>{r.sourceText}</p><p>{r.transferNote}</p></details>
   </section>;
 }

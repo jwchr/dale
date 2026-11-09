@@ -40,32 +40,14 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
     : state.direction === 'outbound' ? j.busOut : j.busReturn;
   const step = steps[state.step]!;
   const move = (n: number) => { setState((s) => ({ ...s, step: n })); setFocusStep(true); };
-  return <section className="penn-guide">
-    <h1>{j.title}</h1><p>{j.intro}</p><p className="small">{j.scope}</p>
-    <div className="card">
-      <h2>{railOnly ? j.train : j.compare}</h2>
-      {!railOnly && <div className="choice-list">
-        <button className="chip" aria-pressed={state.mode === 'train'} onClick={() => selectMode('train')}>{j.train}</button>
-        <button className="chip" aria-pressed={state.mode === 'bus'} onClick={() => selectMode('bus')}>{j.bus}</button>
-      </div>}
-      <p>{state.mode === 'train' ? j.trainSummary : j.busSummary}</p>
-
-      {state.mode === 'train' && <label>{j.station}<select value={state.station} onChange={(e) => select({ station: e.target.value as JourneyChecklist['station'] })}>
-        {STATIONS.map((s) => <option key={s} value={s}>{j.stations[s]}</option>)}
-      </select></label>}
-      <fieldset><legend>{j.direction}</legend><div className="choice-list">
-        <button className="chip" aria-pressed={state.direction === 'outbound'} onClick={() => select({ direction: 'outbound' })}>{j.outbound}</button>
-        <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
-      </div></fieldset>
-    </div>
-    {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} />}
+  const checklist = <>
     <div className="choice-list">
       <button className="chip" aria-pressed={!state.travelling} onClick={() => setState((s) => ({ ...s, travelling: false }))}>{j.practice}</button>
       <button className="chip" aria-pressed={state.travelling} onClick={() => setState((s) => ({ ...s, travelling: true }))}>{j.travelling}</button>
     </div>
     <p className="warn" role="note">{state.travelling ? j.travelNote : j.practiceNote}</p>
     <article className="card journey-step" aria-labelledby="journey-step-title">
-      <p className="badge-sched">{j.step(state.step + 1, steps.length)}</p>
+      {state.mode !== 'train' && <p className="badge-sched">{j.step(state.step + 1, steps.length)}</p>}
       <h2 id="journey-step-title" tabIndex={-1} ref={stepHeading}>{step.title}</h2><p>{step.text}</p>
       <div className="row-between">
         <button disabled={state.step === 0} onClick={() => move(state.step - 1)}>{j.previous}</button>
@@ -73,6 +55,9 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
           : <button onClick={() => move(0)}>{j.restart}</button>}
       </div>
     </article>
+    {!demo && <p className="small" role="status">{saved ? j.saved : j.unsaved}</p>}
+  </>;
+  const help = <>
     <p className="warn" role="note">{j.limits}</p><p>{j.days}</p>
     {state.mode === 'train' && <div className="card"><h2>{j.ticketTitle}</h2><p>{j.ticket(station)}</p><h2>{j.missedTitle}</h2><p>{j.missed}</p></div>}
     <div className="card journey-links">
@@ -92,7 +77,30 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
         }} />
       </label>)}
     </details>
-    {!demo && <p className="small" role="status">{saved ? j.saved : j.unsaved}</p>}
     <p className="muted small">{j.sources}</p>
+  </>;
+  return <section className="penn-guide">
+    <h1>{j.title}</h1>{state.mode !== 'train' && <><p>{j.intro}</p><p className="small">{j.scope}</p></>}
+    <div className="card journey-controls">
+      {!railOnly && <h2>{j.compare}</h2>}
+      {!railOnly && <div className="choice-list">
+        <button className="chip" aria-pressed={state.mode === 'train'} onClick={() => selectMode('train')}>{j.train}</button>
+        <button className="chip" aria-pressed={state.mode === 'bus'} onClick={() => selectMode('bus')}>{j.bus}</button>
+      </div>}
+      {state.mode !== 'train' && <p>{j.busSummary}</p>}
+
+      {state.mode === 'train' && <label>{j.station}<select value={state.station} onChange={(e) => select({ station: e.target.value as JourneyChecklist['station'] })}>
+        {STATIONS.map((s) => <option key={s} value={s}>{j.stations[s]}</option>)}
+      </select></label>}
+      <fieldset><legend>{j.direction}</legend><div className="choice-list">
+        <button className="chip" aria-pressed={state.direction === 'outbound'} onClick={() => select({ direction: 'outbound' })}>{j.outbound}</button>
+        <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
+      </div></fieldset>
+    </div>
+    {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} />}
+    {state.mode === 'train' ? <>
+      <details className="card journey-checklist"><summary>{t.rail.checklist} · <span>{j.step(state.step + 1, steps.length)}</span></summary>{checklist}</details>
+      <details className="card journey-help"><summary>{t.rail.help}</summary><p>{j.intro}</p><p className="small">{j.scope}</p><p>{j.trainSummary}</p>{help}</details>
+    </> : <>{checklist}{help}</>}
   </section>;
 }

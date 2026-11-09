@@ -17,6 +17,7 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   await page.goto('/?now=2026-11-04T07:50');
   const j = strings[lang].journey;
   await page.getByRole('button', { name: j.trainMode }).click();
+  await page.locator('.journey-checklist > summary').click();
   await expect(page.getByText(j.practiceNote)).toBeVisible();
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
   await page.getByRole('button', { name: j.returning, exact: true }).click();
@@ -25,6 +26,7 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   await page.getByRole('button', { name: j.returning, exact: true }).click();
   await page.getByRole('button', { name: j.trainMode, exact: true }).click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeVisible();
+  await page.locator('.journey-help > summary').click();
   await page.getByText(j.walks, { exact: true }).click();
   await page.getByLabel(j.walkLabel(j.stations.essex)).fill('7');
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -33,7 +35,9 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   await page.reload();
   await page.getByRole('button', { name: j.trainMode }).click();
   await expect(page.getByRole('combobox', { name: j.station, exact: true })).toHaveValue('essex');
+  await page.locator('.journey-checklist > summary').click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeVisible();
+  await page.locator('.journey-help > summary').click();
   await page.getByText(j.walks, { exact: true }).click();
   await expect(page.getByLabel(j.walkLabel(j.stations.essex))).toHaveValue('7');
   await page.getByRole('button', { name: j.busMode, exact: true }).click();
