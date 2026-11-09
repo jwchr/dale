@@ -51,20 +51,27 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
-        return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), overflow: document.documentElement.scrollWidth - innerWidth };
+        return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
       });
-      expect(geometry.left.right).toBeLessThan(geometry.right.left);
-      expect(Math.abs(geometry.left.top - geometry.right.top)).toBeLessThan(1);
-      expect(Math.abs(geometry.stop.top - geometry.otherStop.top)).toBeLessThan(1);
+      if (scale === 100) {
+        expect(geometry.left.right).toBeLessThanOrEqual(geometry.reverse.left);
+        expect(geometry.reverse.right).toBeLessThanOrEqual(geometry.right.left);
+        expect(Math.abs(geometry.left.top - geometry.right.top)).toBeLessThan(1);
+        expect(Math.abs(geometry.stop.top - geometry.otherStop.top)).toBeLessThan(1);
+      } else {
+        expect(geometry.reverse.top).toBeGreaterThanOrEqual(geometry.stop.bottom);
+        expect(geometry.right.top).toBeGreaterThanOrEqual(geometry.reverse.bottom);
+      }
       expect(geometry.stop.top).toBeGreaterThanOrEqual(geometry.left.bottom);
-      expect(geometry.trigger.left).toBeGreaterThan(geometry.reverse.right);
-      expect(Math.abs((geometry.trigger.top + geometry.trigger.bottom) / 2 - (geometry.reverse.top + geometry.reverse.bottom) / 2)).toBeLessThan(1);
+      expect(geometry.trigger.left).toBeGreaterThanOrEqual(geometry.rescue.right);
+      expect(Math.abs(geometry.trigger.top - geometry.leave.top)).toBeLessThan(1);
+      expect(Math.abs(geometry.trigger.top - geometry.rescue.top)).toBeLessThan(1);
       expect(geometry.trigger.height).toBeGreaterThanOrEqual(44);
       expect(geometry.reverse.height).toBeGreaterThanOrEqual(44);
       expect(geometry.overflow).toBe(0);
       // Check actual glyph runs, not only a centered box around left-aligned text.
       const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => {
-        const box = node.getBoundingClientRect(), lines = new Map<number, { left: number; right: number }>();
+        const box = node.closest('.highway-sign')!.getBoundingClientRect(), lines = new Map<number, { left: number; right: number }>();
         for (const part of node.querySelectorAll('.sign-word-part')) {
           const rect = part.getBoundingClientRect(), y = Math.round(rect.top), line = lines.get(y);
           lines.set(y, { left: Math.min(line?.left ?? Infinity, rect.left), right: Math.max(line?.right ?? -Infinity, rect.right) });
@@ -75,6 +82,12 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         expect(name.offsets.every(offset => offset < 2), JSON.stringify({ width, scale, name })).toBe(true);
         if (width === 390 && scale === 100) expect(name.fontSize).toBeGreaterThanOrEqual(18);
       }
+      const tags = await page.locator('.highway-label').evaluateAll(nodes => nodes.map(node => {
+        const tag = node.getBoundingClientRect(), sign = node.closest('.highway-sign')!.getBoundingClientRect();
+        const name = node.parentElement!.querySelector('.highway-name')!.getBoundingClientRect();
+        return { inside: tag.left >= sign.left && tag.top >= sign.top && tag.bottom <= sign.bottom, beside: tag.right <= name.left + 1 };
+      }));
+      expect(tags.every(tag => tag.inside && tag.beside), JSON.stringify({ width, scale, tags })).toBe(true);
       // Inspect actual rendered lines: fitting boxes alone can hide isolated final letters.
       const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(renderedSignLines);
       expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
@@ -114,7 +127,8 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       await page.evaluate(() => { document.body.style.fontFamily = ''; });
     }
     await reverse.focus();
-    await page.keyboard.press('Tab');
+    // Destination city, destination stop, Leave by, alternatives, then stop sign.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
     await expect(trigger).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');

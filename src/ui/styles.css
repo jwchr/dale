@@ -367,31 +367,38 @@ main { flex: 1; padding-bottom: 24px; }
 .journey-controls legend { font-size: .85rem; }
 .journey-controls .choice-list { gap: 4px; }
 .journey-controls .chip { flex: 1 1 7rem; min-width: 0; padding: 6px 8px; font-size: .85rem; }
-.rail-preview { --board-ink: #ffe6a3; --board-muted: #c4cdd3; color: #f5f7f8; background: #11191e; border: 1px solid #67737b; padding: 12px; border-radius: 8px; }
-.rail-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
-.rail-heading h2 { margin: 0; font-size: 1.1rem; }
+.rail-preview { container: rail / inline-size; --board-ink: #f3ead2; --board-muted: #c3c9cc; color: var(--board-ink); background: #101316; border: 2px solid #4a5158; padding: 10px; border-radius: 5px; box-shadow: inset 0 0 0 2px #080a0c, 0 5px 15px #0005; }
+.rail-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; background: #122238; padding: 8px; border-bottom: 1px solid #68717a; }
+.rail-heading h2 { margin: 0; font-size: 1.1rem; color: #e6cb83; }
 .rail-preview .badge-sched { color: var(--board-ink); border-color: #8e815b; background: #222a2f; }
 .rail-notice { color: var(--board-muted); margin: 6px 0 10px; }
 .rail-preview label { display: block; font-size: .8rem; }
 .rail-preview select { background: #222a2f; color: #f5f7f8; border: 1px solid #67737b; border-radius: 4px; }
-.rail-options { list-style: none; padding: 0; margin: 12px 0 0; }
-.rail-option { border-top: 1px solid #67737b; }
-.penn-guide .rail-option summary { display: block; cursor: pointer; min-height: 44px; padding-block: 12px; }
+.rail-board-title { margin-block-start: 10px; padding: 7px 5px; background: #122238; color: #e6cb83; font-size: .85rem; font-weight: 750; letter-spacing: .18em; overflow-wrap: anywhere; }
+.rail-options { list-style: none; padding: 0; margin: 0; }
+.rail-option { border-block-start: 2px solid #454a4e; border-block-end: 2px solid #050607; background: linear-gradient(#1c2023, #101214); }
+.penn-guide .rail-option summary { display: block; cursor: pointer; min-height: 44px; padding: 10px 4px; }
 .rail-option summary::-webkit-details-marker { display: none; }
 .rail-run, .rail-row-foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
 .rail-run { font-size: .8rem; color: var(--board-muted); }
-.rail-number { color: var(--board-ink); font-family: ui-monospace, 'Courier New', monospace; font-weight: 800; letter-spacing: .06em; }
-.rail-clocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; margin-block: 6px; }
+.rail-number { color: var(--board-ink); min-inline-size: 0; font-size: .8rem; }
+.rail-clocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 8px; margin-block: 8px; }
+.rail-clocks > span { min-inline-size: 0; }
 .rail-clocks small, .rail-clocks strong { display: block; overflow-wrap: anywhere; }
 .rail-clocks small { font-size: .75rem; color: var(--board-muted); font-weight: 500; }
-.rail-clocks strong { color: var(--board-ink); font-family: ui-monospace, 'Courier New', monospace; font-size: 1.3rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.rail-row-foot { font-size: .75rem; color: var(--board-muted); }
+.rail-clocks strong { color: var(--board-ink); font-size: 1.3rem; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.flap-text { font-family: 'Arial Narrow', 'Liberation Sans Narrow', ui-monospace, monospace; font-weight: 800; text-transform: uppercase; line-height: 1.5; }
+.flap-word { display: inline-block; white-space: nowrap; }
+.flap-char { display: inline-block; position: relative; min-inline-size: .62em; text-align: center; background: linear-gradient(#252a2d 0%, #171a1c 48%, #070809 49%, #070809 52%, #23272a 53%, #171a1c 100%); border-inline-end: 1px solid #080a0c; box-shadow: inset 0 1px #454a4e, inset 0 -1px #080a0c; border-radius: 1px; }
+.rail-row-foot { font-size: .75rem; color: var(--board-muted); border-top: 1px solid #343a40; padding-top: 5px; }
 .rail-option[open] .rail-row-foot { color: var(--board-ink); }
+.rail-info-strip { margin: 0; padding: 8px 5px; border-block: 2px solid #30353b; background: #080b0e; color: #ff777c; font: 750 .8rem/1.4 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; }
 .rail-source { color: var(--board-muted); border-top: 1px solid #67737b; }
 .rail-preview :focus-visible { outline: 3px solid #ffe6a3; outline-offset: 3px; }
+@container rail (max-width: 11rem) { .rail-clocks { grid-template-columns: minmax(0, 1fr); } }
 .journey-checklist > summary, .journey-help > summary { min-height: 44px; align-content: center; }
 @media (max-width: 360px) { .rail-clocks strong { font-size: 1.15rem; } }
-@media (forced-colors: active) { .rail-preview, .rail-preview select, .rail-preview .badge-sched { background: Canvas; color: CanvasText; border-color: CanvasText; } .rail-preview * { color: CanvasText; } }
+@media (forced-colors: active) { .rail-preview, .rail-preview select, .rail-preview .badge-sched { background: Canvas; color: CanvasText; border-color: CanvasText; } .rail-preview * { color: CanvasText; } .flap-char, .rail-heading, .rail-board-title, .rail-info-strip { background: Canvas; color: CanvasText; } }
 .rail-steps { padding-left: 22px; }
 .rail-steps li { margin: 14px 0; }
 .rail-source summary { min-height: 44px; padding-block: 12px; cursor: pointer; }
@@ -446,7 +453,9 @@ main { flex: 1; padding-bottom: 24px; }
 /* Home cards keep the route beside both clocks, rather than in its own empty row. */
 .fav .deps > li { container-type: inline-size; }
 .fav .deps .dep { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 6px; padding: 8px; }
-.fav .deps .dep > .route-badge { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: start; min-inline-size: 54px; min-block-size: 44px; padding-inline: 4px; font-size: 1.15rem; }
+.fav .deps .dep > .dep-route { grid-column: 1; grid-row: 1; align-self: start; display: grid; justify-items: center; gap: 5px; inline-size: 4.1rem; min-inline-size: 54px; }
+.fav .deps .dep-route .route-badge { min-inline-size: 54px; min-block-size: 44px; padding-inline: 4px; font-size: 1.3rem; }
+.fav .deps .dep-route .dep-right { inline-size: 100%; text-align: center; line-height: 1.25; }
 .fav .deps .dep > .dep-main { grid-column: 2; grid-row: 1; min-inline-size: 0; }
 .fav .deps .dep-min { font-size: .85rem; overflow-wrap: anywhere; }
 .fav .deps .dep-evidence { margin: 3px 4px 7px; }
@@ -475,7 +484,7 @@ main { flex: 1; padding-bottom: 24px; }
 
 /* At enlarged text sizes, keep full clocks readable rather than splitting digits. */
 @container (max-width: 9rem) {
-  .fav .deps .dep > .route-badge { grid-row: 1; }
+  .fav .deps .dep > .dep-route { grid-row: 1; }
   .fav .deps .dep > .dep-main { grid-column: 1 / -1; grid-row: 2; }
   .dep-paired { grid-template-columns: minmax(0, 1fr); }
 }
@@ -535,9 +544,10 @@ main { flex: 1; padding-bottom: 24px; }
 
 .commute-picker button { min-block-size: 48px; }
 
-.top.rail-header { gap: 6px; flex-wrap: wrap; }
+.top { gap: 6px; flex-wrap: wrap; align-items: start; }
 
-.top.rail-header .top-version { flex: 1 1 0; min-width: 4.5em; }
+.top .top-version { flex: 1 1 0; min-width: 0; align-self: center; }
+.top.rail-header .top-version { min-width: 4.5em; }
 
 .route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }
 .route-distance[data-stale="true"] { font-style: italic; }

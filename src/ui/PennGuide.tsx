@@ -92,7 +92,7 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
       {state.mode === 'train' && <label>{j.station}<select value={state.station} onChange={(e) => select({ station: e.target.value as JourneyChecklist['station'] })}>
         {STATIONS.map((s) => <option key={s} value={s}>{j.stations[s]}</option>)}
       </select></label>}
-      <fieldset><legend>{j.direction}</legend><div className="choice-list">
+      <fieldset><legend className="sr-only">{j.direction}</legend><div className="choice-list">
         <button className="chip" aria-pressed={state.direction === 'outbound'} onClick={() => select({ direction: 'outbound' })}>{j.outbound}</button>
         <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
       </div></fieldset>

@@ -3,21 +3,34 @@
    Loaded after styles.css, so a style's tokens win over the light/dark ones (same specificity). */
 
 /* ---------- Shared: compact paired journey signs on every style ---------- */
-.commute-places { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px; }
-.commute-place { min-inline-size: 0; display: grid; grid-template-rows: auto auto; gap: 5px; }
+.commute-header { container: commute / inline-size; }
+.commute-places { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); align-items: start; gap: 5px 3px; }
+.commute-place { min-inline-size: 0; display: grid; grid-template-rows: auto auto; grid-row: 1 / span 2; gap: 5px; }
+.commute-place[data-end='from'] { grid-column: 1; }
+.commute-place[data-end='to'] { grid-column: 3; }
 @supports (grid-template-rows: subgrid) {
-  .commute-place { grid-row: span 2; grid-template-rows: subgrid; }
+  .commute-place { grid-template-rows: subgrid; }
 }
-.highway-sign { display: flex; align-items: center; gap: 6px; padding: 7px 3px; border-radius: 10px; position: relative; min-inline-size: 0; }
-.highway-label { flex: none; writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
-.highway-name { flex: 1; min-inline-size: 0; text-align: center; font-size: clamp(.85rem, .25rem + 4vw, 2rem); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+.commute-reverse { grid-column: 2; grid-row: 1; align-self: center; inline-size: 44px; min-block-size: 44px; padding: 8px; border-radius: 50%; }
+.commute-reverse svg { display: block; inline-size: 100%; block-size: 24px; }
+.highway-sign { display: grid; align-items: center; padding: 7px calc(.66rem + 8px); border-radius: 10px; position: relative; min-inline-size: 0; min-block-size: 3rem; }
+.highway-sign.city-control { inline-size: auto; }
+/* Physical offsets keep the rotated vertical tag on the left edge. */
+.highway-label { position: absolute; left: 3px; top: 50%; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
+.highway-name { display: block; min-inline-size: 0; text-align: center; font-size: clamp(.85rem, .25rem + 4vw, 2rem); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+@container commute (max-width: 15rem) {
+  .commute-places { grid-template-columns: minmax(0, 1fr); }
+  .commute-place[data-end='from'] { grid-column: 1; grid-row: 1 / span 2; }
+  .commute-reverse { grid-column: 1; grid-row: 3; justify-self: center; }
+  .commute-place[data-end='to'] { grid-column: 1; grid-row: 4 / span 2; }
+}
 .sign-word { display: inline-block; max-inline-size: 100%; vertical-align: top; overflow-wrap: normal; }
 .sign-word-part { white-space: nowrap; }
 .commute-stop-name { display: block; }
 .commute-stop { align-self: start; margin: 0; font-size: 1rem; padding: 7px 8px; line-height: 1.25; }
-.commute-sign-actions { display: flex; align-items: center; gap: 6px; min-inline-size: 0; max-inline-size: 100%; }
-.commute-sign-actions .stop-sign-toggle { min-inline-size: 0; border-radius: 1rem; }
-.commute-controls .chip { min-block-size: 44px; }
+.commute-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
+.commute-controls:not(:has(.leave-set)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.commute-controls .chip, .commute-controls .stop-sign-toggle { min-inline-size: 0; min-block-size: 44px; padding: 6px 4px; font-size: .8rem; border-radius: .65rem; overflow-wrap: anywhere; }
 /* A soft retroreflective sheen across every sign face. */
 .highway-sign::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(155deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.02) 38%, transparent 55%); }

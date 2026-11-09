@@ -4,9 +4,9 @@ import type { ReactNode } from 'react';
 import type { DepartureEvidence } from '../domain/liveDepartures';
 import type { Strings } from './i18n';
 /** The two clocks name their locations and qualify their sources independently. */
-export function DepartureTimes({ evidence, boarding, boardingEstimated, arrival, destination, countdown, t, time }: {
+export function DepartureTimes({ evidence, boarding, boardingEstimated, arrival, destination, t, time }: {
   evidence: DepartureEvidence; boarding: number; boardingEstimated: boolean;
-  arrival?: { at: number; estimated: boolean }; destination: string; countdown: string; t: Strings;
+  arrival?: { at: number; estimated: boolean }; destination: string; t: Strings;
   time: (at: number, estimated: boolean) => ReactNode;
 }) {
   const r = t.live.rows, liveBoard = evidence.boarding, liveArrival = evidence.arrival;
@@ -15,7 +15,7 @@ export function DepartureTimes({ evidence, boarding, boardingEstimated, arrival,
   </svg>;
   return <span className="dep-paired">
     <span className="dep-clock boarding-clock">
-      <span className="dep-clock-heading"><span className="dep-place">{r.atYourStop}</span><span className="dep-right"><span className="dep-min">{countdown}</span></span></span>
+      <span className="dep-place">{r.atYourStop}</span>
       <span className="dep-clock-line">{signal(!!liveBoard)}<span className="dep-time">{time(liveBoard?.at ?? boarding, liveBoard ? false : boardingEstimated)}</span></span>
       <strong className={liveBoard ? 'badge-live' : 'badge-sched'}><SignText text={liveBoard ? liveBoard.kind === 'arrival' ? r.boardingArrival : r.live : t.scheduledOnly} /></strong>
       {liveBoard && <span className="dep-original">{r.scheduleShort} {time(boarding, boardingEstimated)}</span>}

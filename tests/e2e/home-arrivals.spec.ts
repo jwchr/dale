@@ -217,6 +217,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     const row = current(page), button = row.getByRole('button');
     const source = lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s';
     await expect(row.locator('.dep-evidence')).toHaveText(source);
+    await expect(row.locator('.dep-route .dep-min')).toHaveText(lang === 'en' ? 'In 5 minutes' : 'En 5 minutos');
     for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
@@ -229,8 +230,9 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
       else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
       expect(geometry.route.height).toBeGreaterThanOrEqual(44);
-      expect(geometry.countdown.right).toBeLessThanOrEqual(geometry.boardingColumn.right + 1);
-      expect(geometry.countdown.bottom).toBeLessThanOrEqual(geometry.boarding.top);
+      expect(geometry.countdown.top).toBeGreaterThanOrEqual(geometry.route.bottom);
+      expect(Math.abs((geometry.route.left + geometry.route.right - geometry.countdown.left - geometry.countdown.right) / 2)).toBeLessThan(1);
+      if (scale <= 130) expect(geometry.route.top).toBeLessThan(geometry.boarding.bottom);
       expect(geometry.overflow).toBe(0);
       expect(geometry.textOutside).toBe(false);
       if (scale === 100) {

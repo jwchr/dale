@@ -8,7 +8,15 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     const t = strings[lang], j = t.journey, r = t.rail;
     await page.addInitScript(({ lang, theme }) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, theme, skin: 'garden' })), { lang, theme });
     await page.goto('/?now=2026-11-04T07:50');
+    await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
+    await expect(page.locator('.top-version')).toBeVisible();
+    const logoBefore = await page.getByRole('img', { name: 'Dale!', exact: true }).boundingBox();
     await page.getByRole('button', { name: j.trainMode, exact: true }).click();
+    await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
+    await expect(page.locator('.rail-preview')).toBeVisible();
+    const logoAfter = await page.getByRole('img', { name: 'Dale!', exact: true }).boundingBox();
+    expect(logoAfter!.x).toBe(logoBefore!.x);
+    expect(logoAfter!.y).toBe(logoBefore!.y);
     await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
     await expect(page.getByText(r.notice, { exact: true })).toBeVisible();
     await expect(page.locator('.journey-checklist')).not.toHaveAttribute('open');
@@ -16,6 +24,11 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await expect(page.getByText(j.practiceNote, { exact: true })).not.toBeVisible();
     await expect(page.getByRole('link', { name: j.tickets, includeHidden: true })).not.toBeVisible();
     await expect(page.locator('.rail-preview')).toHaveCount(1);
+    await expect(page.locator('.rail-board-title')).toHaveText(r.departures);
+    await expect(page.locator('.rail-info-strip')).toHaveText(r.transfer);
+    await expect(page.locator('.journey-controls legend')).toHaveClass('sr-only');
+    await expect(page.getByRole('button', { name: 'HACKENSACK', exact: true })).toBeVisible();
+    expect(await page.locator('.rail-clocks .flap-char').count()).toBeGreaterThan(0);
     await expect(page.locator('.rail-option')).toHaveCount(3);
     await expect(page.locator('.rail-option').first().locator('summary')).toContainText('PVL 1602');
     await expect(page.locator('.rail-option').first().locator('.rail-clocks strong')).toHaveText(['5:49 AM', '6:29 AM']);
