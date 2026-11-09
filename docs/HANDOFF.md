@@ -2,6 +2,9 @@
 
 Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
 
+## Inventory-only qualification diagnostic (#113)
+- Same existing sole builder claims6733566344 after published PR135/main96ca921. Owner/operator requests only complete sanitized module metadata in the existing qualify-enabled receipt, to investigate the unresolved historical source fingerprint mismatch. Receipt v2 adds exact entrypoint/name/filename/type/bytes/SHA inventory copied from the same bracketed identity and bound to the existing full content digest; no extra requests/mode/workflow/bindings or raw code/data retention. Original8KiB receipt cap remains: oversized inventory fails instead of truncating. Existing identity/resources/context/budget/no-mutation gates remain. Native binary/auxiliary inventory, unchanged18request count, content race, size/privacy and strict malformed-field cases accompany it. Full verify, exact CI and existing independent HIGH review/separate operator release are required; no actual diagnostic or reconstruction is authorized by this source change.
+
 ## Larger centered city names (#113)
 - Direct November9 owner request, claim6733075129, same sole builder from published76e911e: enlarge and center Hackensack/New York within the existing paired city signs. The flexible city-name area now fills the sign beside the vertical FROM/TO tag and centers each rendered line; rem/viewport fluid type grows from the earlier small scale while retaining the existing readable long-word breaks and 200% text behavior. No city/stop selection, source, backend or recorder change. Verify actual glyph alignment and EN/ES narrow/enlarged rendering across all five skins, complete full verification, independent review and separate publication before availability claims.
 
