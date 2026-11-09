@@ -161,3 +161,61 @@ describe('bounded reviewed-main rail verification', () => {
     for (const action of workflow.matchAll(/uses: ([^\n]+)/g)) expect(action[1]).toMatch(/@[a-f0-9]{40} /);
   });
 });
+
+
+describe('numeric HTTP observability without changing the rail request boundary', () => {
+  it.each([400, 404, 405, 408, 500, 502, 503])('retains exact HTTP%i with fixed product/stage names, two auth requests and no server echoes', async code => {
+    const output: string[] = [];
+    const fetchImpl = vi.fn(async () => new Response(credentials.password + token, {
+      status: code, statusText: credentials.username, headers: { 'x-untrusted': token },
+    }));
+    expect(await runRailConnectionCheck(env, fetchImpl, (s: string) => output.push(s))).toBe(1);
+    const result = JSON.parse(output[0]!);
+    expect(result.products).toEqual({ TrainData: 'http-error', GTFSRT: 'http-error' });
+    expect(result.httpStatuses).toEqual({ 'TrainData.authentication': code, 'GTFSRT.authentication': code });
+    expect(result.stations).toEqual({}); expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const secret of [...Object.values(credentials), token]) expect(output.join('\n')).not.toContain(secret);
+    expect(output.join('\n')).not.toContain('x-untrusted');
+  });
+  it.each([401, 403, 429])('preserves classification and quota stop for HTTP%i', async code => {
+    const fetchImpl = vi.fn(async () => new Response('no body logging', { status: code }));
+    const result = await checkRailApi(credentials, fetchImpl);
+    expect(result.products.TrainData).toBe(code === 429 ? 'rate-limited' : 'access-denied');
+    expect(result.httpStatuses['TrainData.authentication']).toBe(code);
+    expect(fetchImpl).toHaveBeenCalledTimes(code === 429 ? 1 : 2);
+    if (code === 429) { expect(result.status).toBe('rate-limited'); expect(result.products).not.toHaveProperty('GTFSRT'); }
+  });
+  it.each([0, 600, -1, NaN, Infinity, '500', token, { unsafe: token }])('does not retain an invalid or nonnumeric response status: %j', async status => {
+    const fetchImpl = vi.fn(async () => {
+      const response = new Response('no body logging', { status: 500 });
+      Object.defineProperty(response, 'status', { value: status }); return response;
+    });
+    const result = await checkRailApi(credentials, fetchImpl);
+    expect(result.products).toEqual({ TrainData: 'http-error', GTFSRT: 'http-error' });
+    expect(result.httpStatuses).toEqual({}); expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(result)).not.toContain(token);
+  });
+  it('attributes station-list HTTP failure to that exact stage with no station queries', async () => {
+    const normal = fixture();
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => url.endsWith('getStationList') ? new Response(token, { status: 503 }) : normal(url, init));
+    const result = await checkRailApi(credentials, fetchImpl);
+    expect(result.httpStatuses).toEqual({ 'TrainData.station-list': 503 }); expect(result.stationCoverage).toBe('http-error');
+    expect(result.products).toEqual({ TrainData: 'authenticated', GTFSRT: 'authenticated' });
+    expect(fetchImpl).toHaveBeenCalledTimes(3); expect(result.stations).toEqual({});
+  });
+  it('attributes a departure failure to the fixed station key without adding or repeating requests', async () => {
+    const normal = fixture();
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => url.endsWith('19Rec') && (init.body as FormData).get('station') === 'AS'
+      ? new Response(token, { status: 502 }) : normal(url, init));
+    const result = await checkRailApi(credentials, fetchImpl);
+    expect(result.httpStatuses).toEqual({ 'TrainData.departures.anderson': 502 }); expect(result.stations.anderson.status).toBe('http-error');
+    expect(result.stations.essex.status).toBe('schema-confirmed'); expect(fetchImpl).toHaveBeenCalledTimes(8);
+    expect(JSON.stringify(result)).not.toContain(token);
+  });
+  it('does not label HTTP200 quota errors or successful replies as non-2xx diagnostics', async () => {
+    const fetchImpl = vi.fn(async () => json({ errorMessage: 'Daily usage limit:10. ' + token }));
+    const result = await checkRailApi(credentials, fetchImpl);
+    expect(result.httpStatuses).toEqual({}); expect(result.status).toBe('rate-limited'); expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((await checkRailApi(credentials, fixture())).httpStatuses).toEqual({});
+  });
+});

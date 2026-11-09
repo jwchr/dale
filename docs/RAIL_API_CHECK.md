@@ -37,6 +37,7 @@ Tokens and agency rows exist only transiently in process memory; they are never 
 ## Interpret the sanitized result
 
 - `products`: fixed authentication outcome per product; accepted credentials are not proof of a usable feed or app integration.
+- `httpStatuses`: validated integer100–599 for non-2xx replies only, keyed by fixed product/stage (`TrainData.authentication`, `GTFSRT.authentication`, `TrainData.station-list`, `TrainData.departures.<fixed station key>`). Existing string statuses and request behavior are unchanged. Success/HTTP200 API errors, network failures and unavailable/invalid numeric codes do not acquire invented codes. No statusText, headers, URLs, body snippets or raw errors are retained.
 - `stationCoverage` and per-station status: exact identity/schema confirmation, empty-at-check, station-not-listed, identity-unconfirmed, unexpected-schema or a bounded transport/API failure. Empty data does not establish no service or cancellation.
 - `rows`/`pvlRows`: counts within this one next19 response, not full line/day/calendar coverage. Source TRAIN_ID and SCHED_DEP_DATE must be nonempty strings; this is field-shape confirmation, not validated travel dates or trip matching.
 - `modifiedTimeFields`/`gpsTimeFields`: counts of source timestamp fields present. The documented strings do not establish timezone or freshness. `sourceTime=timezone-and-freshness-unverified` never converts receipt time into an agency timestamp or live prediction.
@@ -45,4 +46,14 @@ Tokens and agency rows exist only transiently in process memory; they are never 
 
 A later current-service adapter still needs verified source timestamp/timezone semantics, canonical station/trip identities, full schedules/calendars/overrides, connection buffers and independent review. No sample is promoted to a current departure, bus/train ranking, platform or guaranteed connection by this check.
 
-Synthetic-only security tests cover scope/dispatch guards, unchanged bus default, exact hosts/fields/request counts, denial flags, absent/ambiguous identity, empty/malformed schemas, quotas, oversized/stalled bodies, secret echoes and timer cleanup. Complete npm run verify, exact-head CI, independent HIGH review and separate reviewed-main merge precede the operator's one-shot run; real entitlement/coverage remains unverified until its actual receipt exists.
+Synthetic-only security tests cover scope/dispatch guards, unchanged bus default, exact hosts/fields/request counts, denial flags, absent/ambiguous identity, empty/malformed schemas, quotas, oversized/stalled bodies, secret echoes and timer cleanup. Complete npm run verify, exact-head CI, independent HIGH review and separate reviewed-main merge precede the operator's one-shot run; real entitlement/coverage remains unverified unless an actual receipt supports it.
+
+## Actual first run and diagnostic correction
+
+The independently reviewed PR130 checker was separately merged asd491e638154ee62361afdc73191273bcb144c5bf. The operator performed [one run42543865259, attempt1](https://github.com/jwchr/dale/actions/runs/42543865259), job128924544110, with receipt2026-11-09T01:07:46.141Z. Both TrainData and GTFSRT returned `http-error`; the run exited1 and no station/feed request occurred. That version did not retain numeric HTTP statuses. Those past codes cannot be reconstructed, and no credential denial, accepted token, rail entitlement or root cause was established. Possible token consumption is unresolved.
+
+Read-only checks subsequently retrieved the unchanged official public Swagger schemas with HTTP200. Public documentation accessibility does not establish authentication health or account entitlement. No further authentication, protected health/feed call, alternative host or secret access was used in the investigation.
+
+The narrowly assigned correction adds only numeric non-2xx status metadata at fixed stages; no requests, host, headers, token/body/time limits, quotas or gates change. Synthetic fixtures distinguish400/404/405/408/500/502/503, preserve401/403/429 behavior, reject invalid/non-numeric statuses, test station-stage attribution and prove no additional requests or secret echoes. This is observability for a later permitted run, not a diagnosis of the past failure.
+
+**No authentication retry is authorized by this correction or its merge.** Existing operator retains prior-run/token-window reconciliation and sole dispatch custody. Do not rerun the failed job or mint another token while consumption remains unresolved. Current train UI continues to use explicitly labeled historical examples.
