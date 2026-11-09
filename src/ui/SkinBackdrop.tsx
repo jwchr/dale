@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-// Background scenes for Dale's styles (owner request 2026-11-04, D46). Original artwork only: no
+import rambleNightUrl from '../assets/ramble-night.webp';
+// Background scenes for Dale's styles (owner request 2026-11-04, D46). Owner-authorized photos
+// and original fallback artwork only: no
 // official shields, logos or sign designs of the NJ Turnpike Authority, the Garden State Parkway,
 // the MTA, NJ Transit or the Port Authority (the NYC style avoids the MTA's sign system on purpose). Decorative, so hidden from assistive technology.
 export type Skin = 'garden' | 'turnpike' | 'parkway' | 'nyc' | 'clean';
@@ -8,16 +10,20 @@ export const SKINS: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', '
 const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-september-sunset';
 
 export function SkinBackdrop({ skin }: { skin: Skin }) {
-  // One choice per app opening, held across route/style changes. Only that asset is requested.
-  const photo = OPENING_PHOTO;
-  const [ready, setReady] = useState(false);
-  const url = `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`;
+  // NYC uses the owner-supplied night photo; other skins retain their one choice per opening.
+  // Only the selected asset is requested; no remote image service or photo rotation.
+  const photo = skin === 'nyc' ? 'ramble-night' : OPENING_PHOTO;
+  const url = skin === 'nyc' ? rambleNightUrl : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`;
+  const [readyUrl, setReadyUrl] = useState<string>();
+  // Readiness belongs to this URL: a late prior-style load must never paint the wrong photo.
+  const ready = readyUrl === url;
   useEffect(() => {
     if (matchMedia('(prefers-reduced-transparency: reduce), (forced-colors: active)').matches) return;
     let active = true;
     const image = new Image(); image.decoding = 'async'; image.fetchPriority = 'low';
-    image.onload = () => { if (active) setReady(true); }; image.src = url;
-    return () => { active = false; image.onload = null; };
+    image.onload = () => { if (active) setReadyUrl(url); };
+    image.onerror = () => { if (active) setReadyUrl(undefined); }; image.src = url;
+    return () => { active = false; image.onload = null; image.onerror = null; };
   }, [url]);
   return (
     <div className="skin-backdrop" aria-hidden="true" data-skin={skin}>

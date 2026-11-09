@@ -1,0 +1,10 @@
+{
+  "asset": "src/assets/ramble-night.webp",
+  "sha256": "781e638b87269317fdabe4e1218f3ddbe8cd8864c8c8b2502077280951ed675b",
+  "bytes": 189114,
+  "width": 960,
+  "height": 2078,
+  "authorization": "Owner-supplied processed Ramble night photograph for the existing NYC night skin; confirmed by Project Control before implementation.",
+  "deliveryOnly": "Normalize the original orientation, resize and encode WebP with metadata removed; no creative alteration, AI redraw, retouch or additional scene.",
+  "original": "Private; not included in the app or public repository."
+}
