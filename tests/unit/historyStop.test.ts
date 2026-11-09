@@ -101,7 +101,7 @@ it('disabled workflow reaches native stop before every enabled-only dependency',
   expect(stopStep).toContain("if: inputs.history_collection == 'disabled'");
   expect(stopStep).not.toMatch(/NJT_API_|npm|worker:prepare/);
   for (const step of steps.filter(s=>/run: (npm ci|npm run worker:prepare|node scripts\/deploy-live-worker|node -e)/.test(s))) {
-    if (step.includes("if: inputs.history_collection == 'rollback-enabled'")) {
+    if (step.includes("if: inputs.history_collection == 'rollback-enabled'") || step.includes("if: inputs.history_collection == 'qualify-enabled'")) {
       expect(step).not.toMatch(/NJT_API_|worker:prepare|stop-history|--force|--yes/);
       expect(step).toContain('run: node scripts/deploy-live-worker.mjs');
     } else expect(step).toContain("if: inputs.history_collection == 'enabled'");

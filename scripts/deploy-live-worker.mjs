@@ -1,6 +1,7 @@
+import { qualifyEnabled } from './enabled-qualification.mjs';
 import { rollbackEnabled } from './enabled-rollback.mjs';
 import { isDeepStrictEqual } from 'node:util';
-import { preservationPins, requireEnabledResources, canonicalIdentity, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled } from './enabled-continuity.mjs';
+import { preservationPins, requireEnabledResources, canonicalIdentity, readCanonicalBytes, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled, CODE_DEFERRAL_MS, waitForTransitionProgress } from './enabled-continuity.mjs';
 // Manual main-only deployment. Secret values and raw CLI/API errors never leave the runner.
 import { waitForReadiness } from './collection-readiness.mjs';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,10 +18,17 @@ let temporary;
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled', 'rollback-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled', 'rollback-enabled', 'qualify-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (collectionMode === 'qualify-enabled') {
+    const receipt = await qualifyEnabled(process.env);
+    console.log('Enabled qualification observation: ' + JSON.stringify(receipt));
+    console.log('Observation only: no preparation, actor-version attestation, rollback eligibility or operation permission established.');
+    return;
+  }
   if (collectionMode === 'rollback-enabled') {
     if (!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '')) throw workerProofError('reviewed-source-identity-required');
     const result = await rollbackEnabled(process.env);
+    console.log(`Post-deferral proof: acknowledgedAt=${result.acknowledgedAt} boundaryAt=${result.boundaryAt} nativeAttemptAt=${result.nativeAttemptAt} archiveSuccessAt=${result.archiveSuccessAt}.`);
     console.log(`Pinned enabled rollback checked over ${result.durationMs}ms; native completion/archive advanced and exact canonical context/resources/content retained. Interrupted-attempt backlog ${result.interruptionsBefore}/${result.interruptionsAfter}; zero-gap and every-object durability are not inferred.`);
     return;
   }
@@ -84,6 +92,7 @@ async function run() {
   const secrets = join(temporary, 'secrets.json');
   if (!preserve) writeFileSync(secrets, JSON.stringify({ NJT_API_USERNAME: process.env.NJT_API_USERNAME, NJT_API_PASSWORD: process.env.NJT_API_PASSWORD }), { mode: 0o600, flag: 'wx' });
   const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'deploy', '--config', 'worker/wrangler.jsonc', ...(preserve ? [] : ['--secrets-file', secrets]),
+    ...(preserve ? ['--durable-objects-code-update-mode', `deferred ${CODE_DEFERRAL_MS / 1000}s`] : []),
     '--var', `HISTORY_COLLECTION:${targetEnabled ? 'enabled' : 'disabled'}`, '--outdir', join(temporary, 'uploaded')], {
     encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 240_000,
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG: 'error' },
@@ -95,10 +104,13 @@ async function run() {
     else if (/limit|quota/i.test(detail)) console.error('Cloudflare reported a resource limit. Do not upgrade automatically.');
     throw workerProofError('deployment-failed');
   }
+  const mutationAcknowledgedAt = Date.now();
   const uploaded = await verifyUploadedWorker(process.env, join(temporary, 'uploaded'), before);
   if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw workerProofError('uploaded-mode-invalid');
-  const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
-  if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');
+  if (!preserve) {
+    const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');
+  }
   console.log('Reviewed upload artifact matches all active executable/data modules; runtime and other binding descriptors preserved.');
   if (!targetEnabled) {
     await stopHistoryCollection(process.env);
@@ -115,15 +127,13 @@ async function run() {
     return;
   }
   if (preserve) {
-    const after = await readPreservedCanonical(process.env);
+    const after = await readCanonicalBytes(process.env, { expectedContext: pins.context });
     if (after.text !== JSON.stringify(ds)) throw workerProofError('enabled-continuity-unverified');
-    let checkpoint = after.checkpoint;
-    if (!preservesEnabled(continuityBefore, checkpoint, deploymentStartedAt)) checkpoint = await waitForReadiness(async () => {
-      const state = await readEnabledCheckpoint(process.env, ds.meta.feedVersion);
-      return preservesEnabled(continuityBefore, state, deploymentStartedAt) ? state : undefined;
-    }, { intervalMs: 5000 });
-    if (!checkpoint || !preservesEnabled(continuityBefore, checkpoint, deploymentStartedAt)) throw workerProofError('enabled-continuity-unverified');
+    const transition = await waitForTransitionProgress(continuityBefore,
+      timeoutMs => readEnabledCheckpoint(process.env, ds.meta.feedVersion, { timeoutMs }), mutationAcknowledgedAt);
+    const checkpoint = transition.checkpoint;
     if (!isDeepStrictEqual(uploaded, await readActiveWorkerIdentity(process.env))) throw workerProofError('enabled-continuity-unverified');
+    console.log(`Post-deferral proof: acknowledgedAt=${transition.acknowledgedAt} boundaryAt=${transition.boundaryAt} nativeAttemptAt=${checkpoint.completedAttempt} nativeSuccessAt=${checkpoint.lastSuccessAt} archiveSuccessAt=${checkpoint.archive.lastSuccessAt}.`);
     console.log('Existing enabled collector preserved: exact canonical bytes/context, runtime/resources/bindings, native alarm and advancing verified archive checked. No demand feed request, activation, stop or rate change.');
     console.log(`Enabled preservation observation interval: ${continuityBefore.at} to ${checkpoint.at} (${checkpoint.at - continuityBefore.at}ms). This is bounded observation, not sustained continuity.`);
     console.log(`Interrupted-attempt backlog before/after: ${continuityBefore.pendingInterruptionCount}/${checkpoint.pendingInterruptionCount}. This is not proof of zero interruption or every stored object. Separate operator evidence remains required.`);

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { historyContextKey } from '../../worker/history-journal';
 // @ts-expect-error native deployment helper
-import { canonicalIdentity, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical } from '../../scripts/enabled-continuity.mjs';
+import { canonicalIdentity, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const ds = structuredClone(liveDataset); ds.meta.feedVersion = 'abcdef123456'; ds.meta.source = 'NJ Transit GTFS BUS G2';
 const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
 const env = { HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' };
@@ -23,8 +23,9 @@ describe('enabled collector preservation without migration or mutation', () => {
       expect(() => canonicalIdentity(changed, context)).toThrow();
     expect(() => preservationPins({ ...env, HISTORY_EXPECTED_WORKER_VERSION: '' })).toThrow();
   });
-  it.each(['disabled', 'alarm', 'context', 'rate', 'archive', 'quota', 'backlog', 'cadence', 'unknown-counters'])('rejects %s before upload', kind => {
+  it.each(['disabled', 'alarm', 'context', 'rate', 'archive', 'quota', 'backlog', 'cadence', 'unknown-counters', 'future-native'])('rejects %s before upload', kind => {
     const c = collection();
+    if (kind === 'future-native') c.lastAttemptAt = c.completedAttempt = NOW + 1;
     if (kind === 'disabled') c.enabled = false;
     if (kind === 'alarm') c.alarmAt = NOW - 1;
     if (kind === 'context') c.scheduleVersion = 'other';
@@ -56,5 +57,40 @@ describe('enabled collector preservation without migration or mutation', () => {
       throw new Error('Unexpected network'); };
     const receipt = await readPreservedCanonical(env, { net, clock: () => NOW });
     expect(receipt.context).toBe(context); expect(receipt.text).toBe(text); expect(calls).toHaveLength(2);
+  });
+});
+
+describe('post-acknowledgement transition readiness', () => {
+  it('does not read before the full boundary, then requires native ATTEMPT START and archive source clocks after it', async () => {
+    const before = enabledCheckpoint(collection(), ds.meta.feedVersion, NOW), acknowledgedAt = NOW + 45000;
+    let clock = acknowledgedAt; const readTimes: number[] = [];
+    const result = await waitForTransitionProgress(before, async (timeoutMs: number) => {
+      readTimes.push(clock); expect(clock).toBeGreaterThan(acknowledgedAt + CODE_DEFERRAL_MS);
+      expect(timeoutMs).toBeLessThanOrEqual(acknowledgedAt + TRANSITION_PROOF_MS - clock);
+      const raw = collection(); raw.alarmAt = clock + 30000; raw.lastSuccessAt = clock - 500; raw.archive.lastSuccessAt = clock - 100;
+      raw.lastAttemptAt = raw.completedAttempt = clock < acknowledgedAt + CODE_DEFERRAL_MS + 30000 ? acknowledgedAt + CODE_DEFERRAL_MS - 1 : clock - 1000;
+      raw.archive.verifiedObjects++; raw.observations++; raw.batches++; raw.archive.reservedBytes++;
+      return enabledCheckpoint(raw, ds.meta.feedVersion, clock);
+    }, acknowledgedAt, { clock: () => clock, sleep: async (ms: number) => { clock += ms; } });
+    expect(result.boundaryAt).toBe(acknowledgedAt + 300000);
+    expect(result.checkpoint.completedAttempt).toBeGreaterThan(result.boundaryAt);
+    expect(result.checkpoint.archive.lastSuccessAt).toBeGreaterThan(result.boundaryAt);
+    expect(readTimes.length).toBeGreaterThan(1); // fresh receipts for an old attempt did NOT qualify
+  });
+  it('caps reads by the absolute remaining deadline and refuses a valid result that arrives at expiry', async () => {
+    const before = enabledCheckpoint(collection(), ds.meta.feedVersion, NOW); let clock = NOW; let finalTimeout: number | undefined;
+    await expect(waitForTransitionProgress(before, async (timeoutMs: number) => {
+      if (clock < NOW + TRANSITION_PROOF_MS - 5000) return before;
+      finalTimeout = timeoutMs; clock = NOW + TRANSITION_PROOF_MS;
+      const raw = collection(); raw.alarmAt = clock + 30000; raw.completedAttempt = raw.lastAttemptAt = clock - 1000;
+      raw.lastSuccessAt = clock - 500; raw.archive.lastSuccessAt = clock - 100; raw.archive.verifiedObjects++;
+      return enabledCheckpoint(raw, ds.meta.feedVersion, clock);
+    }, NOW, { clock: () => clock, sleep: async (ms: number) => { clock += ms; } })).rejects.toThrow();
+    expect(finalTimeout).toBe(5000);
+  });
+  it('bounds a stalled clock without actor reads or success', async () => {
+    const before = enabledCheckpoint(collection(), ds.meta.feedVersion, NOW); let reads = 0;
+    await expect(waitForTransitionProgress(before, async () => { reads++; return before; }, NOW, { clock: () => NOW, sleep: async () => {} })).rejects.toThrow();
+    expect(reads).toBe(0);
   });
 });

@@ -78,9 +78,9 @@ it.each(['mixed-archive','active-archive','partial-archive','unconfigured-archiv
 });
 it('only explicit deploy modes enter preparation; default disabled remains NJT-free',()=>{
   const workflow=readFileSync(new URL('../../.github/workflows/live-worker.yml',import.meta.url),'utf8');
-  expect(workflow).toContain('options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled]');
+  expect(workflow).toContain('options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled, qualify-enabled]');
   for(const step of workflow.split(/\n      - /).filter(s=>/run: (npm ci|npm run worker:prepare|node scripts\/deploy-live-worker|node -e)/.test(s))) {
-    if (step.includes("if: inputs.history_collection == 'rollback-enabled'")) {
+    if (step.includes("if: inputs.history_collection == 'rollback-enabled'") || step.includes("if: inputs.history_collection == 'qualify-enabled'")) {
       expect(step).toContain('run: node scripts/deploy-live-worker.mjs');
       expect(step).not.toMatch(/NJT_API_|worker:prepare|stop-history|--force|--yes/);
     } else expect(step).toContain("if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled'");

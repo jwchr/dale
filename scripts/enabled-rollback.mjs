@@ -3,8 +3,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity, workerProofError } from './worker-content-identity.mjs';
-import { preservationPins, requireEnabledResources, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled } from './enabled-continuity.mjs';
-import { waitForReadiness } from './collection-readiness.mjs';
+import { preservationPins, requireEnabledResources, readCanonicalBytes, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled, CODE_DEFERRAL_MS, waitForTransitionProgress } from './enabled-continuity.mjs';
 const uuid = s => typeof s === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(s);
 const stable = v => Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, stable(v[k])])) : v;
 export const referenceDigest = value => createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
@@ -60,23 +59,20 @@ export async function rollbackEnabled(env, { net = fetch, clock = Date.now, slee
   const before = await readPreservedCanonical(env, { net, clock });
   if (before.text !== retained.text) fail(); preservesEnabled(retained.checkpoint, before.checkpoint);
   if (!isDeepStrictEqual(current, await readActiveWorkerIdentity(env, { fetchImpl: net }))) fail();
-  const startedAt = clock();
   // Same single deployment operation as pinned Wrangler4.158 rollback, deliberately
   // without its interactive default confirmation or changed-secret force fallback.
   await api('/deployments', { strategy: 'percentage', versions: [{ version_id: reference.versionId, percentage: 100 }],
-    annotations: { 'workers/message': 'Owner-authorized pinned enabled recovery' }, code_update_strategy: { mode: 'deferred', max_delay: 300 } });
+    annotations: { 'workers/message': 'Owner-authorized pinned enabled recovery' }, code_update_strategy: { mode: 'deferred', max_delay: CODE_DEFERRAL_MS / 1000 } });
+  const acknowledgedAt = clock();
   const afterIdentity = await readActiveWorkerIdentity(env, { fetchImpl: net, expectedVersionId: reference.versionId });
   if (afterIdentity.etag !== reference.etag || referenceDigest(afterIdentity.content) !== reference.contentSHA256
     || referenceDigest(afterIdentity.runtime) !== reference.runtimeSHA256 || referenceDigest(bindings(afterIdentity.bindings)) !== reference.bindingsSHA256) fail();
-  const after = await readPreservedCanonical(env, { net, clock });
+  const after = await readCanonicalBytes(env, { net, expectedContext: pins.context });
   if (after.text !== before.text) fail();
-  let checkpoint = after.checkpoint;
-  if (!preservesEnabled(before.checkpoint, checkpoint, startedAt)) checkpoint = await waitForReadiness(async () => {
-    const c = await readEnabledCheckpoint(env, before.ds.meta.feedVersion, { net, clock });
-    return preservesEnabled(before.checkpoint, c, startedAt) ? c : undefined;
-  }, { clock, ...(sleep ? { sleep } : {}), timeoutMs: 360_000, intervalMs: 5000 });
-  if (!checkpoint || !preservesEnabled(before.checkpoint, checkpoint, startedAt)) fail();
+  const transition = await waitForTransitionProgress(before.checkpoint,
+    timeoutMs => readEnabledCheckpoint(env, before.ds.meta.feedVersion, { net, clock, timeoutMs }), acknowledgedAt, { clock, ...(sleep ? { sleep } : {}) });
+  const checkpoint = transition.checkpoint;
   if (!isDeepStrictEqual(afterIdentity, await readActiveWorkerIdentity(env, { fetchImpl: net, expectedVersionId: reference.versionId }))) fail();
-  return { durationMs: checkpoint.at - before.checkpoint.at, interruptionsBefore: before.checkpoint.pendingInterruptionCount,
+  return { acknowledgedAt, boundaryAt: transition.boundaryAt, nativeAttemptAt: checkpoint.completedAttempt, archiveSuccessAt: checkpoint.archive.lastSuccessAt, durationMs: checkpoint.at - before.checkpoint.at, interruptionsBefore: before.checkpoint.pendingInterruptionCount,
     interruptionsAfter: checkpoint.pendingInterruptionCount };
 }
