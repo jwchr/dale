@@ -538,3 +538,6 @@ main { flex: 1; padding-bottom: 24px; }
 .top.rail-header { gap: 6px; flex-wrap: wrap; }
 
 .top.rail-header .top-version { flex: 1 1 0; min-width: 4.5em; }
+
+.route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }
+.route-distance[data-stale="true"] { font-style: italic; }

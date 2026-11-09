@@ -33,6 +33,7 @@ async function setup(page: Page, options: { lang?: 'en' | 'es'; now?: number; pi
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([favorite]));
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin, theme: 'light', count: 3 }));
   }, { favorite, lang: options.lang ?? 'en', skin: options.skin ?? 'clean' });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset, headers: { 'access-control-allow-origin': '*' } }));
   await page.route(API + '/v1/departures?**', r => {
     state.calls++;

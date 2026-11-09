@@ -34,6 +34,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
     }, { skin, lang, favorites });
     await page.clock.install({ time: NOW });
+    await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
     await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
     await page.route(API + '/v1/departures?**', route => route.abort('failed'));
     await page.goto('/?live=1');

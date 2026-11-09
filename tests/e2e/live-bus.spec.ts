@@ -13,6 +13,7 @@ async function setup(page: Page, response: () => LiveBusSnapshot | null | Promis
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
   }, { favorite: oldFavorite, lang });
   await page.route(API + '/v1/departures?**', (route) => route.abort('failed'));
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', (route) => route.fulfill({ json: liveDataset, headers: { 'access-control-allow-origin': '*' } }));
   await page.route(API + '/v1/live?**', async (route) => {
     const body = await response();
@@ -124,6 +125,7 @@ test('Spanish live fallback is clear and fits a narrow screen', async ({ page })
 test('live schedule is available offline without turning a saved position into live GPS', async ({ page }) => {
   await setup(page, () => packet());
   await expect(page.getByTestId('live-bus-status')).toContainText('LIVE REPORT');
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', (route) => route.abort('failed'));
   await page.route(API + '/v1/live?**', (route) => route.abort('failed'));
   await page.reload();

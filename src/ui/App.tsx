@@ -1,3 +1,6 @@
+import { useDepartureDistances } from './useDepartureDistances';
+import { RouteDistance } from './RouteDistance';
+import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { AppHeader } from './AppHeader';
 import { changeFavoriteStops } from '../domain/cityStops';
 import { CommutePicker, type CommutePickEnd } from './CommutePicker';
@@ -567,6 +570,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   // One browser batch/poll for all cards; the private relay still fetches NJ Transit globally once.
   const requests = models.flatMap(m => m.leg ? m.set.candidates.map(d => requestFor(d, m.leg!.toStopId)) : []);
   const live = useLiveDepartures(ds, requests, LIVE_API, now);
+  const distanceFor = useDepartureDistances(ds, LIVE_API, requests, live?.batch, now);
   const reports = new Map(live?.batch?.items.map(item => [departureKey(item.query), item]));
   const evidence = (d: Departure, toStopId: string): DepartureEvidence | undefined => !live ? undefined
     : live.state !== 'available' ? { kind: live.state === 'checking' ? 'checking' : 'unavailable' }
@@ -586,7 +590,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
       <ol className="fav-list">
         {favorites.map((f, i) => (
           <li key={f.id}>
-            <FavoriteCard ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
+            <FavoriteCard ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
               onMove={(dlt) => setFavorites((l) => moveFavorite(l, f.id, dlt))}
               onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
               onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
@@ -630,8 +634,8 @@ function HighwayPlace({ place, label, end, t, onCity, onStop }: { place: { name:
 }
 
 /** Saved commute presentation preserves the selected direction, departure and existing trip actions. */
-function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue, onChoose }: {
-  ctx: Ctx; fav: Favorite; count: number; model: UpcomingSet; liveEnabled: boolean; evidence: (d: Departure, toStopId: string) => DepartureEvidence | undefined; editing: boolean; rev: boolean; onReverse: () => void; first: boolean; last: boolean;
+function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue, onChoose }: {
+  ctx: Ctx; fav: Favorite; count: number; model: UpcomingSet; distance: (d: Departure) => ReportedRouteDistance | undefined; liveEnabled: boolean; evidence: (d: Departure, toStopId: string) => DepartureEvidence | undefined; editing: boolean; rev: boolean; onReverse: () => void; first: boolean; last: boolean;
   onMove: (d: -1 | 1) => void; onRemove: () => void; onRename: (s: string) => void; onLeavePlan: (p: LeavePlan | undefined) => void;
   onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
@@ -743,6 +747,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, editing, 
                     <span className="dep-main">
                       <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} countdown={live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.inMin(minutesUntil(now, shown))} t={t}
                         time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
+                      <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
                       {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
                       {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}

@@ -1,3 +1,4 @@
+import { parseRouteGeometry, MAX_GEOMETRY_BYTES } from '../src/domain/routeDistance';
 import type { Dataset } from '../src/domain/types';
 import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
@@ -198,7 +199,13 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
   };
 }
 
-export function createRouter(ds: Dataset) {
+export function createRouter(ds: Dataset, rawGeometry?: unknown) {
+  // Static delivery only: geometry is never passed to the recorder or upstream poller.
+  let geometry: string | undefined;
+  if (rawGeometry != null) {
+    geometry = JSON.stringify(parseRouteGeometry(rawGeometry, ds));
+    if (new TextEncoder().encode(geometry).byteLength > MAX_GEOMETRY_BYTES) throw new Error('Oversized route geometry');
+  }
   const schedule = JSON.stringify(ds), trips = new Map(ds.trips.map((t) => [t.id, t]));
   return {
     async fetch(request: Request, env: Env): Promise<Response> {
@@ -210,6 +217,13 @@ export function createRouter(ds: Dataset) {
       if (request.method !== 'GET') return reply('Method not allowed', 405);
       if (url.pathname === '/health') { headers.set('content-type', 'application/json'); return reply(JSON.stringify({ v: 1, feedVersion: ds.meta.feedVersion, source: LIVE_SOURCE })); }
       if (url.pathname === '/v1/schedule') { headers.set('content-type', 'application/json'); return reply(schedule); }
+      if (url.pathname === '/v1/geometry') {
+        if (url.searchParams.get('feedVersion') !== ds.meta.feedVersion) return reply('Feed mismatch', 409);
+        if (!geometry) return reply('Geometry unavailable', 404);
+        headers.set('content-type', 'application/json');
+        headers.set('cache-control', 'public, max-age=300');
+        return reply(geometry);
+      }
       if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection'].includes(url.pathname)) return reply('Not found', 404);
       if (url.pathname === '/v1/departures') {
         try { if (request.url.length > 16_384) return reply('Invalid departures', 400); readDepartureRequests(ds, url.searchParams.get('q')); } catch { return reply('Invalid departures', 400); }

@@ -14,3 +14,12 @@ if (previous !== text) {
   const temporary = new URL(`../worker/generated/corridor-${process.pid}.tmp`, import.meta.url);
   writeFileSync(temporary, text); renameSync(temporary, output);
 }
+
+// Separate delivery asset; never changes the canonical schedule or archive context.
+const geometryOutput = new URL('../worker/generated/route-geometry.json', import.meta.url);
+let previousGeometry;
+try { previousGeometry = readFileSync(geometryOutput, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+if (previousGeometry !== 'null') {
+  const temporary = new URL(`../worker/generated/geometry-${process.pid}.tmp`, import.meta.url);
+  writeFileSync(temporary, 'null'); renameSync(temporary, geometryOutput);
+}

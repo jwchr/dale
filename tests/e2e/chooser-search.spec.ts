@@ -21,6 +21,7 @@ async function setup(page: Page, lang: 'en' | 'es', stage: 'city' | 'stop', coun
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light' }));
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
   }, { lang, favorites });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.goto('/?live=1');

@@ -2,6 +2,10 @@
 
 Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
 
+## Active complete route-distance implementation (#113)
+- Same sole builder, claim6731179905/task`dale-113-route-distance`, from independently published10dddb8/PR132. Approved scope covers home/approaching/waiting/onboard approximate road-route distance with exact feed/trip/shape/stop identity, actual GPS age and frozen stale evidence. Source implementation uses separate geometry from the SAME static download and existing coalesced GPS; no extra upstream/per-card polling, rider location or timetable-driven distance.
+- Geometry stays outside canonical Dataset/recorder/archive inputs. Source-only tests and private older-archive validation do not authorize real preparation, auth/download/API, Worker deployment, collector mutation or rail retry. Current full verification, exact CI, existing independent HIGH review and separate operator source/data/deployment/public gates remain pending. See `ROUTE_DISTANCE.md`.
+
 ## Current supplied NYC night background (#113)
 - Same sole builder claims6730117465 after independently published PR131, branch `codex/dale-history-91` from2a27ca52a9b2ad3b315149c9f7c530b71270b29f. Project Control verified the direct-human request and supplied processed night photograph for this exact skin use under PC-DALE-NYC-NIGHT-EXECUTE-20261109-01. No additional photo permission is missing; this is not the untouched bus-stop-sign original.
 - Only NYC night uses the optimized metadata-stripped display derivative through the existing local backdrop loader. Preserve the processed content and private original; no AI retouch/new scene, full-resolution source or private metadata is bundled. Vite versioned asset delivery, URL-specific readiness, original failure artwork and existing reduced-transparency/forced-colors behavior preserve useful foreground controls and other skins. See `NYC_NIGHT_PHOTO.md` and the reviewed asset identity fixture.

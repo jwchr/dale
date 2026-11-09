@@ -8,6 +8,7 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   const ds = structuredClone(liveDataset);
   Object.assign(ds.stops.find(s => s.id === '2')!, { city: 'Hackensack', code: '32728', name: 'STATE ST AT LAWRENCE ST' });
   await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.goto('/?live=1');

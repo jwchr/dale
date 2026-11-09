@@ -14,6 +14,7 @@ for (const lang of ['en', 'es'] as const) test(`phone Bus/Train switch retains f
     // A pre-existing bus checklist must survive entering the separate rail guidance.
     localStorage.setItem('arriba.penn-guide.v1', JSON.stringify({ station: 'essex', direction: 'return', mode: 'bus', travelling: true, step: 3, walks: { summit: 8 } }));
   }, lang);
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', r => r.fulfill({ json: liveDataset }));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.route(API + '/v1/live?**', r => r.abort('failed'));
