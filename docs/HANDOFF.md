@@ -2,6 +2,9 @@
 
 Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
 
+## Larger centered city names (#113)
+- Direct November9 owner request, claim6733075129, same sole builder from published76e911e: enlarge and center Hackensack/New York within the existing paired city signs. The flexible city-name area now fills the sign beside the vertical FROM/TO tag and centers each rendered line; rem/viewport fluid type grows from the earlier small scale while retaining the existing readable long-word breaks and 200% text behavior. No city/stop selection, source, backend or recorder change. Verify actual glyph alignment and EN/ES narrow/enlarged rendering across all five skins, complete full verification, independent review and separate publication before availability claims.
+
 ## Route-distance post-merge browser-test repair (#113)
 - PR133 source merged as f25843e, but main CI42564238905/job128987141334 failed the one-shot animation read immediately after Settings Back (home-arrivals.spec.ts158: expected `none`, got empty). No backend qualification ran. The same sole builder continues claim6732624871 with a test-only correction: locator CSS assertions resolve the currently rendered SVG instead of reading a potentially detached node. Deterministically held EN/ES responses verify the scheduled SVG is replaced by a fresh live SVG after Home remounts, persisted pause applies to both, re-enabling restores the broadcast animation, and reduced motion still stops it. Product CSS, source qualification, polling, clocks and backend code remain unchanged. Full verify, exact CI, independent review and separate publication remain required; prior conditional backend qualification is unused and does not authorize a run against a new head.
 
