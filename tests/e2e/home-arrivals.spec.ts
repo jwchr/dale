@@ -7,7 +7,7 @@ import type { DepartureBatch, DepartureRequest, DepartureReport } from '../../sr
 const API = 'https://dale-live.test.workers.dev';
 const captureCards = process.env.DALE_CAPTURE_VISUALS === '1';
 const favorite = { id: 'home-live', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
-type Mode = 'boarding-arrival' | 'arrival-only-gps' | 'passed-arrival-gps' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
+type Mode = 'due-now' | 'boarding-arrival' | 'arrival-only-gps' | 'passed-arrival-gps' | 'arrival-only' | 'long-time' | 'live' | 'stale' | 'failed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'gps-only' | 'date-unknown' | 'wrong-query';
 function response(queries: DepartureRequest[], mode: Mode, now: number): DepartureBatch {
   const observedAt = mode === 'stale' ? now - 180_000 : now - 20_000;
   const items: DepartureReport[] = queries.map(query => {
@@ -22,12 +22,12 @@ function response(queries: DepartureRequest[], mode: Mode, now: number): Departu
     if (mode === 'gps-only') return { ...common, gpsObservedAt: now - 15_000 };
     if (mode === 'date-unknown') return { ...common, problem: 'date-unknown' };
     const delay = mode === 'long-time' ? 5 * 3600_000 : 0;
-    return { ...common, departure: { stopIndex: query.stopIndex, at: now + delay + 300_000, observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + delay + 2400_000, observedAt, kind: 'arrival' } };
+    return { ...common, departure: { stopIndex: query.stopIndex, at: now + (mode === 'due-now' ? 10_000 : delay + 300_000), observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + delay + 2400_000, observedAt, kind: 'arrival' } };
   });
   return { v: 1, source: LIVE_SOURCE, feedVersion: liveDataset.meta.feedVersion, receivedAt: now, vehicles: { state: 'ok', timestamp: now - 10_000 }, updates: { state: mode === 'stale' ? 'stale' : 'ok', timestamp: observedAt }, items };
 }
-async function setup(page: Page, options: { lang?: 'en' | 'es'; now?: number; pinned?: boolean; wallTime?: number; skin?: string } = {}) {
-  const state = { mode: 'live' as Mode, now: options.now ?? NOW, calls: 0, trackerCalls: 0 };
+async function setup(page: Page, options: { mode?: Mode; lang?: 'en' | 'es'; now?: number; pinned?: boolean; wallTime?: number; skin?: string } = {}) {
+  const state = { mode: options.mode ?? 'live' as Mode, now: options.now ?? NOW, calls: 0, trackerCalls: 0 };
   await page.clock.install({ time: options.wallTime ?? state.now });
   await page.addInitScript(({ favorite, lang, skin }) => {
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([favorite]));
@@ -48,6 +48,23 @@ async function setup(page: Page, options: { lang?: 'en' | 'es'; now?: number; pi
   return state;
 }
 const current = (page: Page) => page.locator('.deps li[data-trip-instance="T1@20261104"]');
+
+// Measure real text advances by line, not merely the full-width countdown wrapper.
+const countdownBounds = (button: Element) => {
+  const badge = button.querySelector('.route-badge')!.getBoundingClientRect();
+  const child = button.querySelector('.dep-min')!, rect = child.getBoundingClientRect();
+  const center = (badge.left + badge.right) / 2, lines = new Map<number, { left: number; right: number }>();
+  const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
+  let text: Node | null;
+  while ((text = walker.nextNode())) for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
+    if (/\s/.test(text.textContent![index]!)) continue;
+    const range = document.createRange(); range.setStart(text, index); range.setEnd(text, index + 1);
+    const glyph = range.getBoundingClientRect(), y = Math.round(glyph.top), line = lines.get(y);
+    lines.set(y, { left: Math.min(line?.left ?? Infinity, glyph.left), right: Math.max(line?.right ?? -Infinity, glyph.right) });
+  }
+  return { text: child.textContent, childOffset: Math.abs((rect.left + rect.right) / 2 - center),
+    glyphOffsets: [...lines.values()].map(line => Math.abs((line.left + line.right) / 2 - center)) };
+};
 
 test('normal upcoming home shows official estimates automatically, retaining schedule and exact departure on open', async ({ page }) => {
   const state = await setup(page), row = current(page);
@@ -231,6 +248,9 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
       expect(geometry.route.height).toBeGreaterThanOrEqual(44);
       expect(geometry.countdown.top).toBeGreaterThanOrEqual(geometry.route.bottom);
+      const textBounds = await button.evaluate(countdownBounds);
+      expect(textBounds.childOffset, JSON.stringify({ width, scale, textBounds })).toBeLessThan(1);
+      expect(textBounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, textBounds })).toBe(true);
       expect(Math.abs((geometry.route.left + geometry.route.right - geometry.countdown.left - geometry.countdown.right) / 2)).toBeLessThan(1);
       if (scale <= 130) expect(geometry.route.top).toBeLessThan(geometry.boarding.bottom);
       expect(geometry.overflow).toBe(0);
@@ -339,3 +359,21 @@ for (const lang of ['en', 'es'] as const) test(`Garden live indicator remains di
   expect(contrast, JSON.stringify({ ...colors, minimumPulseContrast: contrast })).toBeGreaterThanOrEqual(3);
   expect(colors.icon).toBe('rgb(137, 243, 172)');
 });
+
+for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
+  test(`short Now/Ahora countdown is centered under the route (${skin}, ${lang})`, async ({ page }) => {
+    await setup(page, { lang, skin, mode: 'due-now' });
+    const row = current(page), button = row.getByRole('button');
+    await expect(row.locator('.dep-min')).toHaveText(lang === 'en' ? 'Now' : 'Ahora');
+    for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
+      const bounds = await button.evaluate(countdownBounds);
+      expect(bounds.childOffset, JSON.stringify({ width, scale, bounds })).toBeLessThan(1);
+      expect(bounds.glyphOffsets.length).toBeGreaterThan(0);
+      expect(bounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, bounds })).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+      if (captureCards && scale === 100 && width === 390) await row.screenshot({ path: `test-results/countdown-now-${skin}-${lang}.png` });
+    }
+  });
+}
