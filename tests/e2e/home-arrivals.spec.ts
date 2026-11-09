@@ -150,16 +150,64 @@ for (const lang of ['en', 'es'] as const) test(`paired clocks qualify both locat
 test('live icons reflect each source, respect reduced motion, and can be paused in Settings', async ({ page }) => {
   const state = await setup(page), row = current(page), icon = row.locator('.boarding-clock .live-symbol');
   await expect(icon).toHaveAttribute('data-live', 'true');
-  expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('live-broadcast');
-  await page.emulateMedia({ reducedMotion: 'reduce' }); expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
+  await page.emulateMedia({ reducedMotion: 'reduce' }); await expect(icon).toHaveCSS('animation-name', 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
-  expect(await icon.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await expect(icon).toHaveCSS('animation-name', 'none');
   state.mode = 'failed'; state.now += 31000; await page.clock.fastForward(31000);
   await expect(row.locator('.boarding-clock .live-symbol')).toHaveAttribute('data-live', 'false');
   await expect(row.locator('.boarding-clock .badge-sched')).toHaveText('Scheduled only');
-  expect(await row.locator('.boarding-clock .live-symbol').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await expect(row.locator('.boarding-clock .live-symbol')).toHaveCSS('animation-name', 'none');
+});
+
+
+for (const lang of ['en', 'es'] as const) test(`paused live motion survives scheduled-to-live icon replacement after Settings (${lang})`, async ({ page }) => {
+  const state = await setup(page, { lang }), t = strings[lang];
+  const icon = current(page).locator('.boarding-clock .live-symbol');
+  await expect(icon).toHaveAttribute('data-live', 'true');
+  await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
+  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('checkbox', { name: t.live.motion }).uncheck();
+  await expect(page.locator('html')).toHaveAttribute('data-live-motion', 'off');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).liveMotion)).toBe(false);
+
+  // Home remounts in the checking state. Hold its actual response so the scheduled
+  // SVG and subsequent live SVG replacement are deterministic, without sleeps.
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(API + '/v1/departures?**', async route => {
+    state.calls++;
+    const queries = JSON.parse(new URL(route.request().url()).searchParams.get('q')!) as DepartureRequest[];
+    await gate;
+    await route.fulfill({ json: response(queries, 'live', state.now), headers: { 'access-control-allow-origin': '*' } });
+  });
+  try {
+    await page.getByRole('button', { name: t.back, exact: true }).click();
+    await expect(icon).toHaveAttribute('data-live', 'false');
+    await expect(icon).toHaveCSS('animation-name', 'none');
+    const scheduledIcon = (await icon.elementHandle())!;
+    release();
+    await expect(icon).toHaveAttribute('data-live', 'true');
+    expect(await scheduledIcon.evaluate(el => el.isConnected)).toBe(false);
+    await test.info().attach('replaced-icon-style', {
+      body: JSON.stringify(await scheduledIcon.evaluate(el => ({ connected: el.isConnected, animationName: getComputedStyle(el).animationName }))),
+      contentType: 'application/json',
+    });
+    // Locator assertions reacquire the current SVG if React replaces it during
+    // the read. A one-shot evaluate can instead read empty styles off the old SVG.
+    await expect(icon).toHaveCSS('animation-name', 'none');
+    await expect(current(page).locator('.boarding-clock .badge-live')).toHaveText(t.live.rows.live);
+    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await expect(page.getByRole('checkbox', { name: t.live.motion })).not.toBeChecked();
+    await page.getByRole('checkbox', { name: t.live.motion }).check();
+    await page.getByRole('button', { name: t.back, exact: true }).click();
+    await expect(icon).toHaveAttribute('data-live', 'true');
+    await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(icon).toHaveCSS('animation-name', 'none');
+  } finally { release(); }
 });
 
 
