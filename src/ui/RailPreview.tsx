@@ -22,11 +22,12 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
     <ul className="rail-options" role="list">
       {journeys.map(journey => {
         const [first, second] = journey.legs;
-        const train = first.train ?? second.train;
+        const pvlLeg = first.line === 'pascack-valley' ? first : second;
+        const train = pvlLeg.train;
         return <li key={journey.id}>
           <details className="rail-option">
             <summary>
-              <span className="rail-run"><span className="rail-number">PVL {train}</span><span>{r.via}</span></span>
+              <span className="rail-run"><span className="rail-number">{r.trainFrom(train!, name(pvlLeg.from.station))}</span><span>{r.via}</span></span>
               <span className="rail-clocks"><span><small>{r.departure} · {name(first.from.station)}</small><strong>{time(first.from.minute)}</strong></span><span><small>{second.to.event === 'call' ? r.stationTime : r.arrival} · {name(second.to.station)}</small><strong>{time(second.to.minute)}</strong></span></span>
               <span className="rail-row-foot"><span>{r.duration(journey.durationMin)}</span><span>{r.steps} <span aria-hidden="true">⌄</span></span></span>
             </summary>

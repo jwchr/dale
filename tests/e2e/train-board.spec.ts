@@ -68,3 +68,33 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await expect(checklist.locator('summary')).toContainText(j.step(2, 5));
   });
 }
+
+// Literal source examples establish that the visible number belongs to the PVL leg,
+// not necessarily to the journey's first clock. Keep this visible with all help closed.
+for (const lang of ['en', 'es'] as const) for (const station of ['anderson', 'essex'] as const) {
+  test(`collapsed train number names its actual boarding station in both directions (${lang}, ${station})`, async ({ page }) => {
+    const t = strings[lang], j = t.journey;
+    await page.addInitScript(lang => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang })), lang);
+    await page.goto('/?now=2026-11-04T07:50');
+    await page.getByRole('button', { name: j.trainMode, exact: true }).click();
+    await page.getByRole('combobox', { name: j.station, exact: true }).selectOption(station);
+    const home = station === 'anderson' ? 'Anderson Street' : 'Essex Street (PVL, Hackensack)';
+    const from = lang === 'en' ? 'from' : 'desde';
+    const first = page.locator('.rail-option').first();
+    await expect(first).not.toHaveAttribute('open');
+    await expect(first.locator('.rail-number')).toHaveText(`PVL 1602 ${from} ${home}`);
+    await expect(first.locator('.rail-clocks strong')).toHaveText([station === 'anderson' ? '5:49 AM' : '5:52 AM', '6:29 AM']);
+    await page.getByRole('button', { name: j.returning, exact: true }).click();
+    await expect(first).not.toHaveAttribute('open');
+    await expect(first.locator('.rail-number')).toHaveText(`PVL 1605 ${from} Secaucus Junction`);
+    await expect(first.locator('.rail-clocks small').first()).toContainText('New York Penn');
+    await expect(first.locator('.rail-clocks strong')).toHaveText(['8:46 AM', station === 'anderson' ? '9:24 AM' : '9:21 AM']);
+    await expect(first.locator('summary')).not.toContainText(`PVL 1605 ${from} New York Penn`);
+    await expect(page.getByText(t.rail.notice, { exact: true })).toBeVisible();
+    await expect(page.locator('.rail-source')).not.toHaveAttribute('open');
+    // The source still leaves the first train's number and track unknown.
+    await first.locator('summary').click();
+    await expect(first.getByText(t.rail.returnBoard, { exact: true })).toBeVisible();
+    await expect(first.getByText(t.rail.returnTransfer('1605', home), { exact: true })).toBeVisible();
+  });
+}

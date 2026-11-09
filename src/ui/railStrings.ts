@@ -1,6 +1,7 @@
 export const railEn = {
   title: 'Train times', sample: 'Sample timetable', availability: 'Preview only · Current rail departures and live predictions are not connected.',
   notice: 'Examples only · No current train data', checklist: 'Trip checklist', help: 'Tickets & travel help', departure: 'Departs', arrival: 'Arrives', stationTime: 'Station time', via: 'Via Secaucus', duration: (minutes: number) => `${minutes} min · 1 transfer`,
+  trainFrom: (train: string, station: string) => `PVL ${train} from ${station}`,
   day: 'Timetable examples', weekday: 'Weekday', weekend: 'Saturday / Sunday', steps: 'See transfer steps',
   summary: (minutes: number, train: string) => `${minutes} min · 1 transfer · PVL ${train}`,
   board: (station: string, time: string) => `${time} · Board at ${station}`,
@@ -20,6 +21,7 @@ export const railEn = {
 export const railEs: typeof railEn = {
   title: 'Horarios de tren', sample: 'Horario de ejemplo', availability: 'Solo vista previa · No hay conexión a salidas actuales ni predicciones de trenes en vivo.',
   notice: 'Solo ejemplos · Sin datos actuales de trenes', checklist: 'Lista del viaje', help: 'Boletos y ayuda', departure: 'Sale', arrival: 'Llega', stationTime: 'Hora de parada', via: 'Vía Secaucus', duration: minutes => `${minutes} min · 1 transbordo`,
+  trainFrom: (train, station) => `PVL ${train} desde ${station}`,
   day: 'Ejemplos de horario', weekday: 'Día laborable', weekend: 'Sábado / domingo', steps: 'Ver pasos del transbordo',
   summary: (minutes, train) => `${minutes} min · 1 transbordo · PVL ${train}`,
   board: (station, time) => `${time} · Sube en ${station}`,
