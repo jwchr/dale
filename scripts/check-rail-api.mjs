@@ -11,6 +11,9 @@ const STATIONS = [
 ];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const present = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 128;
+// HTTP codes are bounded numeric metadata; never retain statusText, headers or body text.
+const httpFailure = (status, code) => Number.isInteger(code) && code >= 100 && code <= 599
+  ? { status, httpStatus: code } : { status };
 
 async function request(path, fields, maxBytes, fetchImpl) {
   const controller = new AbortController();
@@ -20,9 +23,9 @@ async function request(path, fields, maxBytes, fetchImpl) {
     for (const [key, value] of Object.entries(fields)) body.set(key, value);
     const response = await fetchImpl(HOST + path, { method: 'POST', body,
       headers: { accept: 'application/json' }, redirect: 'error', cache: 'no-store', signal: controller.signal });
-    if (response.status === 401 || response.status === 403) return { status: 'access-denied' };
-    if (response.status === 429) return { status: 'rate-limited' };
-    if (!response.ok) return { status: 'http-error' };
+    if (response.status === 401 || response.status === 403) return httpFailure('access-denied', response.status);
+    if (response.status === 429) return httpFailure('rate-limited', response.status);
+    if (!response.ok) return httpFailure('http-error', response.status);
     if (!response.body) return { status: 'unexpected-response' };
     const reader = response.body.getReader();
     const chunks = [];
@@ -84,13 +87,14 @@ function stationSummary(value, station) {
 export async function checkRailApi(credentials, fetchImpl = globalThis.fetch) {
   if (typeof credentials?.username !== 'string' || !credentials.username.trim()
     || typeof credentials?.password !== 'string' || !credentials.password.trim()) return { status: 'configuration-missing' };
-  const result = { status: 'checked', receivedAt: new Date().toISOString(), products: {}, stations: {} };
+  const result = { status: 'checked', receivedAt: new Date().toISOString(), products: {}, stations: {}, httpStatuses: {} };
   let railToken;
   try {
     // At most one token request per product, no validation request, retry or fallback host.
     for (const product of ['TrainData', 'GTFSRT']) {
       const auth = await authenticate(product, credentials, fetchImpl);
       result.products[product] = auth.status;
+      if (auth.httpStatus !== undefined) result.httpStatuses[`${product}.authentication`] = auth.httpStatus;
       if (product === 'TrainData') railToken = auth.token;
       if (auth.status === 'rate-limited') { result.status = 'rate-limited'; return result; }
     }
@@ -98,6 +102,7 @@ export async function checkRailApi(credentials, fetchImpl = globalThis.fetch) {
     result.gtfsFeed = 'not-requested-coverage-unknown';
     if (!railToken) { result.stationCoverage = 'not-requested-authentication-unavailable'; return result; }
     const listed = await request('/api/TrainData/getStationList', { token: railToken }, 262_144, fetchImpl);
+    if (listed.httpStatus !== undefined) result.httpStatuses['TrainData.station-list'] = listed.httpStatus;
     if (listed.status !== 'ok') { result.stationCoverage = listed.status; return result; }
     if (!Array.isArray(listed.value) || !listed.value.every(object)) { result.stationCoverage = 'unexpected-schema'; return result; }
     result.stationCoverage = 'checked';
@@ -108,6 +113,7 @@ export async function checkRailApi(credentials, fetchImpl = globalThis.fetch) {
         continue;
       }
       const sample = await request('/api/TrainData/getTrainSchedule19Rec', { token: railToken, station: station.code, line: station.line }, 524_288, fetchImpl);
+      if (sample.httpStatus !== undefined) result.httpStatuses[`TrainData.departures.${station.key}`] = sample.httpStatus;
       result.stations[station.key] = sample.status === 'ok' ? stationSummary(sample.value, station) : { status: sample.status };
       if (sample.status === 'rate-limited') { result.status = 'rate-limited'; return result; }
     }
