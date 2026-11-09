@@ -18,7 +18,7 @@ export function useDepartureDistances(ds: Dataset, api: string | undefined, quer
       for (const key of fixes.keys()) if (!wanted.has(key)) fixes.delete(key);
       if (batch && batch.feedVersion === ds.meta.feedVersion) for (const item of batch.items) {
         const key = departureKey(item.query); if (!wanted.has(key)) continue;
-        if (item.problem || item.cancelledAt || item.boardingSkipped || item.destinationSkipped) { fixes.delete(key); continue; }
+        if (item.problem || item.gpsProblem || item.cancelledAt || item.boardingSkipped || item.destinationSkipped) { fixes.delete(key); continue; }
         if (!item.gps) continue;
         // A fresh receipt/header must not freshen or replace an older vehicle sample.
         if (batch.vehicles.state !== 'ok' || batch.vehicles.timestamp === undefined
@@ -33,8 +33,10 @@ export function useDepartureDistances(ds: Dataset, api: string | undefined, quer
   }, [identity, queryKey, batch, ds]);
   return (query: DepartureRequest) => {
     if (saved?.identity !== identity) return;
-    const fix = saved.fixes.get(departureKey(query));
+    const key = departureKey(query), current = batch?.items.find(item => departureKey(item.query) === key);
+    if (current?.problem || current?.gpsProblem || current?.cancelledAt || current?.boardingSkipped || current?.destinationSkipped) return;
+    const fix = saved.fixes.get(key);
     const value = reportedRouteDistance(ds, geometry, query.tripId, query.serviceDate, query.stopIndex, fix?.gps, now, fix?.receivedAt ?? now);
-    return value && (!batch || batch.vehicles.state !== 'ok') ? { ...value, stale: true } : value;
+    return value && (!batch || batch.vehicles.state !== 'ok' || !current?.gps) ? { ...value, stale: true } : value;
   };
 }

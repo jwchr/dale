@@ -50,6 +50,15 @@ describe('reported route distance — locally drafted negative/edge contract cas
     expect(second.meters - first.meters).toBeCloseTo(2 * BC, 4);
     delete f.geometry.trips.TripA; expect(evaluate(f)).toBeUndefined();
   });
+  it('rejects a same-feed distant destination mapped to zero or to the wrong existing shape', () => {
+    const f = fixture(); f.geometry.trips.TripA!.stopMeters = [0, 0, 0];
+    expect(() => parseRouteGeometry(f.geometry, f.ds)).toThrow();
+    expect(evaluate(f)).toBeUndefined();
+    const other = fixture(); other.geometry.trips.TripA!.shapeId = 'ShapeB';
+    other.geometry.trips.TripA!.stopMeters = [0, AB, AB + 2 * BC];
+    expect(() => parseRouteGeometry(other.geometry, other.ds)).toThrow();
+    expect(evaluate(other)).toBeUndefined();
+  });
   it('freezes the observed numeric distance after120000ms despite newer receipt times', () => {
     const f = fixture(), first = evaluate(f)!; const boundary = f.fix.observedAt + 120000;
     expect(evaluate(f, boundary, boundary)?.stale).toBe(false);
@@ -63,6 +72,16 @@ describe('reported route distance — locally drafted negative/edge contract cas
     f.geometry.trips.TripA!.stopMeters = [0, AB, 2 * AB]; expect(evaluate(f)).toBeUndefined();
     f.fix.stopCall = { status: 'stopped_at', stopId: 'A', stopIndex: 0 }; expect(evaluate(f)?.meters).toBeCloseTo(2 * AB);
     f.fix.stopCall = { status: 'stopped_at', stopId: 'B', stopIndex: 1 }; expect(evaluate(f)).toBeUndefined();
+  });
+  it('accepts valid repeated canonical stops on a loop, while requiring an explicit anchor to resolve the shared location', () => {
+    const f = fixture(); f.ds.trips = [f.ds.trips[0]!]; f.ds.patterns[0]!.stopIds = ['A', 'B', 'A'];
+    delete f.geometry.trips.TripB; delete f.geometry.shapes.ShapeB;
+    f.geometry.shapes.ShapeA!.points = [[A.lat, A.lon, 0], [B.lat, B.lon, AB], [A.lat, A.lon, 2 * AB]];
+    f.geometry.trips.TripA = { shapeId: 'ShapeA', stopIds: ['A', 'B', 'A'], stopMeters: [0, AB, 2 * AB] };
+    expect(parseRouteGeometry(f.geometry, f.ds)).toBe(f.geometry);
+    expect(evaluate(f)).toBeUndefined();
+    f.fix.stopCall = { status: 'stopped_at', stopId: 'A', stopIndex: 0 }; expect(evaluate(f)?.meters).toBeCloseTo(2 * AB);
+    f.fix.stopCall = { status: 'stopped_at', stopId: 'A', stopIndex: 2 }; expect(evaluate(f)?.meters).toBe(0);
   });
   it('rejects off-route, wrong-vehicle/date and future fixes without a new distance or bus replacement', () => {
     const f = fixture(), original = structuredClone(f.fix);
@@ -124,6 +143,10 @@ describe('separate static geometry delivery', () => {
     expect((await router.fetch(new Request(url.replace(VERSION, 'other')), env)).status).toBe(409);
     expect((await router.fetch(new Request(url, { headers: { origin: 'https://evil.example' } }), env)).status).toBe(403);
     expect((await createRouter(f.ds).fetch(new Request(url), env)).status).toBe(404);
+    const invalid = structuredClone(f.geometry); invalid.trips.TripA!.stopMeters = [0, 0, 0];
+    const isolated = createRouter(f.ds, invalid);
+    expect((await isolated.fetch(new Request(url), env)).status).toBe(404);
+    expect(await (await isolated.fetch(new Request('https://dale-live.test.workers.dev/v1/schedule'), env)).text()).toBe(original);
     expect(await (await router.fetch(new Request('https://dale-live.test.workers.dev/v1/schedule'), env)).text()).toBe(original);
     expect(touch).not.toHaveBeenCalled(); expect(await historyContextKey(f.ds)).toBe(context);
   });

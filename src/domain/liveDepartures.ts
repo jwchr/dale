@@ -6,7 +6,7 @@ export const MAX_DEPARTURE_QUERIES = 50;
 export interface DepartureRequest { tripId: string; serviceDate: string; stopIndex: number; toStopIndex: number }
 export interface DepartureReport {
   query: DepartureRequest; updatedAt?: number; cancelledAt?: number;
-  departure?: LivePrediction; boardingArrival?: LivePrediction; arrival?: LivePrediction; gpsObservedAt?: number; gps?: VehicleObservation;
+  departure?: LivePrediction; boardingArrival?: LivePrediction; arrival?: LivePrediction; gpsObservedAt?: number; gps?: VehicleObservation; gpsProblem?: 'ambiguous';
   boardingSkipped?: boolean; destinationSkipped?: boolean; problem?: 'ambiguous' | 'date-unknown';
 }
 export interface DepartureBatch { v: 1; source: typeof LIVE_SOURCE; feedVersion: string; receivedAt: number; vehicles: LiveFeed; updates: LiveFeed; items: DepartureReport[] }
@@ -39,13 +39,14 @@ export function parseDepartureBatch(raw: unknown, ds: Dataset, queries: Departur
   for (const item of batch.items) {
     if (!item || !item.query) return fail();
     const key = departureKey(item.query), q = expected.get(key); if (!q || seen.has(key)) return fail(); seen.add(key);
+    if (item.gpsProblem !== undefined && item.gpsProblem !== 'ambiguous') return fail();
     if (item.problem !== undefined && !['ambiguous', 'date-unknown'].includes(item.problem)) return fail();
     if ((item.boardingSkipped !== undefined && typeof item.boardingSkipped !== 'boolean') || (item.destinationSkipped !== undefined && typeof item.destinationSkipped !== 'boolean')
       || (item.gpsObservedAt !== undefined && !time(item.gpsObservedAt))) return fail();
     if ([item.departure, item.boardingArrival, item.arrival].some(p => p && p.observedAt !== item.updatedAt)
       || (item.cancelledAt !== undefined && item.cancelledAt !== item.updatedAt)
       || ((item.boardingSkipped || item.destinationSkipped) && !time(item.updatedAt))) return fail();
-    if (item.gps && (item.gps.tripInstanceId !== q.tripId + '@' + q.serviceDate || item.gps.observedAt !== item.gpsObservedAt || item.problem)) return fail();
+    if (item.gps && (item.gps.tripInstanceId !== q.tripId + '@' + q.serviceDate || item.gps.observedAt !== item.gpsObservedAt || item.problem || item.gpsProblem)) return fail();
     if (item.departure && (item.departure.stopIndex !== q.stopIndex || item.departure.kind !== 'departure')) return fail();
     if (item.boardingArrival) {
       const trip = ds.trips.find(t => t.id === q.tripId)!, pattern = ds.patterns.find(p => p.id === trip.patternId)!;

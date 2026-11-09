@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import { preservationPins, requireEnabledResources, canonicalIdentity, readPreservedCanonical, readEnabledCheckpoint, preservesEnabled } from './enabled-continuity.mjs';
 // Manual main-only deployment. Secret values and raw CLI/API errors never leave the runner.
 import { waitForReadiness } from './collection-readiness.mjs';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,12 +16,14 @@ let temporary;
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';
-  if (!['disabled', 'enabled', 'restore-disabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
+  if (!['disabled', 'enabled', 'restore-disabled', 'preserve-enabled'].includes(collectionMode)) throw workerProofError('collection-mode-invalid');
   if (collectionMode === 'disabled') {
     await stopHistoryCollection(process.env);
     return;
   }
-  const targetEnabled = collectionMode === 'enabled';
+  const preserve = collectionMode === 'preserve-enabled';
+  const targetEnabled = collectionMode === 'enabled' || preserve;
+  const pins = preserve ? preservationPins(process.env) : undefined;
   const deploymentStartedAt = Date.now();
   const url = liveApiUrl(process.env.DALE_WORKER_URL);
   let ds;
@@ -41,6 +45,25 @@ async function run() {
     || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
     || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
     || before.bindings.some(b => !existingNames.includes(b.name))) throw workerProofError('worker-existing-configuration-mismatch');
+  let continuityBefore;
+  if (preserve) {
+    requireEnabledResources(before, pins);
+    let receipt;
+    try {
+      const text = readFileSync(new URL('../worker/generated/preservation.json', import.meta.url), 'utf8');
+      if (Buffer.byteLength(text) > 32_000) throw new Error('Oversized checkpoint');
+      receipt = JSON.parse(text);
+    } catch { throw workerProofError('enabled-continuity-unverified'); }
+    if (receipt.v !== 1 || receipt.context !== pins.context || before.versionId !== pins.versionId
+      || !isDeepStrictEqual(receipt.identity, before)
+      || !before.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === 'enabled')) throw workerProofError('enabled-continuity-unverified');
+    const canonical = canonicalIdentity(JSON.stringify(ds), pins.context), retained = await readPreservedCanonical(process.env);
+    if (canonical.text !== retained.text) throw workerProofError('enabled-continuity-unverified');
+    preservesEnabled(receipt.checkpoint, retained.checkpoint);
+    continuityBefore = retained.checkpoint;
+    // Keep version/module/runtime/resource equality bracketed across public readbacks.
+    if (!isDeepStrictEqual(before, await readActiveWorkerIdentity(process.env))) throw workerProofError('enabled-continuity-unverified');
+  }
   let retained, archiveBefore;
   if (!targetEnabled) {
     const readback = await fetch(url + '/v1/collection', { signal: AbortSignal.timeout(15_000), redirect: 'error', cache: 'no-store' });
@@ -82,6 +105,22 @@ async function run() {
       || !preservesArchiveEvidence(archiveBefore, disabledArchiveEvidence(current.archive))) throw workerProofError('restored-evidence-unverified');
     if (archiveBefore.kind === 'unreported') console.log('Disabled health omits archive receipt counters and backlog: unknown remains unknown. Same private bucket binding preserved; no archive-count or object-durability result inferred.');
     console.log('Known reviewed code restored disabled; retained journal evidence and strict module/stop proof passed. Private archive receipts need separate readback. Original historical code identity remains unknown. Resume requires a separate authorized action.');
+    return;
+  }
+  if (preserve) {
+    const after = await readPreservedCanonical(process.env);
+    if (after.text !== JSON.stringify(ds)) throw workerProofError('enabled-continuity-unverified');
+    let checkpoint = after.checkpoint;
+    if (!preservesEnabled(continuityBefore, checkpoint, deploymentStartedAt)) checkpoint = await waitForReadiness(async () => {
+      const state = await readEnabledCheckpoint(process.env, ds.meta.feedVersion);
+      return preservesEnabled(continuityBefore, state, deploymentStartedAt) ? state : undefined;
+    }, { intervalMs: 5000 });
+    if (!checkpoint || !preservesEnabled(continuityBefore, checkpoint, deploymentStartedAt)) throw workerProofError('enabled-continuity-unverified');
+    if (!isDeepStrictEqual(uploaded, await readActiveWorkerIdentity(process.env))) throw workerProofError('enabled-continuity-unverified');
+    console.log('Existing enabled collector preserved: exact canonical bytes/context, runtime/resources/bindings, native alarm and advancing verified archive checked. No demand feed request, activation, stop or rate change.');
+    console.log(`Enabled preservation observation interval: ${continuityBefore.at} to ${checkpoint.at} (${checkpoint.at - continuityBefore.at}ms). This is bounded observation, not sustained continuity.`);
+    console.log(`Interrupted-attempt backlog before/after: ${continuityBefore.pendingInterruptionCount}/${checkpoint.pendingInterruptionCount}. This is not proof of zero interruption or every stored object. Separate operator evidence remains required.`);
+    console.log('Distance geometry/current GPS/public acceptance remains separate. On failure, hold release; no automatic stop or rollback is attempted. Prior pinned Worker identity remains the operator rollback reference; preserve enabled binding, namespace, bucket and every evidence object.');
     return;
   }
   const status = await fetch(url + '/v1/status', { signal: AbortSignal.timeout(45_000), redirect: 'error', cache: 'no-store' });

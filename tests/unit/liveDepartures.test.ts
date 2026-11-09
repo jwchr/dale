@@ -130,6 +130,15 @@ describe('bounded coalesced GPS distance evidence', () => {
       expect(() => parseDepartureBatch(bad, ds, [q], NOW)).toThrow();
     }
   });
+  it('keeps a valid boarding prediction independently live when contradictory GPS prevents distance', () => {
+    const v = positions(), point = v.observations[0]!;
+    const item = summarizeDepartures(ds, [q], { ...v, observations: [point, { ...point, lat: point.lat + .001 }] }, updates(), NOW)[0]!;
+    const b = { ...batch(), items: [item] };
+    expect(parseDepartureBatch(b, ds, [q], NOW).items[0]?.gpsProblem).toBe('ambiguous');
+    expect(item.gps).toBeUndefined(); expect(departureEvidence(b, item, NOW).kind).toBe('live');
+    const contradiction = { ...b, items: [{ ...item, gps: point }] };
+    expect(() => parseDepartureBatch(contradiction, ds, [q], NOW)).toThrow();
+  });
   it('omits GPS coordinates for equal-time contradictory samples, uncertain dates or multiple vehicles', () => {
     const v = positions(), point = v.observations[0]!;
     for (const bad of [

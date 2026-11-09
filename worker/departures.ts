@@ -29,6 +29,7 @@ export function summarizeDepartures(ds: Dataset, queries: DepartureRequest[], ve
       const latest = points.filter(p => p.observedAt === report.gpsObservedAt);
       const unique = new Set(latest.map(p => JSON.stringify([p.vehicleId, p.lat, p.lon, p.stopCall ?? null])));
       if (unique.size === 1) report.gps = latest[0];
+      else report.gpsProblem = 'ambiguous';
     }
     return report;
   });

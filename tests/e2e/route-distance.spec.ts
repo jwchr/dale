@@ -15,7 +15,7 @@ const geometry: RouteGeometry = { v: 1, feedVersion: VERSION, sourceSHA256: SHA,
   trips: { T1: { shapeId: 'test', stopIds: ['1', '2', '3'], stopMeters: [0, ab, ab + bc] } } };
 const favorite = { id: 'distance-test', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
 async function setup(page: Page, lang: 'en' | 'es' = 'en', mismatch = false) {
-  const state = { now: NOW, geometryCalls: 0, departuresCalls: 0, trackerCalls: 0, failed: false, lat: (a.lat! + b.lat!) / 2, lon: (a.lon! + b.lon!) / 2, observedAt: NOW - 15000 };
+  const state = { now: NOW, geometryCalls: 0, departuresCalls: 0, trackerCalls: 0, failed: false, gpsConflict: false, lat: (a.lat! + b.lat!) / 2, lon: (a.lon! + b.lon!) / 2, observedAt: NOW - 15000 };
   await page.clock.install({ time: NOW });
   await page.addInitScript(({ favorite, lang }) => {
     localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([favorite]));
@@ -29,7 +29,7 @@ async function setup(page: Page, lang: 'en' | 'es' = 'en', mismatch = false) {
     const queries = JSON.parse(new URL(r.request().url()).searchParams.get('q')!) as DepartureRequest[];
     return r.fulfill({ json: { v: 1, source: LIVE_SOURCE, feedVersion: VERSION, receivedAt: state.now,
       vehicles: { state: 'ok', timestamp: state.now - 10000 }, updates: { state: 'ok', timestamp: state.now - 10000 },
-      items: queries.map(query => query.tripId === 'T1' && query.serviceDate === '20261104' ? { query, gps: gps(), gpsObservedAt: state.observedAt } : { query }) } });
+      items: queries.map(query => query.tripId === 'T1' && query.serviceDate === '20261104' ? { query, ...(state.gpsConflict ? { gpsProblem: 'ambiguous' } : { gps: gps() }), gpsObservedAt: state.observedAt } : { query }) } });
   });
   await page.route(API + '/v1/live?**', r => {
     state.trackerCalls++; if (state.failed) return r.abort('failed');
@@ -70,6 +70,18 @@ for (const lang of ['en', 'es'] as const) test(`route distance is compact, sourc
   const frozen = await ride.locator('span').first().textContent();
   await expect(ride).toHaveAttribute('data-stale', 'true');
   await page.clock.fastForward(120000); await expect(ride.locator('span').first()).toHaveText(frozen!);
+  await expect(page.getByRole('dialog')).toHaveAttribute('data-stage', 'uncertain');
+  // Rotated labels can extend past the strip panel; check the actual scrolled/large
+  // light-surface view after fresh GPS becomes stale, including its destination label.
+  await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
+  for (const edge of ['start', 'end']) {
+    await page.locator('.ride-full .strip-wrap').evaluate((el, edge) => { el.scrollLeft = edge === 'end' ? el.scrollWidth : 0; }, edge);
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  }
+  await page.getByRole('dialog').screenshot({ path: `test-results/distance-onboard-stale-${lang}.png` });
+  await page.emulateMedia({ forcedColors: 'active' });
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await page.emulateMedia({ forcedColors: 'none' });
   expect(state.geometryCalls).toBe(1);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual([favorite]);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
@@ -109,4 +121,13 @@ for (const skin of ['turnpike', 'parkway', 'garden', 'nyc']) test(`distance inhe
   const result = await new AxeBuilder({ page }).include('.deps').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(result.violations).toEqual([]);
   await row.screenshot({ path: `test-results/distance-home-${skin}.png` });
+});
+
+test('new ambiguous GPS removes the cached home distance without changing the selected trip', async ({ page }) => {
+  const state = await setup(page), row = page.locator('.deps li[data-trip-instance="T1@20261104"]');
+  await expect(row.locator('.route-distance')).toBeVisible();
+  state.now += 31000; state.gpsConflict = true; await page.clock.fastForward(31000);
+  await expect(row.locator('.route-distance')).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual([favorite]);
+  expect(state.geometryCalls).toBe(1);
 });

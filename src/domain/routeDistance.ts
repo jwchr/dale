@@ -16,6 +16,22 @@ const safeId = (v: unknown): v is string => typeof v === 'string' && v.length > 
   && !/[\u0000-\u001f\u007f]/.test(v) && !['__proto__', 'constructor', 'prototype'].includes(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const stamp = (v: unknown): v is number => finite(v) && Number.isSafeInteger(v) && v > 0;
+// Source stop-to-road allowance (100m), plus 4m simplification and rounding margin.
+const STOP_MAPPING_M = 105;
+function pointAtMeters(points: [number, number, number][], meters: number) {
+  if (!Number.isFinite(meters) || meters < 0 || meters > points.at(-1)![2] + .1) return;
+  let lo = 0, hi = points.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (points[mid]![2] <= meters) lo = mid; else hi = mid; }
+  const a = points[lo]!, b = points[hi]!, span = b[2] - a[2];
+  if (span <= 0) return;
+  const f = Math.min(1, (meters - a[2]) / span);
+  return { lat: a[0] + f * (b[0] - a[0]), lon: a[1] + f * (b[1] - a[1]) };
+}
+function mappedStop(points: [number, number, number][], meters: number, stop: Dataset['stops'][number] | undefined) {
+  const point = pointAtMeters(points, meters);
+  return !!point && stop?.lat !== undefined && stop.lon !== undefined
+    && distanceM(point, { lat: stop.lat, lon: stop.lon }) <= STOP_MAPPING_M;
+}
 const fail = (): never => { throw new Error('Invalid route geometry'); };
 
 /** All identity and size checks precede rider use. Unknown/mismatched geometry never repairs itself. */
@@ -37,6 +53,7 @@ export function parseRouteGeometry(raw: unknown, ds: Dataset): RouteGeometry {
     }
     if (shape.points[0][2] !== 0 || previous <= 0) return fail();
   }
+  const stops = new Map(ds.stops.map(s => [s.id, s]));
   const sourceTrips = new Map(ds.trips.map(t => [t.id, t])), patterns = new Map(ds.patterns.map(p => [p.id, p]));
   for (const [key, entry] of trips) {
     if (!safeId(key) || !object(entry) || !safeId(entry.shapeId) || !Object.hasOwn(raw.shapes, entry.shapeId)) return fail();
@@ -48,7 +65,8 @@ export function parseRouteGeometry(raw: unknown, ds: Dataset): RouteGeometry {
     const end = shape.points.at(-1)![2]; let previous = -1;
     for (let i = 0; i < entry.stopIds.length; i++) {
       const m = entry.stopMeters[i];
-      if (entry.stopIds[i] !== pattern.stopIds[i] || !finite(m) || m < 0 || m < previous || m > end + .1) return fail();
+      if (entry.stopIds[i] !== pattern.stopIds[i] || !finite(m) || m < 0 || m < previous || m > end + .1
+        || !mappedStop(shape.points, m, stops.get(pattern.stopIds[i]!))) return fail();
       previous = m;
     }
   }
@@ -91,7 +109,8 @@ export function reportedRouteDistance(ds: Dataset, geometry: RouteGeometry | und
   if (!canonical || !isServiceActive(ds.calendars[canonical.serviceId], serviceDate)) return;
   const trip = Object.hasOwn(geometry.trips, tripId) ? geometry.trips[tripId] : undefined;
   if (!trip || !Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= trip.stopIds.length) return;
-  const shape = geometry.shapes[trip.shapeId]; if (!shape) return;
+  const shape = geometry.shapes[trip.shapeId]; if (!shape
+    || !mappedStop(shape.points, trip.stopMeters[targetIndex]!, ds.stops.find(s => s.id === trip.stopIds[targetIndex]))) return;
   let anchor: number | undefined;
   if (fix.stopCall) {
     const i = fix.stopCall.stopIndex, stop = ds.stops.find(s => s.id === trip.stopIds[i]);

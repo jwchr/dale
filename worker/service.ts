@@ -176,19 +176,31 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       }
       const candidates = updates.updates.filter((u) => u.tripInstanceId === id).sort((a, b) => b.observedAt - a.observedAt);
       const update = candidates.length === 1 ? candidates[0] : undefined;
-      // Keep one newest report per trip/vehicle before bounding the public packet. Duplicates
-      // must not hide a second bus on this trip or the locked bus moving to another trip.
-      const exact = new Map<string, (typeof vehicles.observations)[number]>();
-      let reassigned: (typeof vehicles.observations)[number] | undefined;
+      // Keep distinct buses and reassignment evidence, but never choose an arbitrary
+      // coordinate when a trip/vehicle has conflicting fixes at its newest timestamp.
+      const groups = new Map<string, (typeof vehicles.observations)>();
       for (const point of vehicles.observations) {
-        if (point.tripInstanceId === id) {
-          if (!exact.has(point.vehicleId) || point.observedAt > exact.get(point.vehicleId)!.observedAt) exact.set(point.vehicleId, point);
-        } else if (point.vehicleId === vehicle && (!reassigned || point.observedAt > reassigned.observedAt)) reassigned = point;
+        if (point.tripInstanceId !== id && point.vehicleId !== vehicle) continue;
+        const key = JSON.stringify([point.tripInstanceId, point.vehicleId]), previous = groups.get(key);
+        if (!previous || point.observedAt > previous[0]!.observedAt) groups.set(key, [point]);
+        else if (point.observedAt === previous[0]!.observedAt) previous.push(point);
       }
-      const observations = [...(reassigned ? [reassigned] : []), ...[...exact.values()].sort((a, b) => b.observedAt - a.observedAt)].slice(0, 10);
+      let conflictingGPS = false;
+      const qualified: (typeof vehicles.observations) = [];
+      for (const points of groups.values()) {
+        const signatures = new Set(points.map(p => JSON.stringify([p.lat, p.lon, p.stopCall ?? null])));
+        if (signatures.size > 1) conflictingGPS = true;
+        else qualified.push(points[0]!);
+      }
+      const exact = qualified.filter(p => p.tripInstanceId === id).sort((a, b) => b.observedAt - a.observedAt);
+      const reassigned = qualified.filter(p => p.tripInstanceId !== id).sort((a, b) => b.observedAt - a.observedAt);
+      // Two distinct reassignment reports preserve uncertainty without crowding out
+      // every exact-trip vehicle. Any further omitted reassignment is invalid data.
+      if (reassigned.length > 2) conflictingGPS = true;
+      const observations = [...reassigned.slice(0, 2), ...exact].slice(0, 10);
       const response: LiveBusSnapshot = {
         v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, tripInstanceId: id, receivedAt: now,
-        vehicles: age(vehicles), updates: age(updates),
+        vehicles: conflictingGPS ? { ...age(vehicles), state: 'invalid' } : age(vehicles), updates: age(updates),
         observations,
         ...(update ? { updatedAt: update.observedAt } : {}),
         ...(update?.cancelled ? { cancelledAt: update.observedAt } : {}),
@@ -203,8 +215,10 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
   // Static delivery only: geometry is never passed to the recorder or upstream poller.
   let geometry: string | undefined;
   if (rawGeometry != null) {
-    geometry = JSON.stringify(parseRouteGeometry(rawGeometry, ds));
-    if (new TextEncoder().encode(geometry).byteLength > MAX_GEOMETRY_BYTES) throw new Error('Oversized route geometry');
+    try {
+      const text = JSON.stringify(rawGeometry);
+      if (new TextEncoder().encode(text).byteLength <= MAX_GEOMETRY_BYTES) geometry = JSON.stringify(parseRouteGeometry(rawGeometry, ds));
+    } catch { /* Optional malformed geometry disables distance, never the recorder/router. */ }
   }
   const schedule = JSON.stringify(ds), trips = new Map(ds.trips.map((t) => [t.id, t]));
   return {

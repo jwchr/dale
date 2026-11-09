@@ -322,7 +322,7 @@ main { flex: 1; padding-bottom: 24px; }
 .strip::after { width: calc((100% - var(--stop-w) - 8em) * var(--fill-n, 0)); background: linear-gradient(90deg, #ffb02e, #ffd36e); box-shadow: 0 0 10px rgba(255, 176, 46, 0.7); }
 .strip li { flex: 0 0 var(--stop-w); }
 .strip-stop { width: 100%; min-height: 0; padding: 0; border: 0; background: none; border-radius: 8px; display: flex; flex-direction: column; align-items: center; color: #e9edf3; position: relative; z-index: 1; }
-.strip-name { height: 100px; width: var(--stop-w); position: relative; display: block; }
+.strip-name { background: #0b0c10; height: 100px; width: var(--stop-w); position: relative; display: block; }
 /* Names slant up from each dot, the way line maps over train doors are printed. */
 .strip-name { font-size: 1em; font-weight: 700; line-height: 1.1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strip-name { writing-mode: horizontal-tb; }
@@ -338,7 +338,7 @@ main { flex: 1; padding-bottom: 24px; }
 .strip li[data-state='alight'] .strip-dot { width: 24px; height: 24px; margin-top: -3px; background: #ff5a4f; border-color: #fff; box-shadow: 0 0 0 3px #ff5a4f; }
 .strip li[data-state='alight'] .strip-name { color: #ff9a92; }
 .strip-stop:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
-@media (forced-colors: active) { .strip::after { background: Highlight; box-shadow: none; } .led-bar { background: Canvas; } .led-line { color: CanvasText; text-shadow: none; } }
+@media (forced-colors: active) { .strip li[data-state] .strip-stop .strip-name { background: Canvas; color: CanvasText; } .strip::after { background: Highlight; box-shadow: none; } .led-bar { background: Canvas; } .led-bar .led-line, .led-bar .led-key, .led-bar .led-pace[data-pace] { color: CanvasText; text-shadow: none; } }
 
 /* The street map of the ride (self-hosted OpenStreetMap). */
 .route-map { height: 260px; border-radius: 12px; overflow: hidden; margin: 8px 0 4px; box-shadow: inset 0 0 0 1px #24262c; background: #0b0c10; }
