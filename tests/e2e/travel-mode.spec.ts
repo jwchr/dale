@@ -30,8 +30,9 @@ for (const lang of ['en', 'es'] as const) test(`phone Bus/Train switch retains f
   const train = modes.getByRole('button', { name: j.trainMode, exact: true });
   await train.focus(); await page.keyboard.press('Enter');
   await expect(train).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText(t.rail.availability, { exact: true })).toBeVisible();
+  await expect(page.getByText(t.rail.notice, { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
+  await page.locator('.journey-checklist > summary').click();
   await page.getByRole('button', { name: j.next, exact: true }).click();
   const bus = modes.getByRole('button', { name: j.busMode, exact: true });
   await bus.focus(); await page.keyboard.press('Space');
@@ -65,6 +66,7 @@ test('checklist survives switching with storage blocked', async ({ page }) => {
   await page.goto('/?now=2026-11-04T07:50&demo');
   const j = strings.en.journey;
   await page.getByRole('button', { name: j.trainMode, exact: true }).click();
+  await page.locator('.journey-checklist > summary').click();
   await page.getByRole('button', { name: j.next, exact: true }).click();
   await page.getByRole('button', { name: j.busMode, exact: true }).click();
   await page.getByRole('button', { name: j.trainMode, exact: true }).click();

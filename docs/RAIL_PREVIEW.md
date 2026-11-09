@@ -8,6 +8,12 @@ The owner requested the train foundation now, using samples from the supplied gu
 - `railTimetable.ts` normalizes two legs and preserves departure, arrival and station-call semantics. The PVL PDF lists station calls/departures; it does not supply a distinct arrival at Secaucus or the Hackensack destination. A gap between printed times is not a guaranteed connection or a chosen transfer buffer. Missing calls and malformed/backwards times yield no option.
 - `RailPreview.tsx` consumes that model and the existing Anderson/Essex/direction choices. Native disclosures expose boarding and transfer steps. Changing preview day never changes the saved checklist, favorites or bus lock. No connection train number, track or fare is invented.
 
+## Train-screen presentation (#113)
+
+The existing sample journeys are the departure board itself: amber monospaced clocks, restrained separators, PVL train identifiers and visible station/event labels. On a return journey, the PVL number identifies the second leg; the unknown connecting-train number is never filled in. The Hackensack destination clock is explicitly a station time, while the supplied Penn arrival is labeled as an arrival. Each native row disclosure retains both legs, the printed transfer gap and any early-departure note.
+
+Only the short sample/current-data qualification stays visible. Full timetable limits are in the closed source disclosure; rehearsal/checklist instructions and ticketing/travel help also start closed. Saved progress remains in the checklist summary and its original per-mode model, including when storage is blocked. Compact controls, visible wordmark and retained navigation work through normal and loading/fallback Bus/Train transitions. No motion, new font download, package, adapter, service date or polling is introduced.
+
 For an eventual official adapter, first establish authorized rail endpoints, current calendar/override coverage, canonical station/trip identity and independent source age for predictions. Replace the sample provider only with a validated current-service contract. The real planner must search all eligible Secaucus connections using the rider's buffer and full return chain; do not simply promote these sample paired columns to current trips. No new polling, credentials or backend is added here.
 
 # Garden State visual source (#113, D62)
