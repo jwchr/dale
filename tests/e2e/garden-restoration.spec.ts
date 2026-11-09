@@ -48,9 +48,9 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
       const geometry = await page.locator('.commute-places').evaluate(signs => {
         const from = signs.querySelector('[data-end="from"]')!.getBoundingClientRect();
         const to = signs.querySelector('[data-end="to"]')!.getBoundingClientRect();
-        return { sameRow: Math.abs(from.top - to.top) < 1, separate: from.right < to.left, overflow: document.documentElement.scrollWidth - innerWidth };
+        return { sameRow: Math.abs(from.top - to.top) < 1, separate: from.right < to.left, stacked: to.top > from.bottom, overflow: document.documentElement.scrollWidth - innerWidth };
       });
-      expect(geometry).toEqual({ sameRow: true, separate: true, overflow: 0 });
+      expect(geometry).toEqual({ sameRow: scale === 100, separate: scale === 100, stacked: scale > 100, overflow: 0 });
       const header = await page.locator('header.top').evaluate(header => {
         const wordmark = header.querySelector('.wordmark')!.getBoundingClientRect();
         const settings = header.querySelector('.icon-btn')!.getBoundingClientRect();

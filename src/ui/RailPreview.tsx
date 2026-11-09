@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { FlapText } from './FlapText';
 import { sampleRailTimetable } from '../data/railSample';
 import { railExamples, type RailDay, type RailDirection, type RailStation } from '../domain/railTimetable';
 import type { StationChoice } from '../domain/journeyGuide';
@@ -19,6 +20,7 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
     <label htmlFor={`${id}-day`}>{r.day}</label><select id={`${id}-day`} value={day} onChange={e => setDay(e.target.value as RailDay)}>
       <option value="weekday">{r.weekday}</option><option value="weekend">{r.weekend}</option>
     </select>
+    <div className="rail-board-title">{r.departures}</div>
     <ul className="rail-options" role="list">
       {journeys.map(journey => {
         const [first, second] = journey.legs;
@@ -27,8 +29,8 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
         return <li key={journey.id}>
           <details className="rail-option">
             <summary>
-              <span className="rail-run"><span className="rail-number">{r.trainFrom(train!, name(pvlLeg.from.station))}</span><span>{r.via}</span></span>
-              <span className="rail-clocks"><span><small>{r.departure} · {name(first.from.station)}</small><strong>{time(first.from.minute)}</strong></span><span><small>{second.to.event === 'call' ? r.stationTime : r.arrival} · {name(second.to.station)}</small><strong>{time(second.to.minute)}</strong></span></span>
+              <span className="rail-run"><span className="rail-number"><FlapText text={r.trainFrom(train!, name(pvlLeg.from.station))} /></span><span>{r.via}</span></span>
+              <span className="rail-clocks"><span><small>{r.departure} · {name(first.from.station)}</small><strong><FlapText text={time(first.from.minute)} /></strong></span><span><small>{second.to.event === 'call' ? r.stationTime : r.arrival} · {name(second.to.station)}</small><strong><FlapText text={time(second.to.minute)} /></strong></span></span>
               <span className="rail-row-foot"><span>{r.duration(journey.durationMin)}</span><span>{r.steps} <span aria-hidden="true">⌄</span></span></span>
             </summary>
             <ol className="rail-steps">
@@ -40,6 +42,7 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
         </li>;
       })}
     </ul>
+    <p className="rail-info-strip">{r.transfer}</p>
     <details className="small rail-source"><summary>{r.source}</summary><p>{r.availability}</p><p>{r.sourceText}</p><p>{r.transferNote}</p></details>
   </section>;
 }

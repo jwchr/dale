@@ -220,8 +220,9 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
       <AppHeader rail={guide === 'penn'}>
-        {guide && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
+        {guide && guide !== 'penn' && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
         {(!guide || guide === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
+        {guide === 'penn' && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
         <div className="choice-list">
           <button className="chip" lang="en" aria-pressed={settings.lang === 'en'} onClick={() => setSettings({ ...settings, lang: 'en' })}>English</button>
           <button className="chip" lang="es" aria-pressed={settings.lang === 'es'} onClick={() => setSettings({ ...settings, lang: 'es' })}>Español</button>
@@ -357,11 +358,12 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
     <div className="app">
       <SkinBackdrop skin={settings.skin} />
       <AppHeader rail={screen.name === 'penn'}>
-        {screen.name !== 'home' ? (
-          <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
-        ) : null}
+        {screen.name !== 'home' && screen.name !== 'penn' && <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>}
         {(screen.name === 'home' || screen.name === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
+        {screen.name === 'penn' ? (
+          <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
+        ) : null}
         <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
       </AppHeader>
       {ds.meta.demo && <div className="demo-banner" role="note">{t.demoBanner}{demoInAddress() && <> <a className="link demo-leave" href={leaveDemoHref()}>{t.leaveDemo}</a></>}</div>}
@@ -704,6 +706,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             : <h2 className="sr-only">{fullLeg}</h2>}
           <div className="commute-places">
             <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
+            <button ref={reverseButton} className="commute-reverse" aria-label={t.reverse} aria-pressed={rev} onClick={reverseTrip}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>
+            </button>
             {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" t={t} onCity={() => onChoose('to', 'city')} onStop={() => onChoose('to', 'stop')} />}
           </div>
         </>}
@@ -714,13 +719,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           actions={trigger => <div className="commute-controls">
             {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
             <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</button>
-            <div className="commute-sign-actions">
-              <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
-              {trigger}
-            </div>
-          </div>} /> : <div className="commute-controls">
-            <button ref={reverseButton} className="chip commute-reverse" aria-pressed={rev} onClick={reverseTrip}><span aria-hidden="true">⇄ </span>{t.reverse}</button>
-          </div>}
+            {trigger}
+          </div>} /> : null}
       </div>
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
         <div className="edit-row">
@@ -743,9 +743,11 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
                 const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
                 return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
                   <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
-                    <RouteBadge ds={ds} routeId={d.route.id} />
+                    <span className="dep-route"><RouteBadge ds={ds} routeId={d.route.id} />
+                      <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
+                    </span>
                     <span className="dep-main">
-                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} countdown={live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.inMin(minutesUntil(now, shown))} t={t}
+                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
                         time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
                       <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
                       {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}

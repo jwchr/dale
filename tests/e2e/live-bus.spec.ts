@@ -243,8 +243,17 @@ test('onboard fresh GPS stays observed, highlights current not upcoming stop, an
  const boarding=liveDataset.stops.find(s=>s.id==='2')!, destination=liveDataset.stops.find(s=>s.id==='3')!;
  let body:LiveBusSnapshot|null=packet(NOW,{updatedAt:NOW-600000,predictions:[]});
  body.observations[0]={...body.observations[0]!,lat:boarding.lat!,lon:boarding.lon!};
- await setup(page,()=>body);
+ // This case begins with accepted fresh GPS, independent of response/render timing.
+ let release!: (value: LiveBusSnapshot) => void;
+ const initial = new Promise<LiveBusSnapshot>(resolve => { release = resolve; });
+ let firstResponse = true;
+ await setup(page,()=> { if (!firstResponse) return body; firstResponse = false; return initial; });
+ await expect(page.getByTestId('live-bus-status')).toContainText('Checking NJ Transit');
+ release(body);
+ await expect(page.locator('.lock-status')).toHaveAttribute('data-status', 'tracked');
+
  await page.getByRole('button',{name:'I’m waiting at this stop',exact:true}).click();
+ await expect(page.locator('.lock-phase')).toHaveText('Waiting at this stop');
  await page.getByRole('button',{name:'Bus arrived',exact:true}).click();
  await page.getByRole('button',{name:'I boarded',exact:true}).click();
  const ride=page.getByRole('dialog');const strip=ride.locator('.strip');
@@ -288,4 +297,19 @@ test('missing GPS never renders a departure prediction on a cancelled snapshot',
  const body=packet(NOW,{observations:[],cancelledAt:NOW-1000});
  await setup(page,()=>body);
  await expect(page.getByTestId('live-bus-status')).not.toContainText('NJ Transit predicts departure');
+});
+
+// Waiting controls must also work before the first GPS reply, without losing rider state.
+test('waiting can begin before GPS arrives and survives the first feed response', async ({ page }) => {
+  let release!: (value: LiveBusSnapshot) => void;
+  const pending = new Promise<LiveBusSnapshot>(resolve => { release = resolve; });
+  await setup(page, () => pending);
+  await expect(page.getByTestId('live-bus-status')).toContainText('Checking NJ Transit');
+  await page.getByRole('button', { name: 'I’m waiting at this stop', exact: true }).click();
+  await expect(page.locator('.lock-phase')).toHaveText('Waiting at this stop');
+  release(packet(NOW, { updatedAt: NOW - 600000, predictions: [] }));
+  await expect(page.locator('.lock-status')).toHaveAttribute('data-status', 'tracked');
+  await expect(page.locator('.lock-phase')).toHaveText('Waiting at this stop');
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click();
+  await expect(page.locator('.lock-phase')).toHaveText('You reported: bus arrived');
 });
