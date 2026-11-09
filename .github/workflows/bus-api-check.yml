@@ -1,7 +1,18 @@
-name: Bus API connection check
+name: Transit API connection check
+run-name: NJT ${{ inputs.scope || 'bus' }} connection check
 # Manual, reviewed main only. Never expose credentials to a PR, Pages build or published artifact.
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Approved product check (bus remains the default)
+        type: choice
+        options: [bus, rail]
+        default: bus
+      rail_token_window_confirmed:
+        description: Rail only - operator verified no rail token check in past 24h and owns this one-shot run
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -11,7 +22,7 @@ jobs:
   authenticate:
     if: github.ref == 'refs/heads/main' && github.repository == 'jwchr/dale'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: ${{ inputs.scope == 'rail' && 3 || 2 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -20,8 +31,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - name: Check approved bus API authentication (no tokens or response bodies logged)
+      - name: Check selected approved APIs (no tokens or response bodies logged)
         run: node scripts/check-bus-api.mjs
         env:
+          NJT_API_CHECK_SCOPE: ${{ inputs.scope || 'bus' }}
+          NJT_RAIL_TOKEN_WINDOW_CONFIRMED: ${{ inputs.rail_token_window_confirmed }}
           NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}

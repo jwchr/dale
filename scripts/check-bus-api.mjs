@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Authentication only. Never log, return or persist credentials, tokens or response bodies.
+// Bus default: authentication only. Explicit reviewed rail scope delegates to its bounded checker.
+// Never log, return or persist credentials, tokens or response bodies.
 import { pathToFileURL } from 'node:url';
+import { runRailConnectionCheck } from './check-rail-api.mjs';
 
 const APIS = ['BUSDV2', 'GTFSG2'];
 const HOST = 'https://pcsdata.njtransit.com';
@@ -79,6 +81,10 @@ export async function runConnectionCheck(env = process.env, fetchImpl = globalTh
     || env.GITHUB_REPOSITORY !== 'jwchr/dale') {
     log('Run this check through the manual Dale workflow on main. No request was sent.');
     return 2;
+  }
+  if (env.NJT_API_CHECK_SCOPE === 'rail') return runRailConnectionCheck(env, fetchImpl, log);
+  if (env.NJT_API_CHECK_SCOPE && env.NJT_API_CHECK_SCOPE !== 'bus') {
+    log('Unknown API check scope. No request sent.'); return 2;
   }
   try {
     const results = await checkBusApiCredentials({ username: env.NJT_API_USERNAME, password: env.NJT_API_PASSWORD }, fetchImpl);

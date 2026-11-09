@@ -1,6 +1,6 @@
 # Rail timetable preview (#80, D57)
 
-The owner requested the train foundation now, using samples from the supplied guide while rail access is pending. This is a separate preview on Train, not another live bus data source.
+The owner requested the train foundation now, using samples from the supplied guide. Rail approval was subsequently owner-reported; specific authenticated entitlement and usable current service remain unverified (see `RAIL_API_CHECK.md`). This is a separate preview on Train, not another live bus data source.
 
 - `src/data/railSample.ts` holds twelve example columns from the owner-supplied `PV-combined.pdf`, regular timetable dated August 30, 2026. All included cells, train numbers, AM/PM transitions and L markers were visually checked on its four rendered pages. The original PDF is not republished.
 - Weekday outbound: 1602,1604,1608. Weekday return: 1605,1651,1607. Weekend outbound: 2100,2102,2104. Weekend return: 2103,2107,2111. Train1651 has no Essex stop. Conditional overnight2101 is excluded. These are selected examples, not all-day coverage or a holiday calendar.

@@ -4,7 +4,7 @@ D51 / issue #87. Owner approval and encrypted credentials were confirmed Novembe
 
 ## Run
 
-After independent review and merge, open Actions → **Bus API connection check** → **Run workflow**, choosing **main**. The job and script both refuse other branches/events/repositories. Repository secrets are `NJT_API_USERNAME` and `NJT_API_PASSWORD`; never add a `VITE_` prefix, print their values or put them in the site build. GitHub secret values cannot be retrieved for local testing. The password may be the developer dashboard password, but the supplied documentation distinguishes API credentials without explicitly confirming they are the same. A successful API request is the test.
+After independent review and merge, open Actions → **Transit API connection check** (keep scope **bus**) → **Run workflow**, choosing **main**. The job and script both refuse other branches/events/repositories. Repository secrets are `NJT_API_USERNAME` and `NJT_API_PASSWORD`; never add a `VITE_` prefix, print their values or put them in the site build. GitHub secret values cannot be retrieved for local testing. The password may be the developer dashboard password, but the supplied documentation distinguishes API credentials without explicitly confirming they are the same. A successful API request is the test.
 
 The job uses Node 22 with no npm install, a read-only GitHub token and pinned official checkout/setup actions. It makes at most two requests: one authentication request per approved bus API, with no retry, feed download, polling or archive. Each request/body read has a 15-second deadline; authentication bodies are capped at 16 KiB and discarded. Redirects are refused so credentials cannot follow a redirect to another host. No request/response body, credential, token or raw error text is printed or saved. Only API names and these fixed outcomes appear:
 
@@ -32,6 +32,6 @@ Both production requests go only to `https://pcsdata.njtransit.com`. Do not copy
 
 ## Next boundary
 
-Successful authentication enables the scoped M0 feed investigation and M2 validation. A private Worker must normalize verified live data, keep credentials server-side, match exact trips and show source/age/uncertainty before the app can use live predictions. Schedules remain labeled fallback and future planning. Rail API access is pending; this job does not call any rail endpoint. No 72-hour recording or storage is introduced by this check.
+Successful authentication enables the scoped M0 feed investigation and M2 validation. A private Worker must normalize verified live data, keep credentials server-side, match exact trips and show source/age/uncertainty before the app can use live predictions. Schedules remain labeled fallback and future planning. The default bus scope does not call any rail endpoint. Newer owner-reported rail approval and its separately gated one-shot verification are documented in `RAIL_API_CHECK.md`; neither approval nor public documentation proves entitlement. No 72-hour recording or storage is introduced by this check.
 
 Rollback: stop running the manual workflow (or remove it); no schedule, saved commute or app behavior is changed by this slice.
