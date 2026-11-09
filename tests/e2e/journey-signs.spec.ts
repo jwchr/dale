@@ -46,9 +46,9 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(right.locator('.commute-stop')).toHaveText(t.commutePabt);
     const trigger = page.getByRole('button', { name: t.stopSign.open, exact: true });
     const reverse = page.getByRole('button', { name: t.reverse, exact: true });
-    for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
+    for (const [width, scale, font] of [[390, 100, ''], [305, 100, ''], [320, 130, ''], [320, 200, ''], [320, 130, 'Verdana']] as const) {
       await page.setViewportSize({ width, height: 850 });
-      await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
+      await page.evaluate(({ scale, font }) => { document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font; }, { scale, font });
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
         return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
@@ -85,14 +85,15 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       const tags = await page.locator('.highway-label').evaluateAll(nodes => nodes.map(node => {
         const tag = node.getBoundingClientRect(), sign = node.closest('.highway-sign')!.getBoundingClientRect();
         const name = node.parentElement!.querySelector('.highway-name')!.getBoundingClientRect();
-        return { inside: tag.left >= sign.left && tag.top >= sign.top && tag.bottom <= sign.bottom, beside: tag.right <= name.left + 1 };
+        return { inside: tag.left >= sign.left && tag.top >= sign.top && tag.bottom <= sign.bottom, beside: tag.right <= name.left + 1, tag: tag.toJSON(), sign: sign.toJSON(), font: getComputedStyle(node).fontFamily };
       }));
-      expect(tags.every(tag => tag.inside && tag.beside), JSON.stringify({ width, scale, tags })).toBe(true);
+      expect(tags.every(tag => tag.inside && tag.beside), JSON.stringify({ width, scale, font, tags })).toBe(true);
       // Inspect actual rendered lines: fitting boxes alone can hide isolated final letters.
       const lines = await page.locator('.highway-name, .commute-stop-name').evaluateAll(renderedSignLines);
       expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
-      await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}.png` });
+      await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}${font ? '-' + font : ''}.png` });
     }
+    await page.evaluate(() => { document.body.style.fontFamily = ''; document.documentElement.style.fontSize = '200%'; });
     await expect(left.locator('.highway-name')).toMatchAriaSnapshot('- strong: Hackensack');
     await expect(right.locator('.highway-name')).toMatchAriaSnapshot(`- strong: ${t.commuteNewYork}`);
     await trigger.scrollIntoViewIfNeeded();
