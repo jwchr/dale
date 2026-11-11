@@ -1,6 +1,10 @@
 # Handoff: current state
 
-Updated 2026-11-07. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
+Updated 2026-11-11. Repository `jwchr/dale`, site https://jwchr.github.io/dale/. Independent review and merge remain required; API authentication and Pages deployment are separate from app live-data readiness.
+
+## Geometry-validation diagnostic (#113, claim 6736020364)
+- Builder changed from Codex to Claude Code on 2026-11-11 (owner instruction); handoff comment 6787987262. Branch `claude/compassionate-euler-f0stea` from main bba7c06.
+- Preserve-enabled run 42588767683 failed at `geometry-validation` with no way to tell zero matches from an exception. Preparation now prints one allowlisted reason and fixed-key aggregate counts (no IDs, coordinates, rows or messages); see `ROUTE_DISTANCE.md`. Delivered geometry is unchanged (checked byte-identical against the previous builder on 4,000 synthetic randomized inputs). No run, retry, preparation, deployment or recorder change follows. Full verify, exact CI, independent review and separate operator release remain required.
 
 ## Compact rider controls and Penn-style train board (#113)
 - Corrected779dff3 passed hosted CI and independent full16-file review5823269129 found only countdown-centering issue4510727668: the wrapper was centered but inherited flex-end put short Now/Ahora text17.921875px right of the route center. Scoped align-items:center fixes the actual child; actual per-line glyph and child bounds now cover short and long countdowns in all five skins, EN/ES and phone/enlarged layouts. Existing overflow, clock, touch and keyboard guards remain. This bounded delta requires fresh exact CI and independent delta qualification against the completed full review, not another broad review.

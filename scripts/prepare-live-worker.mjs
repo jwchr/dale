@@ -9,7 +9,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { authenticate, njtRequest } from '../worker/njt-client.ts';
 import { parseDataset } from '../src/domain/dataset.ts';
 import { buildDataset } from './gtfs-lib.mjs';
-import { buildRouteGeometry } from './route-geometry.mjs';
+import { buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic } from './route-geometry.mjs';
 import { addStopCities } from './stop-cities.mjs';
 let phase = 'preflight';
 try {
@@ -46,8 +46,8 @@ try {
   parseDataset(ds);
   if (ds.meta.demo || ds.meta.transcribed || ds.trips.length < 10 || !ds.routes.some((r) => r.shortName === '165T') || !ds.stops.some((s) => s.terminal === 'PABT')) throw new Error('corridor-validation-failed');
   phase = 'geometry-validation';
-  const geometry = buildRouteGeometry(files, ds, sourceSHA256);
-  if (retained && !Object.keys(geometry.trips).length) throw new Error('No matched geometry; do not update an enabled recorder');
+  const { geometry, counts } = buildRouteGeometryWithReport(files, ds, sourceSHA256);
+  if (retained && !Object.keys(geometry.trips).length) throw new GeometryError('no-matched-trips', 'No matched geometry; do not update an enabled recorder', counts);
   mkdirSync(new URL('../worker/generated/', import.meta.url), { recursive: true });
   writeFileSync(new URL('../worker/generated/corridor.json', import.meta.url), retained?.text ?? JSON.stringify(ds));
   writeFileSync(new URL('../worker/generated/route-geometry.json', import.meta.url), JSON.stringify(geometry));
@@ -58,7 +58,9 @@ try {
   }
   if (retained) writeFileSync(new URL('../worker/generated/preservation.json', import.meta.url), JSON.stringify({ v: 1, context: retained.context, identity, checkpoint: retained.checkpoint }), { mode: 0o600 });
   console.log(`Official G2 corridor prepared: ${ds.routes.length} variants, ${ds.trips.length} trips, ${ds.stops.length} stops.`);
-} catch {
+} catch (error) {
+  // Only the allowlisted reason and fixed-key aggregate integers; the error message is never printed.
+  if (error instanceof GeometryError) console.error(`Geometry diagnostic (aggregate counts only): ${JSON.stringify(geometryFailureDiagnostic(error))}`);
   console.error(`Official G2 corridor preparation failed at ${phase}. No credentials, token or response details are logged. Do not deploy.`);
   process.exitCode = 1;
 }
