@@ -122,9 +122,8 @@ function derive(files, ds, sourceSHA256, counts, bump) {
     if (points.at(-1)?.m <= 0 || points.at(-1)?.m > 250000) { bump('shapeLength'); continue; }
     const compact = simplify(points.map(p => [p.lat, p.lon, p.m]));
     totalPoints += compact.length; if (totalPoints > 50000) throw new GeometryError('point-limit', 'Geometry size limit', counts);
-    normalized.set(id, { points, compact });
+    normalized.set(id, { points, compact }); counts.validShapes = normalized.size;
   }
-  counts.validShapes = normalized.size;
   const stops = new Map(ds.stops.map(s => [s.id, s])), times = new Map();
   for (const row of parseCsv(filterCsvByColumn(files['stop_times.txt'], 'trip_id', new Set(wantedTrips.keys())))) {
     const list = times.get(row.trip_id) ?? []; list.push(row); times.set(row.trip_id, list);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Dataset } from '../../src/domain/types';
+import baseline from '../fixtures/route-geometry-baseline.json';
 import { distanceM } from '../../src/domain/direction';
 import {
   buildRouteGeometry, buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic,
@@ -40,10 +41,38 @@ function expectPrivate(diagnostic: unknown) {
   expect(Object.keys(diagnostic as object)).toEqual(['v', 'reason', 'counts']);
 }
 
+type Case = [string, (f: Record<string, string | undefined>, ds: Dataset) => void, Record<string, number>];
+const cases: Case[] = [
+  ['stop times without a measure column', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace(/,shape_dist_traveled|,(0|17|35)(?=\n)/g, ''); },
+    { stopTimeMeasureColumn: 0, tripMissingMeasure: 2 }],
+  ['shapes without a measure column', f => { f['shapes.txt'] = f['shapes.txt']!.replace(/,shape_dist_traveled|,(0|17|35)(?=\n)/g, ''); },
+    { shapeMeasureColumn: 0, shapeInvalidMeasure: 1, validShapes: 0, tripNoShape: 2 }],
+  ['no shapes file', f => { f['shapes.txt'] = undefined; }, { shapesFile: 0, sourceTripRows: 0 }],
+  ['stop measure beyond the shape', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_B,2,17', 'PRIVTRIP_A,PRIVSTOP_B,2,99'); },
+    { tripMeasureOutOfRange: 1, matchedTrips: 1 }],
+  ['stop measure moving backward', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_C,3,35', 'PRIVTRIP_A,PRIVSTOP_C,3,5'); },
+    { tripBackward: 1, matchedTrips: 1 }],
+  ['stop far from its mapped point', (_, ds) => { ds.stops[1]!.lat = B.lat + 0.01; }, { tripStopDistance: 2, matchedTrips: 0 }],
+  ['stop without coordinates', (_, ds) => { delete (ds.stops[1] as { lat?: number }).lat; }, { tripStopCoordinates: 2 }],
+  ['stop order differing from the pattern', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_B,PRIVSTOP_B,2,17', 'PRIVTRIP_B,PRIVSTOP_C,2,17'); },
+    { tripStopMismatch: 1, matchedTrips: 1 }],
+  ['missing stop call', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_B,PRIVSTOP_C,3,35\n', ''); }, { tripCallCount: 1, matchedTrips: 1 }],
+  ['duplicate trip row', f => { f['trips.txt'] += 'r,s,PRIVTRIP_B,Synthetic,0,PRIVSHAPE\n'; }, { sourceTripRows: 3, tripDuplicate: 2, matchedTrips: 1 }],
+  ['unknown pattern', (_, ds) => { ds.trips[0]!.patternId = 'missing'; }, { tripNoPattern: 1, matchedTrips: 1 }],
+  ['single-point shape', f => { f['shapes.txt'] = f['shapes.txt']!.split('\n').slice(0, 2).join('\n') + '\n'; }, { shapeTooFewPoints: 1, tripNoShape: 2 }],
+  ['nonincreasing shape measure', f => { f['shapes.txt'] = f['shapes.txt']!.replace(',2,17', ',2,0'); }, { shapeNonIncreasingMeasure: 1, tripNoShape: 2 }],
+  ['invalid shape coordinate', f => { f['shapes.txt'] = f['shapes.txt']!.replace(`${B.lat},`, '91,'); }, { shapeInvalidCoordinate: 1, tripNoShape: 2 }],
+];
+
+// Serialized output of the PREVIOUS builder (main bba7c06) for these exact inputs, generated once and checked in,
+// so the unchanged-output contract is tested against an independent baseline, not this implementation.
+const BASELINE = baseline as Record<string, string>;
+
 describe('geometry builder report', () => {
   it('returns the same geometry as before plus fixed-key aggregate counts', () => {
     const { geometry, counts } = buildRouteGeometryWithReport(files(), dataset(), SHA);
     expect(geometry).toEqual(buildRouteGeometry(files(), dataset(), SHA));
+    expect(JSON.stringify(geometry)).toBe(BASELINE.accepted);
     expect(Object.keys(geometry.trips)).toEqual(['PRIVTRIP_A', 'PRIVTRIP_B']);
     expect(geometry.trips.PRIVTRIP_A.stopMeters[2]).toBeCloseTo(AB + BC, 0);
     expect(Object.keys(counts)).toEqual([...GEOMETRY_COUNT_KEYS]);
@@ -52,32 +81,11 @@ describe('geometry builder report', () => {
     expect(JSON.stringify(geometry)).not.toContain('matchedTrips');
   });
 
-  type Case = [string, (f: Record<string, string | undefined>, ds: Dataset) => void, Record<string, number>];
-  const cases: Case[] = [
-    ['stop times without a measure column', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace(/,shape_dist_traveled|,(0|17|35)(?=\n)/g, ''); },
-      { stopTimeMeasureColumn: 0, tripMissingMeasure: 2 }],
-    ['shapes without a measure column', f => { f['shapes.txt'] = f['shapes.txt']!.replace(/,shape_dist_traveled|,(0|17|35)(?=\n)/g, ''); },
-      { shapeMeasureColumn: 0, shapeInvalidMeasure: 1, validShapes: 0, tripNoShape: 2 }],
-    ['no shapes file', f => { f['shapes.txt'] = undefined; }, { shapesFile: 0, sourceTripRows: 0 }],
-    ['stop measure beyond the shape', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_B,2,17', 'PRIVTRIP_A,PRIVSTOP_B,2,99'); },
-      { tripMeasureOutOfRange: 1, matchedTrips: 1 }],
-    ['stop measure moving backward', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_C,3,35', 'PRIVTRIP_A,PRIVSTOP_C,3,5'); },
-      { tripBackward: 1, matchedTrips: 1 }],
-    ['stop far from its mapped point', (_, ds) => { ds.stops[1]!.lat = B.lat + 0.01; }, { tripStopDistance: 2, matchedTrips: 0 }],
-    ['stop without coordinates', (_, ds) => { delete (ds.stops[1] as { lat?: number }).lat; }, { tripStopCoordinates: 2 }],
-    ['stop order differing from the pattern', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_B,PRIVSTOP_B,2,17', 'PRIVTRIP_B,PRIVSTOP_C,2,17'); },
-      { tripStopMismatch: 1, matchedTrips: 1 }],
-    ['missing stop call', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_B,PRIVSTOP_C,3,35\n', ''); }, { tripCallCount: 1, matchedTrips: 1 }],
-    ['duplicate trip row', f => { f['trips.txt'] += 'r,s,PRIVTRIP_B,Synthetic,0,PRIVSHAPE\n'; }, { sourceTripRows: 3, tripDuplicate: 2, matchedTrips: 1 }],
-    ['unknown pattern', (_, ds) => { ds.trips[0]!.patternId = 'missing'; }, { tripNoPattern: 1, matchedTrips: 1 }],
-    ['single-point shape', f => { f['shapes.txt'] = f['shapes.txt']!.split('\n').slice(0, 2).join('\n') + '\n'; }, { shapeTooFewPoints: 1, tripNoShape: 2 }],
-    ['nonincreasing shape measure', f => { f['shapes.txt'] = f['shapes.txt']!.replace(',2,17', ',2,0'); }, { shapeNonIncreasingMeasure: 1, tripNoShape: 2 }],
-    ['invalid shape coordinate', f => { f['shapes.txt'] = f['shapes.txt']!.replace(`${B.lat},`, '91,'); }, { shapeInvalidCoordinate: 1, tripNoShape: 2 }],
-  ];
-  it.each(cases)('counts %s without changing what is included', (_, mutate, expected) => {
+  it.each(cases)('counts %s without changing what is included', (name, mutate, expected) => {
     const f = files(), ds = dataset(); mutate(f, ds);
     const before = JSON.stringify(ds), { geometry, counts } = buildRouteGeometryWithReport(f, ds, SHA);
     expect(geometry).toEqual(buildRouteGeometry(f, ds, SHA));
+    expect(JSON.stringify(geometry)).toBe(BASELINE[name]);
     expect(counts).toMatchObject(expected);
     expect(Object.keys(geometry.trips)).toHaveLength(counts.matchedTrips);
     expect(JSON.stringify(ds)).toBe(before);
@@ -102,6 +110,15 @@ describe('geometry failure reasons', () => {
     g['shapes.txt'] = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n' + many.map((_, i) => `PRIVSHAPE${i},${A.lat},${A.lon},1,0\nPRIVSHAPE${i},${B.lat},${B.lon},2,1\n`).join('');
     const shape = geometryFailureDiagnostic(failure(() => buildRouteGeometryWithReport(g, dataset(many), SHA)));
     expect(shape).toMatchObject({ reason: 'shape-limit', counts: { requestedShapes: 257, foundShapes: 257 } }); expectPrivate(shape);
+  });
+  it('keeps the count of shapes completed before the point limit stops the build', () => {
+    // 251 zigzag shapes of 202 points, 200 retained after simplification: 250 fit exactly within 50,000 points, the 251st exceeds it.
+    const ids = Array.from({ length: 251 }, (_, i) => `PRIVTRIP_${i}`), f = files();
+    f['trips.txt'] = 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + ids.map((id, i) => `r,s,${id},Synthetic,0,PRIVSHAPE${i}\n`).join('');
+    f['shapes.txt'] = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n' + ids.map((_, i) => Array.from({ length: 202 }, (_, k) =>
+      `PRIVSHAPE${i},${(A.lat + k * 0.00001).toFixed(6)},${(A.lon + (k % 2) * 0.0002).toFixed(6)},${k + 1},${k}\n`).join('')).join('');
+    const diagnostic = geometryFailureDiagnostic(failure(() => buildRouteGeometryWithReport(f, dataset(ids), SHA)));
+    expect(diagnostic).toMatchObject({ reason: 'point-limit', counts: { requestedShapes: 251, foundShapes: 251, validShapes: 250 } }); expectPrivate(diagnostic);
   });
   it('wraps an internal exception without its message (which can name columns)', () => {
     const f = files(); f['trips.txt'] = 'route_id,service_id,PRIVTRIP_COLUMN,shape_id\n';
