@@ -2,15 +2,23 @@
 
 Owner decisions D58/D59, November 7, 2026, as amended by D64, November 11, 2026. These supersede D38's provider restriction and historical, time-limited Codex substitutions. They do not change product scope, ownership, spending or release authorization.
 
-## Current provider route (D64)
+## Current provider route (D64, D65)
 
-On November 11, 2026, Jeff lifted the Gemini hold: "You may use Gemini anytime you want." Gemini Pro and Gemini 4 Argon are both available through the session's existing connected Gemini access.
+On November 11, 2026, Jeff lifted the Gemini hold: "You may use Gemini anytime you want." Gemini Pro, Gemini 4 Argon and Gemini 4 Carbon are available through the session's existing connected Gemini key (verified 2026-11-11: `gemini-pro-latest`, `gemini-4-argon`, `gemini-4-carbon`).
 
-- Routine changes use CodeRabbit.
-- High-risk changes use an independent non-author reviewer: Gemini (Gemini 4 Argon or Gemini Pro), or the existing non-author Codex reviewer when it is available.
-- Codex is currently unavailable; Jeff expects it back in about three days (his estimate, around November 14). While Codex is unavailable, use Gemini. Once Codex is back, the builder may choose either Codex or Gemini for a high-risk review.
-- The builder may call Gemini directly to obtain an independent review at any time. Dispatching a review does not make the builder the reviewer: the author still never approves, accepts its own findings responses, or merges.
-- No mandatory two-provider review and no retrospective Gemini rerun of a properly qualified review. No paid upgrade, credits, new worker, timer, review add-on or service.
+CodeRabbit reviews every PR. Each PR also gets one independent Gemini review, tiered by risk (D65):
+
+| Tier | Model | Changes |
+| --- | --- | --- |
+| Easy | Gemini Pro (`gemini-pro-latest`) | Wording, layout, styling, tests, docs and small local refactors with none of the risks below |
+| Harder | Gemini 4 Argon (`gemini-4-argon`) | Data pipeline, CI workflows, bus-lock and gate logic, review-policy text, sample/live integrity, release-path logging, and any unclear or mixed risk |
+| Most serious | Gemini 4 Carbon (`gemini-4-carbon`) | Secrets, credentials or permissions; production deploy or rollback; the private history recorder and its storage (writes, deletes, cleanup); rider privacy or location; anything hard to undo; material architecture |
+
+- When unsure between two tiers, use the higher one. If a model is unavailable or out of quota, move up a tier, never down, and say so on the PR.
+- Every finding is a claim to check against the code before acting on it. This matters most for Carbon, which one independent report found more prone to unsupported factual claims than Argon.
+- Codex is currently unavailable; Jeff expects it back in about three days (his estimate, around November 14). Once it is back, the builder may use the existing non-author Codex reviewer in place of the Argon or Carbon tier.
+- The builder may call Gemini directly at any time. Dispatching a review does not make the builder the reviewer: the author still never approves, accepts its own findings responses, or merges. Record the model, response id, head/base and a hash of the exact diff sent on the PR.
+- No mandatory extra provider beyond the above, and no retrospective rerun of a properly qualified review. No paid upgrade, credits, new worker, timer, review add-on or service.
 
 The earlier D59 hold ("don't let anyone use Gemini until I say it's ok") and its reservation of the next Gemini use for other projects no longer apply.
 
@@ -20,8 +28,8 @@ The existing non-author reviewer/release operator verifies and records the risk 
 
 | Class | Examples | Qualifying independent reviewer |
 | --- | --- | --- |
-| Routine | Bounded presentation, copy, ordinary tests or local refactoring without the risks below | CodeRabbit's actual GitHub App review |
-| High-risk | Review policy/gates, workflows, security, permissions, secrets, privacy, data writes, destructive behavior, migrations, release automation, native/background location safety, sample/live integrity or material architecture | Authenticated Gemini (Gemini 4 Argon or Gemini Pro), or the existing non-author Codex reviewer when available |
+| Routine | Bounded presentation, copy, ordinary tests or local refactoring without the risks below | CodeRabbit's actual GitHub App review, plus Gemini Pro |
+| High-risk | Review policy/gates, workflows, security, permissions, secrets, privacy, data writes, destructive behavior, migrations, release automation, native/background location safety, sample/live integrity or material architecture | CodeRabbit plus Gemini 4 Argon, or Gemini 4 Carbon for the most serious changes (see tiers above); the existing non-author Codex reviewer may take either slot when available |
 
 PR #108 is proposed high-risk because it combines local location/timer behavior, sample-versus-live boundaries and this review-policy migration. The non-author operator must confirm that classification. A small policy or safety change is still high-risk.
 
@@ -29,7 +37,7 @@ PR #108 is proposed high-risk because it combines local location/timer behavior,
 
 Dale uses the existing reviewer and separate release operator; it has no automatic review-to-merge gate or unattended merger. GitHub Actions still runs the complete repository checks and publishes main to Pages. Neither Actions success nor this policy grants the author merge authority.
 
-`.coderabbit.yaml` disables automatic opening/push reviews and automatic approvals. After independently confirming routine risk and review readiness, the operator requests **one** `@coderabbitai full review` on the PR. Inspect whether an equivalent current review is already running or complete first. Do not dispatch CodeRabbit for a high-risk PR just to duplicate its selected review. For an already-open PR that began under automatic settings, the operator/builder can post `@coderabbitai pause` before another push; verify the bot's acknowledgment. This prevents duplicate generation, not required review.
+`.coderabbit.yaml` disables automatic opening/push reviews and automatic approvals. Once a PR is ready for review, the builder or operator requests **one** `@coderabbitai full review` on it, whatever its risk class (D65). Inspect whether an equivalent current review is already running or complete first. For an already-open PR that began under automatic settings, the operator/builder can post `@coderabbitai pause` before another push; verify the bot's acknowledgment. This prevents duplicate generation, not required review.
 
 Manual review remains available with automatic reviews paused or disabled. No path exclusions are configured here. If provider defaults skip files, explicitly qualify coverage before release. Bot-generated copy must not silently change the approved PR scope. No autofix, approval or bulk-resolution command is part of this process; findings go back to the sole builder.
 
