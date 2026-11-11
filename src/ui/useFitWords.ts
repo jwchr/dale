@@ -9,11 +9,12 @@ const FIT_MARGIN_PX = 2;
 /** Shrink each sign name inside the container just enough that every word fits on one line (owner
  * request 2026-11-11: "HACKEN / SACK" must not split). Sets `--sign-fit` on each `.highway-name`
  * (unset when it already fits), so every name stays as large as it can (owner request 2026-11-09).
- * CSS multiplies the normal font size by it. Re-fits on resize, enlarged text and once web fonts settle. */
-export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string) {
+ * CSS multiplies the normal font size by it. Re-fits on resize, enlarged text and once web fonts settle.
+ * `visible` must change whenever the container mounts again (for example after Edit, then Done). */
+export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, visible = true) {
   useLayoutEffect(() => {
     const container = ref.current;
-    if (!container) return;
+    if (!visible || !container) return;
     const keyOf = () => `${[...container.querySelectorAll('.highway-name')].map(n => n.getBoundingClientRect().width).join(',')}|${getComputedStyle(document.documentElement).fontSize}`;
     let lastKey = '';
     const fit = () => {
@@ -48,5 +49,5 @@ export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string) {
     document.fonts?.ready.then(refit).catch(() => undefined);
     window.addEventListener('resize', refit);
     return () => { observer?.disconnect(); window.removeEventListener('resize', refit); };
-  }, [ref, texts]);
+  }, [ref, texts, visible]);
 }

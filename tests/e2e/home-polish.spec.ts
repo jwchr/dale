@@ -17,6 +17,7 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('.dep').first()).toBeVisible();
     await expect(page.locator('.top .top-slogan')).toHaveText(t.appTagline);
+    await expect(page.locator('.photo-backdrop')).toBeAttached();
     const layout = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const mode = box('.home-toolbar .travel-mode'), find = box('.home-toolbar .find-stop');
@@ -36,4 +37,25 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     expect(layout.words.every(lines => lines === 1), detail).toBe(true);
     expect(layout.photo, detail).toBe('50% 45%');
   }
+});
+
+// The signs unmount while editing; the new ones must be fitted again after Done (CodeRabbit, PR #141).
+test('city names stay whole after Edit, then Done', async ({ page }) => {
+  await page.addInitScript(({ favorites }) => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', theme: 'light', skin: 'garden' }));
+    localStorage.setItem('arriba.favorites.v1', JSON.stringify(favorites));
+  }, { favorites });
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
+  // At 390px the paired signs are narrow, so HACKENSACK fits whole only if the new signs were fitted.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
+    text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'),
+    lines: [...node.querySelectorAll('.sign-word')].map(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size),
+  })));
+  expect(names.some(name => name.fit !== ''), JSON.stringify(names)).toBe(true);
+  expect(names.every(name => name.lines.every(lines => lines === 1)), JSON.stringify(names)).toBe(true);
 });

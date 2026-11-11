@@ -688,10 +688,11 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
   const origin = commutePlace(from, stopName(fromId), !!ds.meta.transcribed, t, verifiedCities);
   const destination = leg && commutePlace(to, stopName(leg.toStopId), !!ds.meta.transcribed, t, verifiedCities);
   const places = useRef<HTMLDivElement>(null);
-  useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`);
   const fullLeg = title || `${stopName(fromId)} → ${stopName(rev ? fav.fromStopId : fav.toStopId)}`;
   // Saved from the real schedule but opened on the demo (or the schedule changed): say which, plainly.
   const missing = !ds.stops.some((s) => s.id === fav.fromStopId) || !ds.stops.some((s) => s.id === fav.toStopId);
+  // The signs unmount while editing; re-fit the new ones after Done.
+  useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`, !editing && !missing);
   if (missing && !editing) {
     return (
       <article className="card fav fav-missing" aria-label={t.savedCommute}>

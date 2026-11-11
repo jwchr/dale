@@ -17,7 +17,9 @@
 .highway-sign.city-control { inline-size: auto; }
 /* Both pieces size the same row: a longer translated tag grows the sign intrinsically. */
 .highway-label { grid-area: 1 / 1; justify-self: start; align-self: center; writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
-.highway-name { grid-area: 1 / 1; display: block; margin-inline: calc(.66rem + 5px); min-inline-size: 0; text-align: center; font-size: calc(clamp(.85rem, .25rem + 4vw, 2rem) * var(--sign-fit, 1)); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+/* Owner request 2026-11-11: centred in the green space beside the From/To tag, not across the whole face.
+   Start margin = tag width (.66rem + 4px) + the same 7px gap the end has (3px padding + 4px). */
+.highway-name { grid-area: 1 / 1; display: block; margin-inline: calc(.66rem + 11px) 4px; min-inline-size: 0; text-align: center; font-size: calc(clamp(.85rem, .25rem + 4vw, 2rem) * var(--sign-fit, 1)); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
 /* Stacked below 18rem, where paired signs are too narrow for a name like HACKENSACK to stay whole and readable. */
 @container commute (max-width: 18rem) {
   .commute-places { grid-template-columns: minmax(0, 1fr); }

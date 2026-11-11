@@ -82,7 +82,10 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         }
         const words = [...node.querySelectorAll('.sign-word')].map(word => ({ lines: new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size, width: [...word.querySelectorAll('.sign-word-part')].reduce((sum, part) => sum + part.getBoundingClientRect().width, 0) }));
         return { fontSize: parseFloat(getComputedStyle(node).fontSize), fitted: (node as HTMLElement).style.getPropertyValue('--sign-fit') !== '', fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), available: node.getBoundingClientRect().width, words,
-          offsets: [...lines.values()].map(line => Math.abs((line.left + line.right - box.left - box.right) / 2)) };
+          // Owner request 2026-11-11: centred in the green space between the From/To tag and the sign's inner edge.
+          offsets: (() => { const tag = node.parentElement!.querySelector('.highway-label')!.getBoundingClientRect();
+            const inner = box.right - parseFloat(getComputedStyle(node.closest('.highway-sign')!).borderRightWidth);
+            return [...lines.values()].map(line => Math.abs((line.left + line.right - tag.right - inner) / 2)); })() };
       }));
       for (const name of names) {
         const detail = JSON.stringify({ width, scale, font, name });
