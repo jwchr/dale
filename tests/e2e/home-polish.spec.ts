@@ -71,3 +71,26 @@ test('city names stay whole after Edit, then Done', async ({ page }) => {
   expect(names.some(name => name.fit !== ''), JSON.stringify(names)).toBe(true);
   expect(names.every(name => name.lines.every(lines => lines === 1)), JSON.stringify(names)).toBe(true);
 });
+
+// GitHub's test machine renders in DejaVu Sans, which is wider than this sandbox's default font: Spanish
+// "Autobús / Tren" plus "Buscar parada" must still share one row at 305px (the 320px phone with a scrollbar).
+test('Spanish toolbar stays on one row in a wide font at 305px', async ({ page }) => {
+  await page.addInitScript(({ favorites }) => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'es', theme: 'light', skin: 'garden' }));
+    localStorage.setItem('arriba.favorites.v1', JSON.stringify(favorites));
+  }, { favorites });
+  await page.setViewportSize({ width: 305, height: 800 });
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await page.addStyleTag({ content: `.home-toolbar, .home-toolbar * { font-family: 'DejaVu Sans' !important; }` });
+  const row = await page.evaluate(() => {
+    const mode = document.querySelector('.home-toolbar .travel-mode')!.getBoundingClientRect(), find = document.querySelector('.home-toolbar .find-stop')!;
+    const controls = [find, ...document.querySelectorAll('.home-toolbar .travel-mode button')];
+    return { font: getComputedStyle(find).fontFamily, dy: Math.abs(find.getBoundingClientRect().top - mode.top), height: find.getBoundingClientRect().height,
+      overflow: controls.some(control => control.scrollWidth > control.clientWidth + 1) };
+  });
+  expect(row.font, JSON.stringify(row)).toContain('DejaVu Sans');
+  expect(row.dy, JSON.stringify(row)).toBeLessThan(2);
+  expect(row.height, JSON.stringify(row)).toBeGreaterThanOrEqual(44);
+  expect(row.overflow, JSON.stringify(row)).toBe(false);
+});

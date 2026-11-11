@@ -358,7 +358,7 @@ main { flex: 1; padding-bottom: 24px; }
 .home-toolbar > .travel-mode { flex: 0 0 calc(50% - 3px); min-width: min-content; }
 .home-toolbar > .find-stop { flex: 1 1 0; }
 /* Buttons never shrink below their label; if Spanish or large text needs more room, the toggle takes it. */
-.home-toolbar .travel-mode button { flex: 1 1 0; min-width: max-content; gap: 4px; padding: 6px; font-size: .875rem; }
+.home-toolbar .travel-mode button { flex: 1 1 0; min-width: max-content; gap: 4px; padding: 6px 4px; font-size: .875rem; }
 .home-toolbar .travel-mode svg { width: 25px; height: 20px; }
 .home-toolbar .find-stop { min-width: min(100%, 4.5rem); padding: 6px 8px; font-size: .875rem; }
 .favorites-tools { justify-content: flex-end; }
