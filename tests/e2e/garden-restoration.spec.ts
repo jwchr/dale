@@ -63,9 +63,10 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
           return [...range.getClientRects()].filter(rect => rect.width > 0).map(box);
         });
         const splitWords: string[] = [];
+        // Every text node: React renders "· " and the time as separate nodes.
         for (const node of header.querySelectorAll('.top-version > .nowrap')) {
-          const text = node.firstChild!; const value = text.textContent!;
-          for (const match of value.matchAll(/\S+/g)) {
+          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) for (const match of text.textContent!.matchAll(/\S+/g)) {
             const range = document.createRange(); range.setStart(text, match.index!); range.setEnd(text, match.index! + match[0].length);
             if ([...range.getClientRects()].filter(rect => rect.width > 0).length !== 1) splitWords.push(match[0]);
           }
@@ -74,7 +75,8 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         const result = { font, wordmark, settings, lines, splitWords, height: header.getBoundingClientRect().height,
           touches: lines.filter(line => overlaps(line, wordmark) || overlaps(line, settings)).length,
           outside: lines.filter(line => line.left < 0 || line.right > innerWidth).length,
-          sameRow: lines.every(line => line.top < wordmark.bottom && line.bottom > wordmark.top) };
+          sameRow: lines.every(line => line.top < wordmark.bottom && line.bottom > wordmark.top),
+          settingsBesideWordmark: settings.top < wordmark.bottom };
         document.body.style.fontFamily = '';
         return result;
       }, font);
@@ -86,6 +88,8 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         expect(header.outside, detail).toBe(0);
         expect(header.splitWords, detail).toEqual([]);
         expect(header.height, detail).toBeLessThanOrEqual(900 * 0.25);
+        // Settings never drops onto a row of its own; the stamp moves instead.
+        expect(header.settingsBesideWordmark, detail).toBe(true);
         // Normal text keeps the approved single-row header.
         if (scale === 100) expect(header.sameRow, detail).toBe(true);
       }
