@@ -546,7 +546,8 @@ main { flex: 1; padding-bottom: 24px; }
 
 .top { gap: 6px; flex-wrap: wrap; align-items: start; }
 
-.top .top-version { flex: 1 1 0; min-width: 0; align-self: center; }
+/* At enlarged text in wide fonts, move the version stamp to its own row instead of breaking it letter by letter. */
+.top .top-version { flex: 1 1 0; min-width: min(100%, 6.5em); align-self: center; }
 .top.rail-header .top-version { min-width: 4.5em; }
 
 .route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }
