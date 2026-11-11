@@ -18,6 +18,9 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     await expect(page.locator('.dep').first()).toBeVisible();
     await expect(page.locator('.top .top-slogan')).toHaveText(t.appTagline);
     await expect(page.locator('.photo-backdrop')).toBeAttached();
+    // Both city signs must be on screen before their sizes and lines are compared.
+    await expect(page.locator('.highway-name')).toHaveCount(2);
+    for (const name of await page.locator('.highway-name').all()) await expect(name).toBeVisible();
     const layout = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const mode = box('.home-toolbar .travel-mode'), find = box('.home-toolbar .find-stop');
@@ -56,6 +59,8 @@ test('city names stay whole after Edit, then Done', async ({ page }) => {
   await expect(page.locator('.dep').first()).toBeVisible();
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('.highway-name')).toHaveCount(2);
+  for (const name of await page.locator('.highway-name').all()) await expect(name).toBeVisible();
   // At 390px the paired signs are narrow, so HACKENSACK fits whole only if the new signs were fitted.
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
