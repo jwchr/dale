@@ -1,6 +1,6 @@
 # Review and release policy
 
-Owner decisions D58/D59, November 7, 2026, as amended by D64, November 11, 2026. These supersede D38's provider restriction and historical, time-limited Codex substitutions. They do not change product scope, ownership, spending or release authorization.
+Owner decisions D58/D59, November 7, 2026, as amended by D64 and D65, November 11, 2026. These supersede D38's provider restriction and historical, time-limited Codex substitutions. They do not change product scope, ownership, spending or release authorization.
 
 ## Current provider route (D64, D65)
 
