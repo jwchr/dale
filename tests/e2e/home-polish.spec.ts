@@ -37,6 +37,8 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     expect(layout.markSize, detail).toBeGreaterThanOrEqual(25);
     expect(layout.centerGap, detail).toBeLessThanOrEqual(1);
     // HACKENSACK and NEW YORK each on one line, at the same size (owner requests 2026-11-11).
+    expect(layout.words.length, detail).toBe(2);
+    expect(layout.signSizes.length, detail).toBe(2);
     expect(layout.words.every(lines => lines === 1), detail).toBe(true);
     expect(Math.max(...layout.signSizes) - Math.min(...layout.signSizes), detail).toBeLessThan(0.1);
     expect(layout.photo, detail).toBe('50% 45%');
@@ -60,6 +62,7 @@ test('city names stay whole after Edit, then Done', async ({ page }) => {
     text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'),
     lines: [new Set([...node.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size],
   })));
+  expect(names.map(name => name.text), JSON.stringify(names)).toEqual(['Hackensack', 'New York']);
   expect(names.some(name => name.fit !== ''), JSON.stringify(names)).toBe(true);
   expect(names.every(name => name.lines.every(lines => lines === 1)), JSON.stringify(names)).toBe(true);
 });

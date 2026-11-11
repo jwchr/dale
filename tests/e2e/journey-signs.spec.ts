@@ -48,7 +48,12 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     const reverse = page.getByRole('button', { name: t.reverse, exact: true });
     for (const [width, scale, font] of [[390, 100, ''], [305, 100, ''], [320, 130, ''], [320, 200, ''], [320, 130, 'Verdana']] as const) {
       await page.setViewportSize({ width, height: 850 });
-      await page.evaluate(({ scale, font }) => { document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font; }, { scale, font });
+      await page.evaluate(({ scale, font }) => {
+        document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font;
+        // Sign names declare their own font, so the wide-font case must reach them directly.
+        document.getElementById('sign-font')?.remove();
+        if (font) document.head.append(Object.assign(document.createElement('style'), { id: 'sign-font', textContent: `.highway-name { font-family: ${font} !important; }` }));
+      }, { scale, font });
       // Sign names re-fit in a ResizeObserver callback, which runs before the next paint: measure what a rider sees.
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const geometry = await page.locator('.commute-header').evaluate(header => {
@@ -112,7 +117,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
       await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}${font ? '-' + font : ''}.png` });
     }
-    await page.evaluate(() => { document.body.style.fontFamily = ''; document.documentElement.style.fontSize = '200%'; });
+    await page.evaluate(() => { document.body.style.fontFamily = ''; document.getElementById('sign-font')?.remove(); document.documentElement.style.fontSize = '200%'; });
     await expect(left.locator('.highway-name')).toMatchAriaSnapshot('- strong: Hackensack');
     await expect(right.locator('.highway-name')).toMatchAriaSnapshot(`- strong: ${t.commuteNewYork}`);
     await trigger.scrollIntoViewIfNeeded();
