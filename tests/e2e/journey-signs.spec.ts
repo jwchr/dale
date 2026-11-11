@@ -202,7 +202,7 @@ test('a long stop name without a town wraps between words and keeps the shared s
   await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
-  await page.goto('/?live=1');
+  await page.goto('/?live=1&now=2026-11-04T07:20');
   await expect(page.locator('.dep').first()).toBeVisible();
   await expect(page.locator('[data-end="from"] .highway-name')).toHaveText(from.name);
   for (const width of [390, 674]) {
@@ -210,6 +210,8 @@ test('a long stop name without a town wraps between words and keeps the shared s
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
       text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), fontSize: parseFloat(getComputedStyle(node).fontSize),
+      inside: (() => { const sign = node.closest('.highway-sign')!.getBoundingClientRect();
+        return [...node.querySelectorAll('.sign-word-part')].every(part => { const r = part.getBoundingClientRect(); return r.left >= sign.left - 0.5 && r.right <= sign.right + 0.5; }); })(),
       lines: new Set([...node.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size,
       splitWords: [...node.querySelectorAll('.sign-word')].filter(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size > 1).length,
     })));
@@ -218,5 +220,8 @@ test('a long stop name without a town wraps between words and keeps the shared s
     expect(Math.abs(names[0].fontSize - names[1].fontSize), detail).toBeLessThan(0.1);
     expect(names.every(name => name.fit !== '0.6' && name.splitWords === 0), detail).toBe(true);
     expect(names[1].lines, detail).toBe(1);
+    // The long name really wraps between words at 390px, and every line stays inside its sign.
+    if (width === 390) expect(names[0].lines, detail).toBeGreaterThan(1);
+    expect(names.every(name => name.inside), detail).toBe(true);
   }
 });
