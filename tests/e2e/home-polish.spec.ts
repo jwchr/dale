@@ -83,6 +83,13 @@ test('Spanish toolbar stays on one row in a wide font at 305px', async ({ page }
   await page.goto('/?printed=1&now=2026-11-04T07:50');
   await expect(page.locator('.dep').first()).toBeVisible();
   await page.addStyleTag({ content: `.home-toolbar, .home-toolbar * { font-family: 'DejaVu Sans' !important; }` });
+  // A missing font falls back silently: if DejaVu Sans is really installed, the serif and monospace fallbacks never show.
+  const installed = await page.evaluate(() => {
+    const width = (family: string) => { const probe = document.createElement('span'); probe.style.cssText = `position:absolute;visibility:hidden;font:16px ${family}`;
+      probe.textContent = 'Buscar parada Autobús Tren'; document.body.append(probe); const w = probe.getBoundingClientRect().width; probe.remove(); return w; };
+    return Math.abs(width("'DejaVu Sans', serif") - width("'DejaVu Sans', monospace")) < 0.5 && Math.abs(width('serif') - width('monospace')) > 1;
+  });
+  expect(installed, 'DejaVu Sans must be installed for this check').toBe(true);
   const row = await page.evaluate(() => {
     const mode = document.querySelector('.home-toolbar .travel-mode')!.getBoundingClientRect(), find = document.querySelector('.home-toolbar .find-stop')!;
     const controls = [find, ...document.querySelectorAll('.home-toolbar .travel-mode button')];
