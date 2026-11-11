@@ -28,4 +28,4 @@ At250% image width, the clipped frame admits only the left40% of the source imag
 - Invalid time or failed image: retain a solid background, readable stop details/sign and translated failure message. Switching artwork allows recovery. Scene choice stays in this component's memory and resets for a different boarding/destination leg; no new storage key, GPS, upload or background work.
 - Existing skins, forced colors and305px/130% text remain supported. Image failure must never hide the stop information.
 
-Broader #106 bilingual learning overlays, personal uploads, opening slogans and #94 camera scanning are outside this slice. Review routing follows the existing `REVIEW_POLICY.md`; the non-author operator classifies the actual final diff before selecting one qualifying reviewer. Gemini remains held until Jeff explicitly releases it.
+Broader #106 bilingual learning overlays, personal uploads, opening slogans and #94 camera scanning are outside this slice. Review and merging follow `CLAUDE.md`, section "How we work".
