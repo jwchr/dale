@@ -1,14 +1,18 @@
 # Review and release policy
 
-Owner decisions D58/D59, November 7, 2026. These supersede D38's provider restriction and historical, time-limited Codex substitutions. They do not change product scope, ownership, spending or release authorization.
+Owner decisions D58/D59, November 7, 2026, as amended by D64, November 11, 2026. These supersede D38's provider restriction and historical, time-limited Codex substitutions. They do not change product scope, ownership, spending or release authorization.
 
-## Current provider hold
+## Current provider route (D64)
 
-Jeff explicitly said: "don't let anyone use Gemini until I say it's ok."
+On November 11, 2026, Jeff lifted the Gemini hold: "You may use Gemini anytime you want." Gemini Pro and Gemini 4 Argon are both available through the session's existing connected Gemini access.
 
-Do not call Gemini, retry a staged request, poll its availability or automatically resume at a quota reset. Only Jeff's explicit release ends this hold. Preserve existing packets and results without starting another generation. Gemini's next authorized use is reserved for the Snowboard and autonomous-foundation plan/architecture reviews; those final decisions still wait for Jeff's release and their required Gemini review.
+- Routine changes use CodeRabbit.
+- High-risk changes use an independent non-author reviewer: Gemini (Gemini 4 Argon or Gemini Pro), or the existing non-author Codex reviewer when it is available.
+- Codex is currently unavailable; Jeff expects it back in about three days (his estimate, around November 14). While Codex is unavailable, use Gemini. Once Codex is back, the builder may choose either Codex or Gemini for a high-risk review.
+- The builder may call Gemini directly to obtain an independent review at any time. Dispatching a review does not make the builder the reviewer: the author still never approves, accepts its own findings responses, or merges.
+- No mandatory two-provider review and no retrospective Gemini rerun of a properly qualified review. No paid upgrade, credits, new worker, timer, review add-on or service.
 
-During this hold, routine Dale changes use CodeRabbit and high-risk implementation uses the **existing independent non-author Codex reviewer**. There is no requirement for a second provider or a retrospective Gemini rerun of a properly qualified implementation review. No new worker, timer, paid API, review add-on or service is authorized.
+The earlier D59 hold ("don't let anyone use Gemini until I say it's ok") and its reservation of the next Gemini use for other projects no longer apply.
 
 ## Classify before dispatch
 
@@ -17,7 +21,7 @@ The existing non-author reviewer/release operator verifies and records the risk 
 | Class | Examples | Qualifying independent reviewer |
 | --- | --- | --- |
 | Routine | Bounded presentation, copy, ordinary tests or local refactoring without the risks below | CodeRabbit's actual GitHub App review |
-| High-risk | Review policy/gates, workflows, security, permissions, secrets, privacy, data writes, destructive behavior, migrations, release automation, native/background location safety, sample/live integrity or material architecture | Authenticated Gemini 4 Argon; existing non-author Codex while the explicit owner hold above applies |
+| High-risk | Review policy/gates, workflows, security, permissions, secrets, privacy, data writes, destructive behavior, migrations, release automation, native/background location safety, sample/live integrity or material architecture | Authenticated Gemini (Gemini 4 Argon or Gemini Pro), or the existing non-author Codex reviewer when available |
 
 PR #108 is proposed high-risk because it combines local location/timer behavior, sample-versus-live boundaries and this review-policy migration. The non-author operator must confirm that classification. A small policy or safety change is still high-risk.
 
