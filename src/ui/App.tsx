@@ -5,6 +5,7 @@ import { AppHeader } from './AppHeader';
 import { changeFavoriteStops } from '../domain/cityStops';
 import { CommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
+import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
@@ -360,7 +361,8 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
       <AppHeader rail={screen.name === 'penn'}>
         {screen.name !== 'home' && screen.name !== 'penn' && <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>}
         {(screen.name === 'home' || screen.name === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
-        <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
+        {/* Owner request 2026-11-11: the slogan fills the space beside the wordmark; the build stamp stays up top, small. */}
+        <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="top-slogan">{t.appTagline}</span><span className="top-stamp"><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span></span>
         {/* Trailing controls wrap as one group, so settings never ends up alone on a row. */}
         <span className="top-actions">
           {screen.name === 'penn' ? (
@@ -532,7 +534,9 @@ function versionShort(lang: Lang, tz: string): [string, string] {
   if (!Number.isFinite(built)) return [`v${__DALE_VERSION__}`, ''];
   const d = localYmd(built, tz);
   const day = lang === 'es' ? `${+d.slice(6, 8)}/${+d.slice(4, 6)}` : `${+d.slice(4, 6)}/${+d.slice(6, 8)}`;
-  return [`v${__DALE_VERSION__}`, `${day} ${formatTime12(built, tz, lang)}`];
+  // Owner request 2026-11-11: "7:57 am" in lower case, and the time never splits from its am/pm.
+  const time = formatTime12(built, tz, lang).replace(/ (AM|PM)$/, (_, half: string) => ` ${half.toLowerCase()}`).replace(/ /g, '\u00a0');
+  return [`v${__DALE_VERSION__}`, `${day} ${time}`];
 }
 
 function versionLine(t: Strings, lang: Lang, tz: string): string {
@@ -683,9 +687,12 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
   const verifiedCities = ds.meta.stopCities?.state === 'verified';
   const origin = commutePlace(from, stopName(fromId), !!ds.meta.transcribed, t, verifiedCities);
   const destination = leg && commutePlace(to, stopName(leg.toStopId), !!ds.meta.transcribed, t, verifiedCities);
+  const places = useRef<HTMLDivElement>(null);
   const fullLeg = title || `${stopName(fromId)} → ${stopName(rev ? fav.fromStopId : fav.toStopId)}`;
   // Saved from the real schedule but opened on the demo (or the schedule changed): say which, plainly.
   const missing = !ds.stops.some((s) => s.id === fav.fromStopId) || !ds.stops.some((s) => s.id === fav.toStopId);
+  // The signs unmount while editing; re-fit the new ones after Done.
+  useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`, !editing && !missing);
   if (missing && !editing) {
     return (
       <article className="card fav fav-missing" aria-label={t.savedCommute}>
@@ -707,7 +714,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
         ) : <>
           {customName ? <div className="commute-sign"><h2 className="commute-led">{fav.label}</h2></div>
             : <h2 className="sr-only">{fullLeg}</h2>}
-          <div className="commute-places">
+          <div className="commute-places" ref={places}>
             <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
             <button ref={reverseButton} className="commute-reverse" aria-label={t.reverse} aria-pressed={rev} onClick={reverseTrip}>
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>

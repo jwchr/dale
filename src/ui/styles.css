@@ -59,7 +59,7 @@ main { flex: 1; padding-bottom: 24px; }
 /* Flush with the top edge, so nothing scrolls into view above it. */
 .top { display: flex; justify-content: space-between; align-items: center; padding: calc(8px + env(safe-area-inset-top)) 16px 8px; margin: 0 -16px 8px; position: sticky; top: 0; z-index: 2;
   background: var(--glass-strong); border-bottom: 1px solid var(--glass-edge); border-radius: 0 0 18px 18px; box-shadow: var(--glass-shadow); }
-.wordmark { font-weight: 900; letter-spacing: 0.08em; font-size: 1.35rem; color: var(--brand-text); }
+.wordmark { font-weight: 900; letter-spacing: 0.08em; font-size: min(1.6rem, 12cqi); line-height: 1.1; color: var(--brand-text); -webkit-text-stroke: .5px currentColor; display: inline-flex; align-items: center; min-block-size: 44px; }
 .wordmark .bang { color: var(--accent); -webkit-text-stroke: 1px var(--brand); }
 .icon-btn { border: none; background: transparent; font-size: 1.5rem; min-width: 44px; padding: 4px 8px; }
 .data-banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 8px 12px; font-size: 0.85rem; margin-bottom: 8px; }
@@ -106,7 +106,7 @@ main { flex: 1; padding-bottom: 24px; }
 .commute-place { flex: 1 1 8rem; min-width: 0; }
 .highway-sign { padding: 7px 10px 8px; background: #006b47; color: #fff; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 2px 3px #0003; }
 .highway-label { display: block; margin-bottom: 2px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-.highway-name { display: block; font-family: 'Arial Narrow', 'Roboto Condensed', 'Liberation Sans Narrow', sans-serif; font-stretch: condensed; font-size: 1.1rem; font-weight: 700; line-height: 1.15; letter-spacing: 0.025em; text-transform: uppercase; overflow-wrap: anywhere; }
+.highway-name { display: block; font-family: 'Arial Narrow', 'Roboto Condensed', 'Liberation Sans Narrow', sans-serif-condensed, sans-serif; font-stretch: condensed; font-size: 1.1rem; font-weight: 700; line-height: 1.15; letter-spacing: 0.025em; text-transform: uppercase; overflow-wrap: anywhere; }
 .commute-stop { margin: 5px 0 0; padding: 6px 9px; border: 1px solid #34445b; border-radius: 6px; background: #090e15; color: #ffc45a; font-family: ui-monospace, monospace; font-size: 0.85rem; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .commute-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .commute-controls .chip { min-height: 38px; padding: 6px 12px; font-size: 0.9rem; background: var(--glass-strong); border-color: var(--glass-edge); }
@@ -353,9 +353,14 @@ main { flex: 1; padding-bottom: 24px; }
 .travel-mode button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: currentColor; }
 .home-toolbar { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .home-toolbar .travel-mode { margin: 0; gap: 2px; padding: 2px; }
-.home-toolbar .travel-mode button { min-width: 0; gap: 4px; padding: 6px; font-size: .875rem; }
+/* Owner request 2026-11-11: Bus/Train and Find a stop share the row half and half. The toggle takes half, or
+   a little more when its labels need it (Spanish, enlarged text); Find a stop takes the rest. */
+.home-toolbar > .travel-mode { flex: 0 0 calc(50% - 3px); min-width: min-content; }
+.home-toolbar > .find-stop { flex: 1 1 0; }
+/* Buttons never shrink below their label; if Spanish or large text needs more room, the toggle takes it. */
+.home-toolbar .travel-mode button { flex: 1 1 0; min-width: max-content; gap: 4px; padding: 6px 4px; font-size: .875rem; }
 .home-toolbar .travel-mode svg { width: 25px; height: 20px; }
-.home-toolbar .find-stop { flex: 1 1 4rem; min-width: 0; padding: 6px 8px; font-size: .875rem; }
+.home-toolbar .find-stop { min-width: min(100%, 4.5rem); padding: 6px 8px; font-size: .875rem; }
 .favorites-tools { justify-content: flex-end; }
 .travel-mode svg { width: 40px; height: 26px; flex: none; }
 @media (forced-colors: active) { .travel-mode button[aria-pressed="true"] { border-color: Highlight; color: Highlight; } }
@@ -415,7 +420,9 @@ main { flex: 1; padding-bottom: 24px; }
 .schedule-progress { width: 100%; height: 1.1rem; accent-color: #e6a93d; }
 
 /* Which Dale this is, always in view (owner request 2026-11-05). */
-.top-version { margin-left: auto; margin-right: 4px; min-width: 0; max-width: 11em; font-size: 0.72rem; line-height: 1.2; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.top-version { margin-left: auto; margin-right: 4px; min-width: 0; font-size: 0.72rem; line-height: 1.2; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; overflow-wrap: anywhere; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.top-slogan { font-size: min(.8rem, 4.5cqi); font-style: italic; font-weight: 750; line-height: 1.2; color: var(--text); overflow-wrap: normal; }
+.top-stamp { font-size: .62rem; }
 .nowrap { white-space: nowrap; }
 /* Enlarged header metadata must wrap before reaching the settings control. */
 .top-version .nowrap { white-space: normal; }
@@ -547,16 +554,19 @@ main { flex: 1; padding-bottom: 24px; }
 .top { gap: 6px; flex-wrap: wrap; align-items: start; }
 
 /* At enlarged text the version stamp takes its own row below the wordmark and settings, instead of breaking letter
-   by letter or pushing settings onto a row of its own. 14.5rem of header content is just above where the widest
+   by letter or pushing settings onto a row of its own. 16rem of header content is just above where the widest
    tested fallback font (DejaVu Sans) first wraps beside the widest wordmark (Turnpike); the min-width remains a
    fallback for anything wider. Back and settings sit in .top-actions, so if even they cannot fit beside the
    wordmark they move down together. */
 .top { container: top-bar / inline-size; }
 .top .top-version { flex: 1 1 0; min-width: min(100%, 6.5em); align-self: center; }
-@container top-bar (max-width: 14.5rem) { .top .top-version { order: 3; flex-basis: 100%; } }
+@container top-bar (max-width: 16rem) { .top .top-version { order: 3; flex-basis: 100%; } }
 /* The train header also carries Back, so it needs the separate row sooner. */
 @container top-bar (max-width: 17.5rem) { .top.rail-header .top-version { order: 3; flex-basis: 100%; } }
 .top-actions { display: flex; align-items: center; gap: 6px; margin-inline-start: auto; }
+/* Turnpike's boxed wordmark is the widest, so its stamp needs its own row sooner. */
+@container top-bar (max-width: 18.5rem) { :root[data-skin='turnpike'] .top .top-version { order: 3; flex-basis: 100%; } }
+@container top-bar (max-width: 21rem) { :root[data-skin='turnpike'] .top.rail-header .top-version { order: 3; flex-basis: 100%; } }
 .top.rail-header .top-version { min-width: 4.5em; }
 
 .route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }

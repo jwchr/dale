@@ -48,12 +48,21 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     const reverse = page.getByRole('button', { name: t.reverse, exact: true });
     for (const [width, scale, font] of [[390, 100, ''], [305, 100, ''], [320, 130, ''], [320, 200, ''], [320, 130, 'Verdana']] as const) {
       await page.setViewportSize({ width, height: 850 });
-      await page.evaluate(({ scale, font }) => { document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font; }, { scale, font });
+      await page.evaluate(({ scale, font }) => {
+        document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font;
+        // Sign names declare their own font, so the wide-font case must reach them directly.
+        document.getElementById('sign-font')?.remove();
+        if (font) document.head.append(Object.assign(document.createElement('style'), { id: 'sign-font', textContent: `.highway-name { font-family: ${font} !important; }` }));
+      }, { scale, font });
+      // Sign names re-fit in a ResizeObserver callback, which runs before the next paint: measure what a rider sees.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
         return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
       });
-      if (scale === 100) {
+      // Paired side by side where a name like HACKENSACK fits whole (390px at normal text); stacked on narrower
+      // phones and enlarged text (owner request 2026-11-11: city names never split).
+      if (scale === 100 && width >= 390) {
         expect(geometry.left.right).toBeLessThanOrEqual(geometry.reverse.left);
         expect(geometry.reverse.right).toBeLessThanOrEqual(geometry.right.left);
         expect(Math.abs(geometry.left.top - geometry.right.top)).toBeLessThan(1);
@@ -76,12 +85,27 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
           const rect = part.getBoundingClientRect(), y = Math.round(rect.top), line = lines.get(y);
           lines.set(y, { left: Math.min(line?.left ?? Infinity, rect.left), right: Math.max(line?.right ?? -Infinity, rect.right) });
         }
-        return { fontSize: parseFloat(getComputedStyle(node).fontSize), offsets: [...lines.values()].map(line => Math.abs((line.left + line.right - box.left - box.right) / 2)) };
+        const words = [...node.querySelectorAll('.sign-word')].map(word => ({ lines: new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size, width: [...word.querySelectorAll('.sign-word-part')].reduce((sum, part) => sum + part.getBoundingClientRect().width, 0) }));
+        return { fontSize: parseFloat(getComputedStyle(node).fontSize), fitted: (node as HTMLElement).style.getPropertyValue('--sign-fit') !== '', fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), available: node.getBoundingClientRect().width, words, lineWidths: [...lines.values()].map(line => line.right - line.left),
+          // Owner request 2026-11-11: centred in the green space between the From/To tag and the sign's inner edge.
+          offsets: (() => { const tag = node.parentElement!.querySelector('.highway-label')!.getBoundingClientRect();
+            const inner = box.right - parseFloat(getComputedStyle(node.closest('.highway-sign')!).borderRightWidth);
+            return [...lines.values()].map(line => Math.abs((line.left + line.right - tag.right - inner) / 2)); })() };
       }));
       for (const name of names) {
-        expect(name.offsets.every(offset => offset < 2), JSON.stringify({ width, scale, name })).toBe(true);
-        if (width === 390 && scale === 100) expect(name.fontSize).toBeGreaterThanOrEqual(18);
+        const detail = JSON.stringify({ width, scale, font, name });
+        expect(name.offsets.every(offset => offset < 2), detail).toBe(true);
+        // Owner request 2026-11-11: a city name never splits mid-word ("HACKEN / SACK") at normal and moderately enlarged text.
+        // A word may break only when shrinking it to the 0.6 floor still is not enough.
+        if (scale <= 130 && name.fit !== '0.6') expect(name.words.every(word => word.lines === 1), detail).toBe(true);
+        // Owner request 2026-11-11: each city name on one line ("NEW YORK", not "NEW / YORK") unless it is at the 0.6 floor.
+        if (scale <= 130 && name.fit !== '0.6') expect(name.lineWidths.length, detail).toBe(1);
+        if (width === 390 && scale === 100 && !name.fitted) expect(name.fontSize, detail).toBeGreaterThanOrEqual(18);
       }
+      // Owner request 2026-11-11: NEW YORK is the same size as HACKENSACK, and that shared size is as large as the longer name allows.
+      const signDetail = JSON.stringify({ width, scale, font, names });
+      expect(Math.max(...names.map(name => name.fontSize)) - Math.min(...names.map(name => name.fontSize)), signDetail).toBeLessThan(0.1);
+      if (names[0].fitted && names[0].fit !== '0.6' && scale <= 130) expect(Math.max(...names.map(name => Math.max(...name.lineWidths) / name.available)), signDetail).toBeGreaterThanOrEqual(0.9);
       const tags = await page.locator('.highway-label').evaluateAll(nodes => nodes.map(node => {
         const tag = node.getBoundingClientRect(), sign = node.closest('.highway-sign')!.getBoundingClientRect();
         const name = node.parentElement!.querySelector('.highway-name')!.getBoundingClientRect();
@@ -93,7 +117,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
       expect(lines.flat().filter(line => /^\p{L}$/u.test(line)), JSON.stringify({ width, scale, lines })).toEqual([]);
       await page.locator('.commute-header').screenshot({ path: `test-results/journey-${skin}-${lang}-${width}-${scale}${font ? '-' + font : ''}.png` });
     }
-    await page.evaluate(() => { document.body.style.fontFamily = ''; document.documentElement.style.fontSize = '200%'; });
+    await page.evaluate(() => { document.body.style.fontFamily = ''; document.getElementById('sign-font')?.remove(); document.documentElement.style.fontSize = '200%'; });
     await expect(left.locator('.highway-name')).toMatchAriaSnapshot('- strong: Hackensack');
     await expect(right.locator('.highway-name')).toMatchAriaSnapshot(`- strong: ${t.commuteNewYork}`);
     await trigger.scrollIntoViewIfNeeded();
@@ -160,3 +184,44 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     }
   });
 }
+
+// CodeRabbit on PR #141: when the town is unknown the sign shows the whole stop name. It may wrap between
+// words, but it must not drag both signs to the smallest size; NEW YORK keeps the shared size on one line.
+test('a long stop name without a town wraps between words and keeps the shared size readable', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  ds.meta.stopCities = { state: 'verified', source: 'NJ Transit GIS Department', url: STOP_CITY_SOURCE, retrievedAt: '2026-11-04T10:00:00Z' };
+  const from = ds.stops.find(stop => stop.id === '2')!;
+  delete from.city;
+  from.name = 'State Street at Lawrence Street';
+  const favorites = [{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: `${from.name} → ${ds.stops.find(stop => stop.id === '3')!.name}` }];
+  await page.addInitScript(({ favorites }) => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: 'garden', lang: 'en', theme: 'light' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
+  }, { favorites });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', route => route.abort('failed'));
+  await page.goto('/?live=1&now=2026-11-04T07:20');
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await expect(page.locator('[data-end="from"] .highway-name')).toHaveText(from.name);
+  for (const width of [390, 674]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
+      text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), fontSize: parseFloat(getComputedStyle(node).fontSize),
+      inside: (() => { const sign = node.closest('.highway-sign')!.getBoundingClientRect();
+        return [...node.querySelectorAll('.sign-word-part')].every(part => { const r = part.getBoundingClientRect(); return r.left >= sign.left - 0.5 && r.right <= sign.right + 0.5; }); })(),
+      lines: new Set([...node.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size,
+      splitWords: [...node.querySelectorAll('.sign-word')].filter(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size > 1).length,
+    })));
+    const detail = JSON.stringify({ width, names });
+    expect(names.map(name => name.text), detail).toEqual([from.name, 'New York']);
+    expect(Math.abs(names[0].fontSize - names[1].fontSize), detail).toBeLessThan(0.1);
+    expect(names.every(name => name.fit !== '0.6' && name.splitWords === 0), detail).toBe(true);
+    expect(names[1].lines, detail).toBe(1);
+    // The long name really wraps between words at 390px, and every line stays inside its sign.
+    if (width === 390) expect(names[0].lines, detail).toBeGreaterThan(1);
+    expect(names.every(name => name.inside), detail).toBe(true);
+  }
+});

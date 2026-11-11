@@ -17,8 +17,11 @@
 .highway-sign.city-control { inline-size: auto; }
 /* Both pieces size the same row: a longer translated tag grows the sign intrinsically. */
 .highway-label { grid-area: 1 / 1; justify-self: start; align-self: center; writing-mode: vertical-rl; transform: rotate(180deg); margin: 0; padding: 4px 2px; border-radius: 3px; background: #fff; color: #064c33; font-size: .6rem; font-weight: 800; line-height: 1.1; letter-spacing: .08em; }
-.highway-name { grid-area: 1 / 1; display: block; margin-inline: calc(.66rem + 5px); min-inline-size: 0; text-align: center; font-size: clamp(.85rem, .25rem + 4vw, 2rem); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
-@container commute (max-width: 15rem) {
+/* Owner request 2026-11-11: centred in the green space beside the From/To tag, not across the whole face.
+   Start margin = tag width (.66rem + 4px) + the same 7px gap the end has (3px padding + 4px). */
+.highway-name { grid-area: 1 / 1; display: block; margin-inline: calc(.66rem + 11px) 4px; min-inline-size: 0; text-align: center; font-size: calc(clamp(.85rem, .25rem + 4vw, 2rem) * var(--sign-fit, 1)); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+/* Stacked below 18rem, where paired signs are too narrow for a name like HACKENSACK to stay whole and readable. */
+@container commute (max-width: 18rem) {
   .commute-places { grid-template-columns: minmax(0, 1fr); }
   .commute-place[data-end='from'] { grid-column: 1; grid-row: 1 / span 2; }
   .commute-reverse { grid-column: 1; grid-row: 3; justify-self: center; }
@@ -149,7 +152,9 @@
 
 /* Blur/dim only the decorative photo. Foreground surfaces and glyphs stay crisp. */
 .photo-backdrop { position: absolute; inset: -6px; background-size: cover; background-position: center; filter: blur(3px) brightness(.62); }
-.photo-backdrop[data-photo='new-jersey-september-sunset'] { background-size: auto 350%; background-position: 50% 25%; }
+/* Owner request 2026-11-11: keep the sky but show the skyline, homes and the yellow building at the bottom,
+   without the window frame. At least twice the screen height, and always wide enough to cover the width. */
+.photo-backdrop[data-photo='new-jersey-september-sunset'] { background-size: auto max(200%, 216.5vw); background-position: 50% 45%; }
 :root[data-skin='clean'] { background: var(--bg); }
 :root[data-skin='clean'] body { background: transparent; }
 :root[data-skin] main > .trip-selection { background: var(--surface); border-radius: 16px; padding: 12px; }
