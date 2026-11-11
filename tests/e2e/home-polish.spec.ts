@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { strings } from '../../src/ui/i18n';
 
 // Owner requests 2026-11-11 from his phone: half-and-half toolbar, bigger centered wordmark, slogan beside it,
-// whole city names on wide screens, and the September sunset photo showing the skyline at the bottom.
+// whole city names on one line at one size, and the September sunset photo showing the skyline at the bottom.
 const favorites = [{ id: 'reference', label: 'Hackensack → New York', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }];
 test.use({ serviceWorkers: 'block' });
 for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, async ({ page }) => {
@@ -22,10 +22,12 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const mode = box('.home-toolbar .travel-mode'), find = box('.home-toolbar .find-stop');
       const wordmark = document.querySelector('.wordmark')!, mark = wordmark.getBoundingClientRect(), settings = box('.top-actions .icon-btn');
-      const words = [...document.querySelectorAll('.highway-name .sign-word')].map(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size);
+      // Rendered lines per city name, and its font size.
+      const words = [...document.querySelectorAll('.highway-name')].map(name => new Set([...name.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size);
+      const signSizes = [...document.querySelectorAll('.highway-name')].map(name => parseFloat(getComputedStyle(name).fontSize));
       const photo = getComputedStyle(document.querySelector('.photo-backdrop')!);
       return { mode: mode.width, find: find.width, sameRow: Math.abs(mode.top - find.top) < 1, markSize: parseFloat(getComputedStyle(wordmark).fontSize),
-        centerGap: Math.abs((mark.top + mark.bottom) / 2 - (settings.top + settings.bottom) / 2), words, photo: photo.backgroundPosition };
+        centerGap: Math.abs((mark.top + mark.bottom) / 2 - (settings.top + settings.bottom) / 2), words, signSizes, photo: photo.backgroundPosition };
     });
     const detail = JSON.stringify({ width, layout });
     expect(layout.sameRow, detail).toBe(true);
@@ -34,7 +36,9 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     else expect(layout.mode - layout.find, detail).toBeGreaterThanOrEqual(-1);
     expect(layout.markSize, detail).toBeGreaterThanOrEqual(25);
     expect(layout.centerGap, detail).toBeLessThanOrEqual(1);
+    // HACKENSACK and NEW YORK each on one line, at the same size (owner requests 2026-11-11).
     expect(layout.words.every(lines => lines === 1), detail).toBe(true);
+    expect(Math.max(...layout.signSizes) - Math.min(...layout.signSizes), detail).toBeLessThan(0.1);
     expect(layout.photo, detail).toBe('50% 45%');
   }
 });
@@ -54,7 +58,7 @@ test('city names stay whole after Edit, then Done', async ({ page }) => {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
     text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'),
-    lines: [...node.querySelectorAll('.sign-word')].map(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size),
+    lines: [new Set([...node.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size],
   })));
   expect(names.some(name => name.fit !== ''), JSON.stringify(names)).toBe(true);
   expect(names.every(name => name.lines.every(lines => lines === 1)), JSON.stringify(names)).toBe(true);

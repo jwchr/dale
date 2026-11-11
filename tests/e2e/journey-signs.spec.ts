@@ -81,7 +81,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
           lines.set(y, { left: Math.min(line?.left ?? Infinity, rect.left), right: Math.max(line?.right ?? -Infinity, rect.right) });
         }
         const words = [...node.querySelectorAll('.sign-word')].map(word => ({ lines: new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size, width: [...word.querySelectorAll('.sign-word-part')].reduce((sum, part) => sum + part.getBoundingClientRect().width, 0) }));
-        return { fontSize: parseFloat(getComputedStyle(node).fontSize), fitted: (node as HTMLElement).style.getPropertyValue('--sign-fit') !== '', fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), available: node.getBoundingClientRect().width, words,
+        return { fontSize: parseFloat(getComputedStyle(node).fontSize), fitted: (node as HTMLElement).style.getPropertyValue('--sign-fit') !== '', fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), available: node.getBoundingClientRect().width, words, lineWidths: [...lines.values()].map(line => line.right - line.left),
           // Owner request 2026-11-11: centred in the green space between the From/To tag and the sign's inner edge.
           offsets: (() => { const tag = node.parentElement!.querySelector('.highway-label')!.getBoundingClientRect();
             const inner = box.right - parseFloat(getComputedStyle(node.closest('.highway-sign')!).borderRightWidth);
@@ -93,10 +93,14 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         // Owner request 2026-11-11: a city name never splits mid-word ("HACKEN / SACK") at normal and moderately enlarged text.
         // A word may break only when shrinking it to the 0.6 floor still is not enough.
         if (scale <= 130 && name.fit !== '0.6') expect(name.words.every(word => word.lines === 1), detail).toBe(true);
-        // A name that fits stays large (owner request 2026-11-09); one shrunk to fit fills the sign, so it is as large as it can be.
+        // Owner request 2026-11-11: each city name on one line ("NEW YORK", not "NEW / YORK") unless it is at the 0.6 floor.
+        if (scale <= 130 && name.fit !== '0.6') expect(name.lineWidths.length, detail).toBe(1);
         if (width === 390 && scale === 100 && !name.fitted) expect(name.fontSize, detail).toBeGreaterThanOrEqual(18);
-        if (name.fitted && name.fit !== '0.6' && scale <= 130) expect(Math.max(...name.words.map(word => word.width)), detail).toBeGreaterThanOrEqual(name.available * 0.9);
       }
+      // Owner request 2026-11-11: NEW YORK is the same size as HACKENSACK, and that shared size is as large as the longer name allows.
+      const signDetail = JSON.stringify({ width, scale, font, names });
+      expect(Math.max(...names.map(name => name.fontSize)) - Math.min(...names.map(name => name.fontSize)), signDetail).toBeLessThan(0.1);
+      if (names[0].fitted && names[0].fit !== '0.6' && scale <= 130) expect(Math.max(...names.map(name => Math.max(...name.lineWidths) / name.available)), signDetail).toBeGreaterThanOrEqual(0.9);
       const tags = await page.locator('.highway-label').evaluateAll(nodes => nodes.map(node => {
         const tag = node.getBoundingClientRect(), sign = node.closest('.highway-sign')!.getBoundingClientRect();
         const name = node.parentElement!.querySelector('.highway-name')!.getBoundingClientRect();

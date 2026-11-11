@@ -6,10 +6,12 @@ const MIN_FIT = 0.6;
 /** Room left for glyph overhang and sub-pixel rounding. */
 const FIT_MARGIN_PX = 2;
 
-/** Shrink each sign name inside the container just enough that every word fits on one line (owner
- * request 2026-11-11: "HACKEN / SACK" must not split). Sets `--sign-fit` on each `.highway-name`
- * (unset when it already fits), so every name stays as large as it can (owner request 2026-11-09).
- * CSS multiplies the normal font size by it. Re-fits on resize, enlarged text and once web fonts settle.
+/** Shrink the sign names inside the container to one shared size at which every name fits on one
+ * line (owner requests 2026-11-11: "HACKEN / SACK" must not split, and NEW YORK matches HACKENSACK
+ * in size on one line). Sets the same `--sign-fit` on every `.highway-name` (unset when all already
+ * fit), so the names stay as large as the longest one allows. CSS multiplies the normal font size by
+ * it. Below MIN_FIT, names may wrap between words, and a word wider than its sign may still break.
+ * Re-fits on resize, enlarged text and once web fonts settle.
  * `visible` must change whenever the container mounts again (for example after Edit, then Done). */
 export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, visible = true) {
   useLayoutEffect(() => {
@@ -19,24 +21,26 @@ export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, v
     let lastKey = '';
     const fit = () => {
       if (keyOf() === lastKey) return;
-      for (const name of container.querySelectorAll<HTMLElement>('.highway-name')) {
-        name.style.removeProperty('--sign-fit');
-        let scale = 1;
-        // Exact content width; clientWidth rounds, and a word 0.1px wider than its box still wraps.
+      const names = [...container.querySelectorAll<HTMLElement>('.highway-name')];
+      for (const name of names) name.style.removeProperty('--sign-fit');
+      let scale = 1;
+      for (const name of names) {
+        // Exact content width; clientWidth rounds, and a name 0.1px wider than its box still wraps.
         const style = getComputedStyle(name);
         const available = name.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - FIT_MARGIN_PX;
         // A hidden copy inside the sign inherits its font, case and letter spacing, and cannot wrap.
         const probe = document.createElement('span');
         probe.setAttribute('aria-hidden', 'true');
         probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;inset-inline-start:0;top:0';
+        probe.textContent = (name.textContent ?? '').trim().replace(/\s+/g, ' ');
         name.append(probe);
-        for (const word of (name.textContent ?? '').split(/\s+/).filter(Boolean)) {
-          probe.textContent = word;
-          const width = probe.getBoundingClientRect().width;
-          if (available > 0 && width > available) scale = Math.min(scale, available / width);
-        }
+        const width = probe.getBoundingClientRect().width;
         probe.remove();
-        if (scale < 1) name.style.setProperty('--sign-fit', String(Math.max(MIN_FIT, Math.floor(scale * 1000) / 1000)));
+        if (available > 0 && width > available) scale = Math.min(scale, available / width);
+      }
+      if (scale < 1) {
+        const fitValue = String(Math.max(MIN_FIT, Math.floor(scale * 1000) / 1000));
+        for (const name of names) name.style.setProperty('--sign-fit', fitValue);
       }
       // Record the key after fitting, so our own size change does not trigger another pass.
       lastKey = keyOf();

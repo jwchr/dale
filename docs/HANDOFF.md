@@ -3,10 +3,10 @@
 Updated 2026-11-11. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
 
 ## Built and live
-- Public app v0.3.270 (main `acffeba`, Pages deploy succeeded 2026-11-11). Not yet re-checked in a phone browser from this session: the builder's sandbox cannot reach github.io.
+- Public app: main after #141 (2026-11-11). Not yet re-checked in a phone browser from this session: the builder's sandbox cannot reach github.io.
 - Schedule: NJ Transit's printed route 165/165T timetable (owner-supplied PDF, typed in; `data/t0165/transcription.json`, rebuilt by `npm run timetable`). Limits: 20 timepoints per direction, no stop coordinates, no holiday times (warning shown on NJ Transit holidays). The official bus GTFS is reachable but not yet the published schedule (M2).
-- Home: saved commutes in the rider's order with paired From/To city signs (city-first stop chooser), icon Reverse, Leave by / Get me home / See bus stop sign, compact departure cards with route badge and countdown, Port Authority gate labelled posted / usual / printed rule / not confirmed. Five skins (Turnpike, Parkway, NYC night, Garden State, Clean). English and Spanish everywhere; 12-hour times.
-- Top bar: wordmark, version stamp and settings. At large text the stamp takes its own row and settings stays beside the wordmark (#139).
+- Home: saved commutes in the rider's order with paired From/To city signs (city-first stop chooser; both city names share one size and each stays on one line, centered in the sign's green space), icon Reverse, Leave by / Get me home / See bus stop sign, compact departure cards with route badge and countdown, Port Authority gate labelled posted / usual / printed rule / not confirmed. Five skins (Turnpike, Parkway, NYC night, Garden State, Clean). English and Spanish everywhere; 12-hour times.
+- Top bar: bigger DALE! wordmark, the slogan "When you ride NJ Transit, you need all the help you can get!" with a small version and update time ("am"/"pm") under it, and settings. At large text the slogan block takes its own row (#139, #141). Bus/Train and Find a stop share the row half and half; the September sunset photo shows the skyline at the bottom.
 - Trip tools: all-day timetable (7 days, after-midnight, DST notes), trip screen with printed fares and zones, boarding check, first-ride guide, last same-line return and last-bus calendar reminder, Get me home, backup buses, missed-stop help, saved backup plans, share-a-trip-update text, personal report history (on the phone only).
 - Bus Lock: exact-bus lock that never switches buses silently, waiting/arrived/boarded/left states, ride mode with strip map and street map (self-hosted OpenStreetMap), kept on the phone across refreshes. Live GPS works only where the live pilot is active and matched; otherwise everything is labelled scheduled.
 - Train: Bus/Train selector, Penn-style board with sample (not current) Pascack Valley times via Secaucus, trip checklist kept on the phone.
@@ -21,13 +21,12 @@ Updated 2026-11-11. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
 ## Next
-1. Owner's app fixes from his phone (2026-11-11): city names must not split ("HACKEN / SACK"); Bus/Train and Find a stop share the row half and half; the top-bar time stays on one line and reads "am"/"pm".
-2. Route distance: one preserve-enabled preparation run to read the new geometry diagnostic, then fix the cause in its own pull request. A Worker run is a risky change; ask the owner before running it.
-3. Rail timetable preview (#80): NJ Transit published Pascack Valley and Secaucus/Penn timetables effective November 15. Use the right edition per date and never present unconfirmed service as current. Real rail access is still unverified (one authentication attempt on 2026-11-09 returned `http-error`).
-4. M2: publish the official bus GTFS for 163/164/165/165T and compare it with the printed timetable.
+1. Route distance: one preserve-enabled preparation run to read the new geometry diagnostic, then fix the cause in its own pull request. A Worker run is a risky change; ask the owner before running it.
+2. Rail timetable preview (#80): NJ Transit published Pascack Valley and Secaucus/Penn timetables effective November 15. Use the right edition per date and never present unconfirmed service as current. Real rail access is still unverified (one authentication attempt on 2026-11-09 returned `http-error`).
+3. M2: publish the official bus GTFS for 163/164/165/165T and compare it with the printed timetable.
 
 ## Known problems
-- At 200% text in wide fonts, the saved-commute LED sign can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet (fold into Next 1).
+- At 200% text in wide fonts, the saved-commute LED sign (the dark name banner) can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet.
 - DST: check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before the feed replaces the printed timetable (M2).
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends.
 - The builder's sandbox blocks github.io, so the "confirm Pages after merge" step needs a browser outside it or an environment network change.
