@@ -361,10 +361,13 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name !== 'home' && screen.name !== 'penn' && <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>}
         {(screen.name === 'home' || screen.name === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span>
-        {screen.name === 'penn' ? (
-          <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
-        ) : null}
-        <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
+        {/* Trailing controls wrap as one group, so settings never ends up alone on a row. */}
+        <span className="top-actions">
+          {screen.name === 'penn' ? (
+            <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
+          ) : null}
+          <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
+        </span>
       </AppHeader>
       {ds.meta.demo && <div className="demo-banner" role="note">{t.demoBanner}{demoInAddress() && <> <a className="link demo-leave" href={leaveDemoHref()}>{t.leaveDemo}</a></>}</div>}
       <FeedStatus ctx={ctx} />
