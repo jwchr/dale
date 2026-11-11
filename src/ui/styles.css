@@ -546,7 +546,17 @@ main { flex: 1; padding-bottom: 24px; }
 
 .top { gap: 6px; flex-wrap: wrap; align-items: start; }
 
-.top .top-version { flex: 1 1 0; min-width: 0; align-self: center; }
+/* At enlarged text the version stamp takes its own row below the wordmark and settings, instead of breaking letter
+   by letter or pushing settings onto a row of its own. 14.5rem of header content is just above where the widest
+   tested fallback font (DejaVu Sans) first wraps beside the widest wordmark (Turnpike); the min-width remains a
+   fallback for anything wider. Back and settings sit in .top-actions, so if even they cannot fit beside the
+   wordmark they move down together. */
+.top { container: top-bar / inline-size; }
+.top .top-version { flex: 1 1 0; min-width: min(100%, 6.5em); align-self: center; }
+@container top-bar (max-width: 14.5rem) { .top .top-version { order: 3; flex-basis: 100%; } }
+/* The train header also carries Back, so it needs the separate row sooner. */
+@container top-bar (max-width: 17.5rem) { .top.rail-header .top-version { order: 3; flex-basis: 100%; } }
+.top-actions { display: flex; align-items: center; gap: 6px; margin-inline-start: auto; }
 .top.rail-header .top-version { min-width: 4.5em; }
 
 .route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }

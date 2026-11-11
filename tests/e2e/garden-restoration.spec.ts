@@ -51,16 +51,48 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         return { sameRow: Math.abs(from.top - to.top) < 1, separate: from.right < to.left, stacked: to.top > from.bottom, overflow: document.documentElement.scrollWidth - innerWidth };
       });
       expect(geometry).toEqual({ sameRow: scale === 100, separate: scale === 100, stacked: scale > 100, overflow: 0 });
-      const header = await page.locator('header.top').evaluate(header => {
-        const wordmark = header.querySelector('.wordmark')!.getBoundingClientRect();
-        const settings = header.querySelector('.icon-btn')!.getBoundingClientRect();
+      // The version stamp may share the wordmark row or, when enlarged text leaves no room, take its own row.
+      // Either way it must not touch the wordmark or settings, must never split a word, and the header stays compact.
+      const headerFor = (font: string) => page.locator('header.top').evaluate((header, font) => {
+        document.body.style.fontFamily = font;
+        const box = (r: DOMRect) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+        const wordmark = box(header.querySelector('.wordmark')!.getBoundingClientRect());
+        const settings = box(header.querySelector('.icon-btn')!.getBoundingClientRect());
         const lines = [...header.querySelectorAll('.top-version > .nowrap')].flatMap(node => {
           const range = document.createRange(); range.selectNodeContents(node);
-          return [...range.getClientRects()].filter(rect => rect.width > 0).map(rect => ({ left: rect.left, right: rect.right }));
+          return [...range.getClientRects()].filter(rect => rect.width > 0).map(box);
         });
-        return { wordmarkRight: wordmark.right, settingsLeft: settings.left, lines };
-      });
-      expect(header.lines.every(line => line.left >= header.wordmarkRight && line.right <= header.settingsLeft), JSON.stringify({ width, scale, header })).toBe(true);
+        const splitWords: string[] = [];
+        // Every text node: React renders "· " and the time as separate nodes.
+        for (const node of header.querySelectorAll('.top-version > .nowrap')) {
+          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) for (const match of text.textContent!.matchAll(/\S+/g)) {
+            const range = document.createRange(); range.setStart(text, match.index!); range.setEnd(text, match.index! + match[0].length);
+            if ([...range.getClientRects()].filter(rect => rect.width > 0).length !== 1) splitWords.push(match[0]);
+          }
+        }
+        const overlaps = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const result = { font, wordmark, settings, lines, splitWords, height: header.getBoundingClientRect().height,
+          touches: lines.filter(line => overlaps(line, wordmark) || overlaps(line, settings)).length,
+          outside: lines.filter(line => line.left < 0 || line.right > innerWidth).length,
+          sameRow: lines.every(line => line.top < wordmark.bottom && line.bottom > wordmark.top),
+          settingsBesideWordmark: settings.top < wordmark.bottom };
+        document.body.style.fontFamily = '';
+        return result;
+      }, font);
+      // DejaVu Sans is the wide fallback that made the stamp break letter by letter on the Linux CI runner.
+      for (const font of scale === 200 ? ['', 'DejaVu Sans'] : ['']) {
+        const header = await headerFor(font), detail = JSON.stringify({ width, scale, header });
+        expect(header.lines.length, detail).toBeGreaterThan(0);
+        expect(header.touches, detail).toBe(0);
+        expect(header.outside, detail).toBe(0);
+        expect(header.splitWords, detail).toEqual([]);
+        expect(header.height, detail).toBeLessThanOrEqual(900 * 0.25);
+        // Settings never drops onto a row of its own; the stamp moves instead.
+        expect(header.settingsBesideWordmark, detail).toBe(true);
+        // Normal text keeps the approved single-row header.
+        if (scale === 100) expect(header.sameRow, detail).toBe(true);
+      }
       await expect(page.locator('.boarding-clock .badge-sched')).toHaveCount(3);
       await expect(page.locator('.destination-clock .badge-sched')).toHaveCount(3);
       await page.screenshot({ path: `test-results/garden-restored-${lang}-${theme}-${width}-${scale}.png`, fullPage: true });
