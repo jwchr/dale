@@ -26,11 +26,34 @@ Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stan
 - Run `npm run verify` locally before every push and batch related fixes into one push. CI runs on pull requests and main only.
 - Use standard libraries (GTFS-Realtime bindings, MapLibre) over custom parsers when the need arrives; record license and version.
 
-## Autonomous development (copied from VPM and Life Dashboard policy, 2026-10-30/31)
-- **Safety holds:** pause only the affected operation on a credible security, privacy, cost, irreversible-action or data-integrity concern; one `🚨 ACTION REQUIRED — SAFETY HOLD` note naming the single owner decision needed; a new run never clears a hold by itself.
-- **Review routing:** follow `docs/REVIEW_POLICY.md` (D58, amended by D64 and D65). A non-author verifies risk. CodeRabbit reviews every PR, plus one Gemini review tiered by risk (D65): Gemini Pro for easy changes, Gemini 4 Argon for harder ones, Gemini 4 Carbon for the most serious (secrets, deploys, the history recorder, rider privacy, irreversible actions). Jeff lifted the Gemini hold on 2026-11-11; once Codex returns it may take the Argon or Carbon slot. Unsure means the higher tier. Do not spawn another reviewer.
-- **Merging:** a PR merges only with green CI on the exact head and qualified independent review covering the current head/base, full diff and current PR description. Every finding is fixed or answered and accepted by the non-author reviewer/operator. The author never reviews or merges their own change. The separate operator rechecks all gates and squash merges with the expected head SHA. A merge is not a deployment claim; check the Pages URL separately. No automatic approval/merge, paid review upgrade or new service.
-- **Queue:** at most one implementation PR in flight. Never create an issue just to fill an empty queue, never duplicate an issue that already has a branch or PR, and claim before building (one issue comment).
-- **Models:** Sonnet/high for docs, tests and mechanical changes (`routine-sonnet` subagent); Opus/high for data pipeline, lock, gate, privacy and architecture. No paid credits or new services without the owner.
-- **Unattended runs:** none yet. A scheduled Dale steward starts only after Life Dashboard issue #13 proves a full unattended cycle (owner decision 10).
-- State plainly what is built, tested, deployed and unverified. Owner wants short, plain answers; escalate only real blockers (credentials, money, device testing, product decisions).
+## How we work (owner approved 2026-11-11; same text in every app)
+
+This section replaces every earlier review, merge, operator, steward, queue and model-routing rule in this repository. Where another file disagrees with it, this section wins: correct that file.
+
+1. **One builder per app.** Claude builds. ChatGPT or Codex builds only when Claude is out of usage and the owner says so. Never two builders on one app at once. No overseer, steward, coordinator or scheduled build task.
+2. **Read first.** At the start of every session and after every compaction, read this file and `docs/HANDOFF.md`, then check the real state on GitHub. Do not ask the owner to repeat what is written there.
+3. **One change at a time.** At most one open pull request per app. Finish it or close it before starting another. One feature is one GitHub issue. Do not invent work to fill an empty queue.
+4. **Plain English on top.** The owner is not a developer. Every pull request description starts with two short parts for him: "What this does for you" and "How to try it" (step by step, in the app), or "Nothing for you to test."
+5. **Checks before merging.**
+   - The full automated tests pass on the final commit, and the GitHub check is green on that same commit.
+   - CodeRabbit has reviewed the final version. Every serious finding is fixed, or answered with a reason. If CodeRabbit is unavailable, use one Gemini 4 Argon review instead and tell the owner. Buy nothing.
+   - Risky changes also get one independent review from Gemini 4 Argon, or from Codex when it is available. Risky means: money or billing; secrets or credentials; private, personal or client data; deleting or overwriting files or records; data pipelines and migrations; workflows, deploys and repository settings; these rules; anything hard to undo; anything you are unsure about.
+   - Check every review finding against the code before acting on it. Reviewers miss real bugs and report false ones.
+   - The checks under "This app" below.
+6. **The builder merges.** When the checks pass, squash-merge your own pull request, delete the branch, confirm the app really updated, update `docs/HANDOFF.md`, and tell the owner in one or two plain sentences what changed and how to try it. He tries visible changes in the real app after they are live. If he says something is wrong, fix it or undo it the same day.
+7. **The owner stays out of GitHub.** Never ask him to open GitHub, read review comments, type a comment or click merge. Ask him only about product choices (give options and a recommendation), money, accounts and passwords, and hands-on tests. Ask in the chat, in plain language, one question at a time. If your session can edit his Shared To-Do List, record the question there too.
+8. **Safety stops.** Stop that one piece of work and ask first before: spending money; sending a message to anyone but the owner; deleting or overwriting real data; touching secrets; using real client material. Never commit credentials, personal data, or client names, footage or addresses. A new session never clears a stop by itself. Unrelated safe work continues.
+9. **Spending caps.** No new paid services, API keys or upgrades. Gemini reviews use Argon only, inside the owner's prepaid balance, with auto-reload off. Keep GitHub Actions under the owner's $10 monthly cap: run tests locally before pushing and batch fixes into one push.
+10. **Short status file.** `docs/HANDOFF.md` holds only: what is built and live; what is waiting on the owner; what is next; known problems. Update it in place after every merge. No diary and no history. Ideas that are not approved work belong in the owner's Idea Inbox, not here.
+11. **Say what is true.** State plainly what is built, tested, live and unverified. Never claim that work is running in the background, and never give a time estimate without evidence.
+
+### This app: Dale
+- Before every push run `npm run verify`.
+- CodeRabbit does not start by itself here (`.coderabbit.yaml`). Request one `@coderabbitai full review` when the pull request is ready, and never a duplicate.
+- After a merge, open the public Pages site and confirm the change is there, on a narrow phone layout, in English and Spanish.
+- Worker deploys, live-feed changes and history collection are risky changes. They also keep the conditions written in `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md`.
+
+### One-time cleanup (delete this part when it is done)
+- Shorten `docs/HANDOFF.md` to rule 10.
+- Correct or remove text that contradicts this section in `docs/STOP_SIGN.md`, `docs/HANDOFF.md` and `AGENTS.md`.
+- In `docs/DECISIONS.md`, add one row dated 2026-11-11 for this section and mark D58, D59, D64 and D65 superseded by it.
