@@ -49,6 +49,8 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     for (const [width, scale, font] of [[390, 100, ''], [305, 100, ''], [320, 130, ''], [320, 200, ''], [320, 130, 'Verdana']] as const) {
       await page.setViewportSize({ width, height: 850 });
       await page.evaluate(({ scale, font }) => { document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font; }, { scale, font });
+      // Sign names re-fit in a ResizeObserver callback, which runs before the next paint: measure what a rider sees.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
         return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
