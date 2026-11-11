@@ -184,3 +184,39 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     }
   });
 }
+
+// CodeRabbit on PR #141: when the town is unknown the sign shows the whole stop name. It may wrap between
+// words, but it must not drag both signs to the smallest size; NEW YORK keeps the shared size on one line.
+test('a long stop name without a town wraps between words and keeps the shared size readable', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  ds.meta.stopCities = { state: 'verified', source: 'NJ Transit GIS Department', url: STOP_CITY_SOURCE, retrievedAt: '2026-11-04T10:00:00Z' };
+  const from = ds.stops.find(stop => stop.id === '2')!;
+  delete from.city;
+  from.name = 'State Street at Lawrence Street';
+  const favorites = [{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: `${from.name} → ${ds.stops.find(stop => stop.id === '3')!.name}` }];
+  await page.addInitScript(({ favorites }) => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: 'garden', lang: 'en', theme: 'light' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(favorites));
+  }, { favorites });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', route => route.abort('failed'));
+  await page.goto('/?live=1');
+  await expect(page.locator('.dep').first()).toBeVisible();
+  await expect(page.locator('[data-end="from"] .highway-name')).toHaveText(from.name);
+  for (const width of [390, 674]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
+      text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), fontSize: parseFloat(getComputedStyle(node).fontSize),
+      lines: new Set([...node.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size,
+      splitWords: [...node.querySelectorAll('.sign-word')].filter(word => new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size > 1).length,
+    })));
+    const detail = JSON.stringify({ width, names });
+    expect(names.map(name => name.text), detail).toEqual([from.name, 'New York']);
+    expect(Math.abs(names[0].fontSize - names[1].fontSize), detail).toBeLessThan(0.1);
+    expect(names.every(name => name.fit !== '0.6' && name.splitWords === 0), detail).toBe(true);
+    expect(names[1].lines, detail).toBe(1);
+  }
+});

@@ -10,8 +10,9 @@ const FIT_MARGIN_PX = 2;
  * line (owner requests 2026-11-11: "HACKEN / SACK" must not split, and NEW YORK matches HACKENSACK
  * in size on one line). Sets the same `--sign-fit` on every `.highway-name` (unset when all already
  * fit), so the names stay as large as the longest one allows. CSS multiplies the normal font size by
- * it. Below MIN_FIT, names may wrap between words, and a word wider than its sign may still break.
- * Re-fits on resize, enlarged text and once web fonts settle.
+ * it. A name too long for one line even at MIN_FIT (a full stop name when the town is unknown) wraps
+ * between words and only its widest word limits the shared size, so it cannot shrink the other sign
+ * to the floor. Re-fits on resize, enlarged text and once web fonts settle.
  * `visible` must change whenever the container mounts again (for example after Edit, then Done). */
 export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, visible = true) {
   useLayoutEffect(() => {
@@ -32,9 +33,12 @@ export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, v
         const probe = document.createElement('span');
         probe.setAttribute('aria-hidden', 'true');
         probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;inset-inline-start:0;top:0';
-        probe.textContent = (name.textContent ?? '').trim().replace(/\s+/g, ' ');
+        const words = (name.textContent ?? '').split(/\s+/).filter(Boolean);
         name.append(probe);
-        const width = probe.getBoundingClientRect().width;
+        const measure = (text: string) => { probe.textContent = text; return probe.getBoundingClientRect().width; };
+        const lineWidth = measure(words.join(' '));
+        // Too long for one line even at the floor: it wraps between words, so only its widest word counts.
+        const width = available > 0 && available / lineWidth < MIN_FIT ? Math.max(...words.map(measure)) : lineWidth;
         probe.remove();
         if (available > 0 && width > available) scale = Math.min(scale, available / width);
       }
