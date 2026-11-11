@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error pure ESM workflow helper without declaration files
-import { refPath, selectBranches } from '../../scripts/branch-cleanup.mjs';
+import { deleteArgs, deleteOutcome, selectBranches } from '../../scripts/branch-cleanup.mjs';
 
 const repo = 'jwchr/dale';
 const pr = (number: number, ref: string, sha: string, over: Record<string, unknown> = {}) =>
@@ -24,7 +24,7 @@ describe('branch cleanup selection', () => {
       pr(1, 'main', 'f1'),
     ];
     expect(selectBranches({ branches, pulls, repo, defaultBranch: 'main' })).toEqual({
-      remove: [{ name: 'claude/home-fixes', pr: 141 }],
+      remove: [{ name: 'claude/home-fixes', sha: 'a1', pr: 141 }],
       keep: [
         { name: 'claude/pushed-after-merge', reason: 'new commits after merge' },
         { name: 'claude/closed-unmerged', reason: 'no merged pull request' },
@@ -56,11 +56,17 @@ describe('branch cleanup selection', () => {
   it('limits a merge-triggered run to that pull request branch', () => {
     const branches = [{ name: 'claude/a', sha: 'a1' }, { name: 'claude/b', sha: 'b1' }];
     const pulls = [pr(1, 'claude/a', 'a1'), pr(2, 'claude/b', 'b1')];
-    expect(selectBranches({ branches, pulls, repo, defaultBranch: 'main', only: 'claude/b' })).toEqual({ remove: [{ name: 'claude/b', pr: 2 }], keep: [] });
+    expect(selectBranches({ branches, pulls, repo, defaultBranch: 'main', only: 'claude/b' })).toEqual({ remove: [{ name: 'claude/b', sha: 'b1', pr: 2 }], keep: [] });
   });
 
-  it('builds ref paths that keep slashes and escape everything else', () => {
-    expect(refPath('claude/home-fixes')).toBe('claude/home-fixes');
-    expect(refPath('agent/issue #30?')).toBe('agent/issue%20%2330%3F');
+  it('deletes with a lease on the checked commit, as separate arguments with no shell', () => {
+    expect(deleteArgs('claude/home-fixes', 'a1')).toEqual(['push', '--porcelain', '--force-with-lease=refs/heads/claude/home-fixes:a1', 'origin', ':refs/heads/claude/home-fixes']);
+  });
+
+  it('treats a moved or missing branch as kept and anything else as a failure', () => {
+    // Messages recorded from git 2.x against a local bare repository.
+    expect(deleteOutcome({ status: 0, stdout: '-\t:refs/heads/claude/x\t[deleted]\nDone' })).toBe('deleted');
+    expect(deleteOutcome({ status: 1, stdout: '!\t(delete):refs/heads/claude/y\t[rejected] (stale info)\nDone', stderr: "error: failed to push some refs to 'origin'" })).toBe('kept');
+    expect(deleteOutcome({ status: 128, stderr: 'remote: Permission to jwchr/dale.git denied to github-actions[bot].\nfatal: unable to access' })).toBe('failed');
   });
 });

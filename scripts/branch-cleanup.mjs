@@ -7,6 +7,10 @@
 // - no open pull request uses the branch;
 // - it is not the default branch or another protected name.
 // Anything else is kept and listed with the reason. Without APPLY=true nothing is deleted (dry run).
+// The deletion itself is conditional: git deletes the ref only if it still points at the checked
+// commit (--force-with-lease), so a push made after the check can never be deleted.
+
+import { spawnSync } from 'node:child_process';
 
 const KEEP = new Set(['main', 'gh-pages']);
 export const MAX_DELETIONS = 100;
@@ -28,21 +32,30 @@ export function selectBranches({ branches, pulls, repo, defaultBranch, only }) {
     else if (!mine.some(pr => pr.merged_at && pr.head.sha === branch.sha)) reason = 'new commits after merge';
     if (reason) { keep.push({ name: branch.name, reason }); continue; }
     const merged = mine.filter(pr => pr.merged_at && pr.head.sha === branch.sha).sort((a, b) => b.number - a.number)[0];
-    remove.push({ name: branch.name, pr: merged.number });
+    remove.push({ name: branch.name, sha: branch.sha, pr: merged.number });
   }
   return { remove, keep };
 }
 
-/** One ref path segment per branch-name segment, so names with slashes stay addressable. */
-export const refPath = name => name.split('/').map(encodeURIComponent).join('/');
+/** Git arguments that delete `refs/heads/<name>` only if it still points at `sha`. No shell is involved. */
+export const deleteArgs = (name, sha) => ['push', '--porcelain', `--force-with-lease=refs/heads/${name}:${sha}`, 'origin', `:refs/heads/${name}`];
 
-async function api(path, { method = 'GET' } = {}) {
+/**
+ * Classifies a finished `git push` deletion: deleted, kept (the branch moved or is already gone, which
+ * is the safe outcome) or failed (anything else, such as a permission error).
+ */
+export function deleteOutcome({ status, stdout = '', stderr = '' }) {
+  if (status === 0) return 'deleted';
+  const text = `${stdout}\n${stderr}`;
+  if (/stale info|remote ref does not exist|unable to delete '[^']*': remote ref does not exist/i.test(text)) return 'kept';
+  return 'failed';
+}
+
+async function api(path) {
   const response = await fetch(`https://api.github.com${path}`, {
-    method,
     headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
   });
-  if (method === 'DELETE') return response.status;
-  if (!response.ok) throw new Error(`GitHub API ${method} ${path.split('?')[0]} returned ${response.status}`);
+  if (!response.ok) throw new Error(`GitHub API GET ${path.split('?')[0]} returned ${response.status}`);
   return response.json();
 }
 
@@ -65,14 +78,16 @@ async function main() {
   const { remove, keep } = selectBranches({ branches, pulls, repo, defaultBranch, only });
   if (remove.length > MAX_DELETIONS) throw new Error(`${remove.length} branches selected, more than ${MAX_DELETIONS}; refusing`);
   for (const { name, reason } of keep) console.log(`keep    ${name} (${reason})`);
-  let failed = 0;
-  for (const { name, pr } of remove) {
+  let deleted = 0, failed = 0;
+  for (const { name, sha, pr } of remove) {
     if (!apply) { console.log(`would delete ${name} (merged in #${pr})`); continue; }
-    const status = await api(`/repos/${repo}/git/refs/heads/${refPath(name)}`, { method: 'DELETE' });
-    if (status === 204) console.log(`deleted ${name} (merged in #${pr})`);
-    else { failed++; console.log(`FAILED  ${name}: HTTP ${status}`); }
+    const result = spawnSync('git', deleteArgs(name, sha), { encoding: 'utf8' });
+    const outcome = deleteOutcome(result);
+    if (outcome === 'deleted') { deleted++; console.log(`deleted ${name} (merged in #${pr})`); }
+    else if (outcome === 'kept') console.log(`keep    ${name} (changed or already gone since the check)`);
+    else { failed++; console.log(`FAILED  ${name}: ${(result.stderr || '').trim().split('\n').pop()}`); }
   }
-  console.log(`${apply ? 'Deleted' : 'Dry run: would delete'} ${remove.length - failed} of ${branches.length} branches; kept ${keep.length}.`);
+  console.log(apply ? `Deleted ${deleted} of ${branches.length} branches; ${failed} failed.` : `Dry run: would delete ${remove.length} of ${branches.length} branches; kept ${keep.length}.`);
   if (failed) process.exitCode = 1;
 }
 

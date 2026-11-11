@@ -14,9 +14,8 @@ on:
         default: false
 permissions:
   contents: read
-concurrency:
-  group: branch-cleanup
-  cancel-in-progress: false
+# No concurrency group: GitHub would cancel a waiting run when another arrives, leaving that branch
+# behind. Overlapping runs are safe because each deletion is conditional on the checked commit.
 jobs:
   cleanup:
     if: >-
@@ -30,11 +29,11 @@ jobs:
       contents: write
       pull-requests: read
     steps:
-      # The script runs from main, never from the pull request's own branch.
+      # The script runs from main, never from the pull request's own branch, and nothing else is
+      # installed or run. The checkout keeps its job token so `git push --force-with-lease` can delete.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
-          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
