@@ -36,33 +36,93 @@ function mappedPoint(points, d) {
   const f = (d - a.measure) / span;
   return { lat: a.lat + f * (b.lat - a.lat), lon: a.lon + f * (b.lon - a.lon), m: a.m + f * (b.m - a.m) };
 }
+// Failure diagnostics for a public Actions log: one allowlisted reason plus fixed-key aggregate
+// integers. Never IDs, coordinates, feed rows, error messages or ZIP bytes.
+export const GEOMETRY_FAILURE_REASONS = Object.freeze(['source-mismatch', 'shape-limit', 'trip-limit', 'point-limit', 'byte-limit',
+  'no-matched-trips', 'unexpected-exception']);
+export const GEOMETRY_COUNT_KEYS = Object.freeze([
+  'shapesFile', 'shapeMeasureColumn', 'tripShapeColumn', 'stopTimeMeasureColumn',
+  'datasetTrips', 'sourceTripRows', 'requestedShapes', 'foundShapes', 'validShapes',
+  'shapeTooFewPoints', 'shapeInvalidCoordinate', 'shapeInvalidMeasure', 'shapeInvalidSequence', 'shapeNonIncreasingMeasure', 'shapeLength',
+  'tripDuplicate', 'tripUnsafeId', 'tripNoShape', 'tripNoPattern', 'tripCallCount',
+  'tripInvalidSequence', 'tripStopMismatch', 'tripMissingMeasure', 'tripMeasureOutOfRange', 'tripStopCoordinates', 'tripBackward', 'tripStopDistance',
+  'matchedTrips', 'outputShapes']);
+const MAX_COUNT = 1_000_000;
+export class GeometryError extends Error {
+  constructor(reason, message, counts) {
+    super(message);
+    this.reason = GEOMETRY_FAILURE_REASONS.includes(reason) ? reason : 'unexpected-exception';
+    this.counts = counts;
+  }
+}
+// Header-only presence check; never throws and never reads beyond the first line.
+function hasColumn(text, column) {
+  if (typeof text !== 'string' || !text) return 0;
+  const nl = text.indexOf('\n'), header = (nl < 0 ? text : text.slice(0, nl)).replace(/^﻿/, '').replace(/\r$/, '');
+  return header.split(',').map(h => h.trim().replace(/^"|"$/g, '')).includes(column) ? 1 : 0;
+}
+// Fresh whitelist-only copy. Anything unexpected becomes the fixed unexpected reason with no counts.
+export function geometryFailureDiagnostic(error) {
+  const reason = error instanceof GeometryError ? error.reason : 'unexpected-exception';
+  const source = error instanceof GeometryError ? error.counts : undefined, counts = {};
+  for (const key of GEOMETRY_COUNT_KEYS) {
+    const value = source?.[key];
+    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_COUNT) return { v: 1, reason, counts: null };
+    counts[key] = value;
+  }
+  return { v: 1, reason, counts };
+}
 export function buildRouteGeometry(files, ds, sourceSHA256) {
-  if (!/^[a-f0-9]{64}$/.test(sourceSHA256) || sourceSHA256.slice(0, 12) !== ds.meta.feedVersion) throw new Error('Geometry source mismatch');
+  return buildRouteGeometryWithReport(files, ds, sourceSHA256).geometry;
+}
+// Same derivation as before; `counts` only records why each shape/trip was or was not included.
+export function buildRouteGeometryWithReport(files, ds, sourceSHA256) {
+  const counts = Object.fromEntries(GEOMETRY_COUNT_KEYS.map(key => [key, 0]));
+  const bump = key => { counts[key]++; };
+  try {
+    return { geometry: derive(files, ds, sourceSHA256, counts, bump), counts };
+  } catch (error) {
+    if (error instanceof GeometryError) throw error;
+    throw new GeometryError('unexpected-exception', 'Geometry unexpected exception', counts);
+  }
+}
+function derive(files, ds, sourceSHA256, counts, bump) {
+  if (!/^[a-f0-9]{64}$/.test(sourceSHA256) || sourceSHA256.slice(0, 12) !== ds.meta.feedVersion) throw new GeometryError('source-mismatch', 'Geometry source mismatch', counts);
   const output = { v: 1, feedVersion: ds.meta.feedVersion, sourceSHA256, shapes: Object.create(null), trips: Object.create(null) };
+  counts.shapesFile = files['shapes.txt'] ? 1 : 0;
+  counts.shapeMeasureColumn = hasColumn(files['shapes.txt'], 'shape_dist_traveled');
+  counts.tripShapeColumn = hasColumn(files['trips.txt'], 'shape_id');
+  counts.stopTimeMeasureColumn = hasColumn(files['stop_times.txt'], 'shape_dist_traveled');
+  counts.datasetTrips = ds.trips.length;
   if (!files['shapes.txt']) return output;
   const wantedTrips = new Map(ds.trips.map(t => [t.id, t])), patterns = new Map(ds.patterns.map(p => [p.id, p]));
   const trips = parseCsv(filterCsvByColumn(files['trips.txt'], 'trip_id', new Set(wantedTrips.keys())));
   const shapeIds = new Set(trips.map(t => t.shape_id).filter(safeId)), byShape = new Map();
+  counts.sourceTripRows = trips.length; counts.requestedShapes = shapeIds.size;
   for (const row of parseCsv(filterCsvByColumn(files['shapes.txt'], 'shape_id', shapeIds))) {
     const list = byShape.get(row.shape_id) ?? []; list.push(row); byShape.set(row.shape_id, list);
   }
-  if (byShape.size > 256 || trips.length > 2000) throw new Error('Geometry size limit');
+  counts.foundShapes = byShape.size;
+  if (byShape.size > 256) throw new GeometryError('shape-limit', 'Geometry size limit', counts);
+  if (trips.length > 2000) throw new GeometryError('trip-limit', 'Geometry size limit', counts);
   const normalized = new Map(); let totalPoints = 0;
   for (const [id, rows] of byShape) {
     rows.sort((a, b) => Number(a.shape_pt_sequence) - Number(b.shape_pt_sequence));
-    const points = []; let valid = rows.length >= 2, previous = -1;
-    for (const row of rows) {
+    const points = []; let rejected = rows.length >= 2 ? undefined : 'shapeTooFewPoints', previous = -1;
+    for (const row of rejected ? [] : rows) {
       const lat = number(row.shape_pt_lat), lon = number(row.shape_pt_lon), measure = number(row.shape_dist_traveled), seq = number(row.shape_pt_sequence);
-      if (lat === undefined || lon === undefined || Math.abs(lat) > 90 || Math.abs(lon) > 180 || measure === undefined || measure < 0
-        || seq === undefined || !Number.isInteger(seq) || seq <= previous) { valid = false; break; }
+      if (lat === undefined || lon === undefined || Math.abs(lat) > 90 || Math.abs(lon) > 180) { rejected = 'shapeInvalidCoordinate'; break; }
+      if (measure === undefined || measure < 0) { rejected = 'shapeInvalidMeasure'; break; }
+      if (seq === undefined || !Number.isInteger(seq) || seq <= previous) { rejected = 'shapeInvalidSequence'; break; }
       const last = points.at(-1);
-      if (last && measure <= last.measure) { valid = false; break; }
+      if (last && measure <= last.measure) { rejected = 'shapeNonIncreasingMeasure'; break; }
       points.push({ lat, lon, measure, m: last ? last.m + meters([last.lat, last.lon], [lat, lon]) : 0 }); previous = seq;
     }
-    if (!valid || points.at(-1)?.m <= 0 || points.at(-1)?.m > 250000) continue;
+    if (rejected) { bump(rejected); continue; }
+    if (points.at(-1)?.m <= 0 || points.at(-1)?.m > 250000) { bump('shapeLength'); continue; }
     const compact = simplify(points.map(p => [p.lat, p.lon, p.m]));
-    totalPoints += compact.length; if (totalPoints > 50000) throw new Error('Geometry size limit');
-    normalized.set(id, { points, compact });
+    totalPoints += compact.length; if (totalPoints > 50000) throw new GeometryError('point-limit', 'Geometry size limit', counts);
+    normalized.set(id, { points, compact }); counts.validShapes = normalized.size;
   }
   const stops = new Map(ds.stops.map(s => [s.id, s])), times = new Map();
   for (const row of parseCsv(filterCsvByColumn(files['stop_times.txt'], 'trip_id', new Set(wantedTrips.keys())))) {
@@ -71,23 +131,32 @@ export function buildRouteGeometry(files, ds, sourceSHA256) {
   const tripCounts = new Map();
   for (const t of trips) tripCounts.set(t.trip_id, (tripCounts.get(t.trip_id) ?? 0) + 1);
   for (const source of trips) {
-    if (tripCounts.get(source.trip_id) !== 1) continue;
-    if (!safeId(source.trip_id) || !safeId(source.shape_id)) continue;
+    if (tripCounts.get(source.trip_id) !== 1) { bump('tripDuplicate'); continue; }
+    if (!safeId(source.trip_id) || !safeId(source.shape_id)) { bump('tripUnsafeId'); continue; }
     const shape = normalized.get(source.shape_id), trip = wantedTrips.get(source.trip_id), pattern = patterns.get(trip?.patternId);
     const calls = (times.get(source.trip_id) ?? []).sort((a, b) => Number(a.stop_sequence) - Number(b.stop_sequence));
-    if (!shape || !pattern || calls.length !== pattern.stopIds.length || calls.length > 250) continue;
-    const stopMeters = []; let previous = -1, previousSequence = -1, valid = true;
+    if (!shape) { bump('tripNoShape'); continue; }
+    if (!pattern) { bump('tripNoPattern'); continue; }
+    if (calls.length !== pattern.stopIds.length || calls.length > 250) { bump('tripCallCount'); continue; }
+    const stopMeters = []; let previous = -1, previousSequence = -1, rejected;
     for (let i = 0; i < calls.length; i++) {
-      const call = calls[i], stop = stops.get(call.stop_id), point = mappedPoint(shape.points, number(call.shape_dist_traveled));
+      const call = calls[i], stop = stops.get(call.stop_id), measure = number(call.shape_dist_traveled), point = mappedPoint(shape.points, measure);
       const sequence = number(call.stop_sequence);
-      if (sequence === undefined || !Number.isInteger(sequence) || sequence <= previousSequence || call.stop_id !== pattern.stopIds[i] || !point || stop?.lat === undefined || stop.lon === undefined
-        || point.m < previous || meters([stop.lat, stop.lon], [point.lat, point.lon]) > 100) { valid = false; break; }
+      if (sequence === undefined || !Number.isInteger(sequence) || sequence <= previousSequence) { rejected = 'tripInvalidSequence'; break; }
+      if (call.stop_id !== pattern.stopIds[i]) { rejected = 'tripStopMismatch'; break; }
+      if (measure === undefined) { rejected = 'tripMissingMeasure'; break; }
+      if (!point) { rejected = 'tripMeasureOutOfRange'; break; }
+      if (stop?.lat === undefined || stop.lon === undefined) { rejected = 'tripStopCoordinates'; break; }
+      if (point.m < previous) { rejected = 'tripBackward'; break; }
+      if (meters([stop.lat, stop.lon], [point.lat, point.lon]) > 100) { rejected = 'tripStopDistance'; break; }
       stopMeters.push(round(point.m, 10)); previous = point.m; previousSequence = sequence;
     }
-    if (!valid) continue;
+    if (rejected) { bump(rejected); continue; }
     output.shapes[source.shape_id] = { points: shape.compact };
     output.trips[source.trip_id] = { shapeId: source.shape_id, stopIds: [...pattern.stopIds], stopMeters };
+    bump('matchedTrips');
   }
-  if (Buffer.byteLength(JSON.stringify(output)) > 4000000) throw new Error('Geometry size limit');
+  counts.outputShapes = Object.keys(output.shapes).length;
+  if (Buffer.byteLength(JSON.stringify(output)) > 4000000) throw new GeometryError('byte-limit', 'Geometry size limit', counts);
   return output;
 }

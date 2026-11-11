@@ -13,6 +13,7 @@ function preparation(scenario: string) {
     'shapes.txt': 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\ns,40.88,-74.045,1,0\ns,40.87,-74.04,2,10\ns,40.757,-73.991,3,20\n',
   };
   if (scenario === 'no-geometry') files['shapes.txt'] = '';
+  if (scenario === 'unmatched-geometry') files['stop_times.txt'] = files['stop_times.txt']!.replace(/,shape_dist_traveled|,(0|10|20)(?=\n)/g, '');
   const zip = (input: Record<string, string>) => zipSync(Object.fromEntries(Object.entries(input).map(([k, v]) => [k, strToU8(v)])));
   const source = zip(files), sha = createHash('sha256').update(source).digest('hex');
   const ds = buildDataset(files, { routeShortNames: ['165', '165T'], splitVariants: true, scheduledOnly: true, feedVersion: sha.slice(0, 12), source: 'NJ Transit GTFS BUS G2', builtAt: '2026-11-01T00:00:00Z' });
@@ -69,7 +70,24 @@ it('actual native SAME-FETCH preservation reuses byte-identical canonical contex
   const r = preparation('ok'); expect(r.error).toBeUndefined(); expect(r.status, r.stderr).toBe(0);
   expect(r.stdout).toContain('Official G2 corridor prepared'); expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError/);
 });
-it.each(['changed-zip', 'disabled', 'changed-canonical', 'no-geometry', 'wrong-bucket', 'missing-pins'])('native preparation refuses %s without writing a replacement context or candidate', scenario => {
+it.each(['changed-zip', 'disabled', 'changed-canonical', 'no-geometry', 'unmatched-geometry', 'wrong-bucket', 'missing-pins'])('native preparation refuses %s without writing a replacement context or candidate', scenario => {
   const r = preparation(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError/);
+});
+it.each([
+  ['no-geometry', { shapesFile: 0, datasetTrips: 12, matchedTrips: 0 }],
+  ['unmatched-geometry', { shapesFile: 1, stopTimeMeasureColumn: 0, datasetTrips: 12, validShapes: 1, tripMissingMeasure: 12, matchedTrips: 0 }],
+])('native preparation names the typed geometry reason for %s with aggregate counts only', (scenario, expected) => {
+  const r = preparation(scenario); expect(r.status).toBe(1);
+  const lines = r.stderr.trim().split('\n');
+  expect(lines).toHaveLength(2);
+  expect(lines[1]).toBe('Official G2 corridor preparation failed at geometry-validation. No credentials, token or response details are logged. Do not deploy.');
+  const prefix = 'Geometry diagnostic (aggregate counts only): ';
+  expect(lines[0]!.startsWith(prefix)).toBe(true);
+  const diagnostic = JSON.parse(lines[0]!.slice(prefix.length));
+  expect(diagnostic).toMatchObject({ v: 1, reason: 'no-matched-trips', counts: expected });
+  expect(Object.values(diagnostic.counts).every(n => Number.isSafeInteger(n) && (n as number) >= 0)).toBe(true);
+  // No trip IDs, shape IDs, coordinates, credentials or the thrown message.
+  expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|"T\d|"s"|40\.8|-74\.0|No matched geometry/);
+  expect(r.stdout).toBe('');
 });
