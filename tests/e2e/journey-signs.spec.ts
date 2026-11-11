@@ -53,7 +53,9 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
         return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
       });
-      if (scale === 100) {
+      // Paired side by side where a name like HACKENSACK fits whole (390px at normal text); stacked on narrower
+      // phones and enlarged text (owner request 2026-11-11: city names never split).
+      if (scale === 100 && width >= 390) {
         expect(geometry.left.right).toBeLessThanOrEqual(geometry.reverse.left);
         expect(geometry.reverse.right).toBeLessThanOrEqual(geometry.right.left);
         expect(Math.abs(geometry.left.top - geometry.right.top)).toBeLessThan(1);
@@ -76,11 +78,19 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
           const rect = part.getBoundingClientRect(), y = Math.round(rect.top), line = lines.get(y);
           lines.set(y, { left: Math.min(line?.left ?? Infinity, rect.left), right: Math.max(line?.right ?? -Infinity, rect.right) });
         }
-        return { fontSize: parseFloat(getComputedStyle(node).fontSize), offsets: [...lines.values()].map(line => Math.abs((line.left + line.right - box.left - box.right) / 2)) };
+        const words = [...node.querySelectorAll('.sign-word')].map(word => ({ lines: new Set([...word.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size, width: [...word.querySelectorAll('.sign-word-part')].reduce((sum, part) => sum + part.getBoundingClientRect().width, 0) }));
+        return { fontSize: parseFloat(getComputedStyle(node).fontSize), fitted: (node as HTMLElement).style.getPropertyValue('--sign-fit') !== '', fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), available: node.getBoundingClientRect().width, words,
+          offsets: [...lines.values()].map(line => Math.abs((line.left + line.right - box.left - box.right) / 2)) };
       }));
       for (const name of names) {
-        expect(name.offsets.every(offset => offset < 2), JSON.stringify({ width, scale, name })).toBe(true);
-        if (width === 390 && scale === 100) expect(name.fontSize).toBeGreaterThanOrEqual(18);
+        const detail = JSON.stringify({ width, scale, font, name });
+        expect(name.offsets.every(offset => offset < 2), detail).toBe(true);
+        // Owner request 2026-11-11: a city name never splits mid-word ("HACKEN / SACK") at normal and moderately enlarged text.
+        // A word may break only when shrinking it to the 0.6 floor still is not enough.
+        if (scale <= 130 && name.fit !== '0.6') expect(name.words.every(word => word.lines === 1), detail).toBe(true);
+        // A name that fits stays large (owner request 2026-11-09); one shrunk to fit fills the sign, so it is as large as it can be.
+        if (width === 390 && scale === 100 && !name.fitted) expect(name.fontSize, detail).toBeGreaterThanOrEqual(18);
+        if (name.fitted && name.fit !== '0.6' && scale <= 130) expect(Math.max(...name.words.map(word => word.width)), detail).toBeGreaterThanOrEqual(name.available * 0.9);
       }
       const tags = await page.locator('.highway-label').evaluateAll(nodes => nodes.map(node => {
         const tag = node.getBoundingClientRect(), sign = node.closest('.highway-sign')!.getBoundingClientRect();

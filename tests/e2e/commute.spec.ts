@@ -694,7 +694,9 @@ test.describe('home card actions and version (owner request 2026-11-04)', () => 
     await expect(page.locator('.rescue-list li').first()).toBeVisible();
     await expect(page.locator('.version-line')).toHaveText(/^Dale \d+\.\d+\.(\d+|local) \([0-9a-z]+\) · app updated \d{1,2}\/\d{1,2}\/\d{4}, \d{1,2}:\d\d [AP]M$/);
     // Always in view in the top bar, on every screen (owner request 2026-11-05).
-    await expect(page.locator('.top .top-version')).toHaveText(/^Version and when this app was updated: v\d+\.\d+\.(\d+|local) · \d{1,2}\/\d{1,2} \d{1,2}:\d\d [AP]M$/);
+    // Owner request 2026-11-11: lower-case am/pm kept with its time, and the slogan beside the wordmark.
+    await expect(page.locator('.top .top-stamp')).toHaveText(/^Version and when this app was updated: v\d+\.\d+\.(\d+|local) · \d{1,2}\/\d{1,2} \d{1,2}:\d\d\u00a0[ap]m$/);
+    await expect(page.locator('.top .top-slogan')).toHaveText('When you ride NJ Transit, you need all the help you can get!');
     await page.getByRole('button', { name: 'Settings' }).click();
     await expect(page.getByRole('heading', { name: 'About this version' })).toBeVisible();
   });

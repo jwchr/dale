@@ -50,7 +50,9 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         const to = signs.querySelector('[data-end="to"]')!.getBoundingClientRect();
         return { sameRow: Math.abs(from.top - to.top) < 1, separate: from.right < to.left, stacked: to.top > from.bottom, overflow: document.documentElement.scrollWidth - innerWidth };
       });
-      expect(geometry).toEqual({ sameRow: scale === 100, separate: scale === 100, stacked: scale > 100, overflow: 0 });
+      // Paired where names fit whole (390px at normal text), stacked on narrower phones and enlarged text (owner request 2026-11-11).
+      const paired = scale === 100 && width >= 390;
+      expect(geometry).toEqual({ sameRow: paired, separate: paired, stacked: !paired, overflow: 0 });
       // The version stamp may share the wordmark row or, when enlarged text leaves no room, take its own row.
       // Either way it must not touch the wordmark or settings, must never split a word, and the header stays compact.
       const headerFor = (font: string) => page.locator('header.top').evaluate((header, font) => {
@@ -58,13 +60,13 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         const box = (r: DOMRect) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
         const wordmark = box(header.querySelector('.wordmark')!.getBoundingClientRect());
         const settings = box(header.querySelector('.icon-btn')!.getBoundingClientRect());
-        const lines = [...header.querySelectorAll('.top-version > .nowrap')].flatMap(node => {
+        const lines = [...header.querySelectorAll('.top-version .nowrap')].flatMap(node => {
           const range = document.createRange(); range.selectNodeContents(node);
           return [...range.getClientRects()].filter(rect => rect.width > 0).map(box);
         });
         const splitWords: string[] = [];
         // Every text node: React renders "· " and the time as separate nodes.
-        for (const node of header.querySelectorAll('.top-version > .nowrap')) {
+        for (const node of header.querySelectorAll('.top-version .nowrap')) {
           const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
           for (let text = walker.nextNode(); text; text = walker.nextNode()) for (const match of text.textContent!.matchAll(/\S+/g)) {
             const range = document.createRange(); range.setStart(text, match.index!); range.setEnd(text, match.index! + match[0].length);
@@ -75,7 +77,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         const result = { font, wordmark, settings, lines, splitWords, height: header.getBoundingClientRect().height,
           touches: lines.filter(line => overlaps(line, wordmark) || overlaps(line, settings)).length,
           outside: lines.filter(line => line.left < 0 || line.right > innerWidth).length,
-          sameRow: lines.every(line => line.top < wordmark.bottom && line.bottom > wordmark.top),
+          sameRow: (block => block.top < wordmark.bottom && block.bottom > wordmark.top)(header.querySelector('.top-version')!.getBoundingClientRect()),
           settingsBesideWordmark: settings.top < wordmark.bottom };
         document.body.style.fontFamily = '';
         return result;
