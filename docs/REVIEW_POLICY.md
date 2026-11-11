@@ -28,7 +28,7 @@ The existing non-author reviewer/release operator verifies and records the risk 
 
 | Class | Examples | Qualifying independent reviewer |
 | --- | --- | --- |
-| Routine | Bounded presentation, copy, ordinary tests or local refactoring without the risks below | CodeRabbit's actual GitHub App review, plus Gemini Pro |
+| Routine | Bounded presentation, copy, ordinary tests or local refactoring without the risks below | CodeRabbit's actual GitHub App review, plus Gemini Pro (or a higher tier when Pro is unavailable or the tier is unclear) |
 | High-risk | Review policy/gates, workflows, security, permissions, secrets, privacy, data writes, destructive behavior, migrations, release automation, native/background location safety, sample/live integrity or material architecture | CodeRabbit plus Gemini 4 Argon, or Gemini 4 Carbon for the most serious changes (see tiers above); the existing non-author Codex reviewer may take either slot when available |
 
 PR #108 is proposed high-risk because it combines local location/timer behavior, sample-versus-live boundaries and this review-policy migration. The non-author operator must confirm that classification. A small policy or safety change is still high-risk.
