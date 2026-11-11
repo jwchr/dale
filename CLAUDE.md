@@ -52,8 +52,3 @@ This section replaces every earlier review, merge, operator, steward, queue and 
 - CodeRabbit does not start by itself here (`.coderabbit.yaml`). Request one `@coderabbitai full review` when the pull request is ready, and never a duplicate.
 - After a merge, open the public Pages site and confirm the change is there, on a narrow phone layout, in English and Spanish.
 - Worker deploys, live-feed changes and history collection are risky changes. They also keep the conditions written in `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md`.
-
-### One-time cleanup (delete this part when it is done)
-- Shorten `docs/HANDOFF.md` to rule 10.
-- Correct or remove text that contradicts this section in `docs/STOP_SIGN.md`, `docs/HANDOFF.md` and `AGENTS.md`.
-- In `docs/DECISIONS.md`, add one row dated 2026-11-11 for this section and mark D58, D59, D64 and D65 superseded by it.
