@@ -45,7 +45,9 @@ describe('enabled collector preservation without migration or mutation', () => {
     raw.archive.verifiedObjects++; raw.archive.reservedBytes += 500; raw.archive.lastSuccessAt = NOW + 21000;
     const after = enabledCheckpoint(raw, ds.meta.feedVersion, NOW + 22000);
     expect(preservesEnabled(before, after, NOW)).toBe(true);
-    expect(() => preservesEnabled(before, { ...after, batches: 0 })).toThrow();
+    // Retained batches fall when verified rows are pruned: not a reset. Observations are cumulative.
+    expect(preservesEnabled(before, { ...after, batches: 0 }, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, observations: before.observations - 1 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, dailyWriteReservationLimit: 999999 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, reservedBytes: 0 } })).toThrow();
   });
