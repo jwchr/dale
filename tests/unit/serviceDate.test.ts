@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createNormalizer } from '../../worker/normalize';
-import { uniqueCalendarDate } from '../../worker/service-date';
+import { resolveOmittedDate, OMITTED_DATE_MARGIN_MS } from '../../worker/service-date';
+import type { Dataset } from '../../src/domain/types';
 import { parseLiveSnapshot, LIVE_SOURCE } from '../../src/domain/liveBus';
 import { serviceTimeToInstant } from '../../src/domain/time';
 import { liveDataset, NOW, binaryFeed, descriptor, vehicle, update } from '../helpers/liveBus';
@@ -13,25 +14,67 @@ function oneDate(date = '20261104') {
 const undated = { tripId: descriptor.tripId, routeId: descriptor.routeId, directionId: descriptor.directionId };
 const report = (trip: Record<string, unknown> = undated) => binaryFeed([{ id: 'v', vehicle: vehicle({ trip }) }]);
 
-describe('provably unique service date compatibility', () => {
-  it('accepts a missing date only when the entire calendar has exactly one active date', () => {
-    const ds = oneDate(), normalize = createNormalizer(ds);
-    expect(normalize(report(), 'vehicles', NOW).observations[0]).toMatchObject({ tripInstanceId: 'T1@20261104', observedAt: NOW - 15_000 });
+const at = (date: string, seconds: number) => serviceTimeToInstant(date, seconds, liveDataset.meta.timezone);
+const reportAt = (ds: Dataset, tripId: string, instant: number) => createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { ...undated, tripId }, timestamp: instant / 1000 }) }], { timestamp: instant / 1000 + 5 }), 'vehicles', instant + 10_000);
+
+describe('omitted service date from the report timestamp', () => {
+  it('resolves an everyday weekday report from its own timestamp, for GPS and predictions', () => {
+    const normalize = createNormalizer(liveDataset);
+    const v = normalize(report(), 'vehicles', NOW);
+    expect(v.observations[0]).toMatchObject({ tripInstanceId: 'T1@20261104', observedAt: NOW - 15_000 });
+    expect(v.unresolvedDateTrips).toEqual([]);
     expect(normalize(binaryFeed([{ id: 'u', tripUpdate: update({ trip: undated }) }]), 'updates', NOW).updates[0]).toMatchObject({ tripInstanceId: 'T1@20261104', predictions: [{ at: NOW + 300_000 }] });
     expect(normalize(report({ ...undated, startDate: '' } as typeof undated), 'vehicles', NOW).observations).toHaveLength(1);
-    expect(createNormalizer(liveDataset)(report(), 'vehicles', NOW).observations).toEqual([]);
   });
-  it('proves one Saturday in a weekly calendar, but refuses two Saturdays in a longer feed', () => {
-    const cal = { days: [false, false, false, false, false, true, false] as [boolean, boolean, boolean, boolean, boolean, boolean, boolean], start: '20261106', end: '20261113', added: [], removed: [] };
-    expect(uniqueCalendarDate(cal)).toBe('20261107');
-    expect(uniqueCalendarDate({ ...cal, end: '20261114' })).toBeUndefined();
+  it('accepts the margin around the scheduled window and refuses reports outside it', () => {
+    const first = at('20261104', 7 * 3600), last = at('20261104', 7 * 3600 + 40 * 60);
+    for (const ok of [first - OMITTED_DATE_MARGIN_MS, last + OMITTED_DATE_MARGIN_MS]) expect(resolveOmittedDate(liveDataset, liveDataset.trips.find((t) => t.id === 'T1')!, ok)).toBe('20261104');
+    for (const bad of [first - OMITTED_DATE_MARGIN_MS - 1000, last + OMITTED_DATE_MARGIN_MS + 1000]) {
+      const v = reportAt(liveDataset, 'T1', bad);
+      expect(v.observations).toEqual([]);
+      expect(v.unresolvedDateTrips).toEqual(['T1']);
+    }
   });
-  it('uses holiday exceptions and removals, including exceptions-only calendars, without choosing the closest day', () => {
-    const cal = oneDate().calendars.WK!;
-    expect(uniqueCalendarDate({ ...cal, removed: ['20261104'] })).toBeUndefined();
-    expect(uniqueCalendarDate({ ...cal, added: ['20261105'] })).toBeUndefined();
-    expect(uniqueCalendarDate({ ...cal, start: '99999999', end: '00000000', days: [false, false, false, false, false, false, false], added: ['20261104', '20261104'] })).toBe('20261104');
-
+  it('closes the window three hours after the explicit last arrival, not a later last departure', () => {
+    const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
+    trip.times = [7 * 3600, 7 * 3600 + 1200, 8 * 3600];
+    trip.arrivals = [7 * 3600, 7 * 3600 + 1200, 7 * 3600 + 2400];
+    const arrivalEnd = at('20261104', 7 * 3600 + 2400) + OMITTED_DATE_MARGIN_MS;
+    expect(resolveOmittedDate(ds, trip, arrivalEnd)).toBe('20261104');
+    expect(resolveOmittedDate(ds, trip, arrivalEnd + 1000)).toBeUndefined();
+    trip.arrivals = [7 * 3600, 7 * 3600 + 1200, null];
+    expect(resolveOmittedDate(ds, trip, at('20261104', 8 * 3600) + OMITTED_DATE_MARGIN_MS)).toBe('20261104');
+  });
+  it('never uses receipt time, and a report without its own timestamp stays unknown', () => {
+    const v = createNormalizer(liveDataset)(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: undated, timestamp: undefined }) }]), 'vehicles', NOW);
+    expect(v.observations).toEqual([]);
+    expect(v.unresolvedDateTrips).toEqual(['T1']);
+    expect(resolveOmittedDate(liveDataset, liveDataset.trips[0]!, undefined)).toBeUndefined();
+  });
+  it('refuses when the calendar is not active that day (weekend, holiday removal)', () => {
+    expect(reportAt(liveDataset, 'T1', at('20261107', 7 * 3600 + 1200)).observations).toEqual([]);
+    expect(reportAt(liveDataset, 'T1', at('20261126', 7 * 3600 + 1200)).observations).toEqual([]);
+    expect(reportAt(liveDataset, 'T1', at('20261127', 7 * 3600 + 1200)).observations[0]?.tripInstanceId).toBe('T1@20261127');
+  });
+  it('keeps an after-midnight report on the previous service date, and refuses when that date is inactive', () => {
+    expect(reportAt(liveDataset, 'T2', at('20261106', 24 * 3600 + 900)).observations[0]?.tripInstanceId).toBe('T2@20261106');
+    expect(reportAt(liveDataset, 'T2', at('20261108', 24 * 3600 + 900)).observations).toEqual([]);
+  });
+  it('refuses when two active service dates both fit the report', () => {
+    const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
+    trip.times = [7 * 3600, 7 * 3600 + 600, 7 * 3600 + 20 * 3600];
+    delete trip.arrivals;
+    const overlap = at('20261105', 5 * 3600);
+    expect(resolveOmittedDate(ds, trip, overlap)).toBeUndefined();
+    expect(reportAt(ds, 'T1', overlap).observations).toEqual([]);
+    expect(resolveOmittedDate(ds, trip, at('20261104', 7 * 3600))).toBe('20261104');
+  });
+  it('fails closed for trips longer than the bounded date scan or with out-of-order times', () => {
+    const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
+    trip.times = [7 * 3600, 8 * 3600, 61 * 3600];
+    expect(resolveOmittedDate(ds, trip, at('20261104', 7 * 3600))).toBeUndefined();
+    trip.times = [62 * 3600, 10 * 3600];
+    expect(resolveOmittedDate(ds, trip, at('20261104', 10 * 3600))).toBeUndefined();
   });
   it.each([' ', '20261344', '20261105'])('never repairs an explicit invalid/inactive date %j using the unique date', (startDate) => {
     expect(createNormalizer(oneDate())(report({ ...undated, startDate } as typeof undated), 'vehicles', NOW).observations).toEqual([]);
@@ -78,9 +121,11 @@ describe('provably unique service date compatibility', () => {
       expect(createNormalizer(ds)(report(), 'vehicles', NOW).observations).toEqual([]);
     }
   });
-  it('keeps ambiguous cancellations unknown and accepts an explicit official cancellation date', () => {
+  it('keeps undated cancellations unknown (date-unknown), even inside the trip window, and accepts an explicit official cancellation date', () => {
     const bytes = (trip: Record<string, unknown>) => binaryFeed([{ id: 'u', tripUpdate: update({ trip: { ...trip, scheduleRelationship: 3 } }) }]);
-    expect(createNormalizer(liveDataset)(bytes(undated), 'updates', NOW).updates).toEqual([]);
+    const undatedCancel = createNormalizer(liveDataset)(bytes(undated), 'updates', NOW);
+    expect(undatedCancel.updates).toEqual([]);
+    expect(undatedCancel.unresolvedDateTrips).toEqual(['T1']);
     expect(createNormalizer(liveDataset)(bytes(descriptor), 'updates', NOW).updates[0]?.cancelled).toBe(true);
   });
   it('discards unusable timestamps without poisoning otherwise valid GPS in the browser packet', () => {

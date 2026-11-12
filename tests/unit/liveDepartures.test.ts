@@ -76,7 +76,9 @@ describe('exact stop-specific upcoming arrivals', () => {
     expect(departureEvidence(duplicates, duplicates.items[0], NOW).kind).toBe('ambiguous');
   });
   it('explains an actually observed unresolved trip date without inferring today', () => {
-    const v = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { tripId: 'T1', routeId: '10' } }) }]), 'vehicles', NOW);
+    // 2:20 AM: outside every active day's window for the 7:00 AM trip, so no date fits.
+    const v = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { tripId: 'T1', routeId: '10' }, timestamp: NOW / 1000 - 5 * 3600 }) }]), 'vehicles', NOW);
+    expect(v.observations).toEqual([]);
     expect(v.unresolvedDateTrips).toEqual(['T1']);
     const u = { ...updates(), updates: [] }, b = { ...batch(), items: summarizeDepartures(ds,[q], v, u, NOW) };
     expect(departureEvidence(b, b.items[0], NOW).kind).toBe('date-unknown');
