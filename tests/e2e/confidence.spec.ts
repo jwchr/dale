@@ -14,7 +14,7 @@ async function demoTrip(page: Page) {
 }
 for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage and accessibility (${lang})`, async ({ page }) => {
   await page.addInitScript((language) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: language })), lang);
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   const j = strings[lang].journey;
   await page.getByRole('button', { name: j.trainMode }).click();
   await page.locator('.journey-checklist > summary').click();
@@ -84,7 +84,7 @@ test('a failed basemap archive shows its fallback and leaves ride controls usabl
   await expect(page.locator('.lock-phase')).toHaveText('Session ended');
 });
 test('malformed saved lock is removed and does not blank the app', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop', exact: true }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();

@@ -68,7 +68,7 @@ test('a browser without location: says so', async ({ page }) => {
 });
 
 test('printed timetable: not offered, and says why', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: /find a stop/i }).first().click();
   await expect(page.getByRole('button', { name: 'Stops near me' })).toHaveCount(0);
   await expect(page.getByRole('note').filter({ hasText: 'needs stop locations, which the printed timetable does not have' })).toBeVisible();

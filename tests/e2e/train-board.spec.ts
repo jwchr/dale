@@ -7,7 +7,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
   test(`train board is first, source-qualified, keyboard usable and fits enlarged phones (${lang}, ${theme})`, async ({ page }) => {
     const t = strings[lang], j = t.journey, r = t.rail;
     await page.addInitScript(({ lang, theme }) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, theme, skin: 'garden' })), { lang, theme });
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
     await expect(page.locator('.top-version')).toBeVisible();
     const logoBefore = await page.getByRole('img', { name: 'Dale!', exact: true }).boundingBox();
@@ -88,7 +88,7 @@ for (const lang of ['en', 'es'] as const) for (const station of ['anderson', 'es
   test(`collapsed train number names its actual boarding station in both directions (${lang}, ${station})`, async ({ page }) => {
     const t = strings[lang], j = t.journey;
     await page.addInitScript(lang => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang })), lang);
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await page.getByRole('button', { name: j.trainMode, exact: true }).click();
     await page.getByRole('combobox', { name: j.station, exact: true }).selectOption(station);
     const home = station === 'anderson' ? 'Anderson Street' : 'Essex Street (PVL, Hackensack)';

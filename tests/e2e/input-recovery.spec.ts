@@ -17,7 +17,7 @@ for (const lang of ['en', 'es'] as const) {
       const good = { id: 'good', label: 'My weekday bus', fromStopId: 'N19', toStopId: 'PABT', routeIds: [] };
       localStorage.setItem('arriba.favorites.v1', JSON.stringify([{ ...good, id: 'bad', label: {} }, good, { id: 'incomplete' }]));
     }, lang);
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     const card = page.getByRole('article', { name: /My weekday bus/ });
     await expect(card).toBeVisible();
     await expect(card.locator('.dep')).toHaveCount(3);
@@ -41,7 +41,7 @@ for (const lang of ['en', 'es'] as const) {
         json: recover ? printed : broken,
         headers: { 'x-arriba-from-cache': '1', 'x-arriba-saved-at': String(Date.parse('2026-11-04T12:30:00Z')) },
       }));
-      await page.goto('/?now=2026-11-04T07:50');
+      await page.goto('/?printed=1&now=2026-11-04T07:50');
       await expect(page.getByRole('alert')).toContainText(failed);
       await expect(page.locator('.demo-banner')).toHaveCount(0);
       recover = true;

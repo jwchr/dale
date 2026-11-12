@@ -69,8 +69,10 @@ type Screen =
 const rawStore = (() => { try { return window.localStorage; } catch { return undefined; } })();
 const LIVE_API = liveApiUrl(import.meta.env.VITE_LIVE_API_URL);
 const sourceParams = new URLSearchParams(location.search);
-const liveMode = !sourceParams.has('demo') && (sourceParams.has('live') || (!sourceParams.has('printed') && (() => {
-  try { return rawStore?.getItem('arriba.source.v1') === 'live'; } catch { return false; }
+// Owner decision 2026-11-12: NJ Transit's official schedule from Dale's private server is the default
+// wherever that server is configured. The printed timetable stays one tap away and is remembered once chosen.
+const liveMode = !sourceParams.has('demo') && (sourceParams.has('live') || (!!LIVE_API && !sourceParams.has('printed') && (() => {
+  try { return rawStore?.getItem('arriba.source.v1') !== 'printed'; } catch { return true; }
 })()));
 try {
   if (sourceParams.has('live') && LIVE_API) rawStore?.setItem('arriba.source.v1', 'live');
@@ -83,6 +85,7 @@ const store = rawStore ? {
   setItem: (key: string, value: string) => rawStore.setItem(storageKey(key), value),
   removeItem: (key: string) => rawStore.removeItem(storageKey(key)),
 } : undefined;
+const MOVE_DONE_KEY = 'arriba.printedMoveDone.v1';
 function sourceHref(live: boolean): string {
   const url = new URL(location.href);
   url.searchParams.delete('demo'); url.searchParams.delete(live ? 'printed' : 'live');
@@ -262,6 +265,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const lockNow = now + (ds.meta.demo ? demoAdvanceMs : 0);
   const [settings, setSettings] = useSettings();
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(store));
+  // Commutes saved with the printed timetable live under the unsuffixed key; read them only to offer the update.
+  const [printedCommutes] = useState<string[]>(() => liveMode ? loadFavorites(rawStore).map(f => f.label) : []);
+  // Dale cannot tell which printed commutes were re-added (different stop IDs), so the rider says when they are done.
+  const [moveDone, setMoveDone] = useState(() => { try { return rawStore?.getItem(MOVE_DONE_KEY) === '1'; } catch { return false; } });
+  const finishMove = () => { setMoveDone(true); try { rawStore?.setItem(MOVE_DONE_KEY, '1'); } catch { /* still hidden for this visit */ } };
   // A short history: Back returns to the screen the rider came from; going home starts over.
   const [stack, setStack] = useState<Screen[]>([{ name: 'home' }]);
   const screen = stack[stack.length - 1]!;
@@ -396,6 +404,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
+            printedCommutes={moveDone ? [] : printedCommutes} onFind={() => setScreen({ name: 'search' })} onMoveDone={finishMove}
             onGuide={() => setScreen({ name: 'guide' })}
             onChoose={(favoriteId, reversed, end, level) => { pickerFocus.current = { favoriteId, end, level }; setScreen({ name: 'commute', favoriteId, reversed, end, level }); }}
             onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
@@ -563,12 +572,14 @@ function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefine
   return back ? { ...back, routeIds: f.routeIds } : undefined;
 }
 
-function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue }: {
+function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone }: {
   ctx: Ctx; favorites: Favorite[]; count: number; setFavorites: (fn: (l: Favorite[]) => Favorite[]) => void;
   reversedIds: Set<string>; toggleReversed: (id: string) => void;
   onChoose: (favoriteId: string, reversed: boolean, end: CommutePickEnd, level: 'city' | 'stop') => void;
   onGuide: () => void; onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
+  /** Labels of commutes saved with the printed timetable, shown once the official schedule is the source. */
+  printedCommutes?: string[]; onFind?: () => void; onMoveDone?: () => void;
 }) {
   const { t, ds, now } = ctx;
   const [editing, setEditing] = useState(false);
@@ -584,6 +595,18 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   const evidence = (d: Departure, toStopId: string): DepartureEvidence | undefined => !live ? undefined
     : live.state !== 'available' ? { kind: live.state === 'checking' ? 'checking' : 'unavailable' }
     : departureEvidence(live.batch, reports.get(departureKey(requestFor(d, toStopId))), now);
+  if (!favorites.length && printedCommutes.length && onFind) {
+    // Printed and official stops use different IDs, so Dale never maps them silently: the rider picks again.
+    return (
+      <section className="card hero-empty move-commutes">
+        <h1>{t.live.moveTitle}</h1>
+        <p>{t.live.moveBody(printedCommutes.length)}</p>
+        <ul className="move-list">{printedCommutes.map((label, i) => <li key={i}>{label}</li>)}</ul>
+        <p><button className="primary" onClick={onFind}>{t.live.moveFind}</button></p>
+        <p><a className="link" href={sourceHref(false)}>{t.live.backup}</a></p>
+      </section>
+    );
+  }
   if (!favorites.length) {
     return (
       <section className="card hero-empty">
@@ -596,6 +619,14 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   }
   return (
     <>
+      {printedCommutes.length > 0 && onFind && onMoveDone && <section className="card move-reminder" aria-label={t.live.moveReminder}>
+        <p><strong>{t.live.moveReminder}</strong></p>
+        <ul className="move-list">{printedCommutes.map((label, i) => <li key={i}>{label}</li>)}</ul>
+        <div className="choice-list">
+          <button className="chip" onClick={onFind}>{t.live.moveFind}</button>
+          <button className="chip" onClick={onMoveDone}>{t.live.moveDone}</button>
+        </div>
+      </section>}
       <ol className="fav-list">
         {favorites.map((f, i) => (
           <li key={f.id}>
