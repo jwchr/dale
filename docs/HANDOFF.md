@@ -29,5 +29,5 @@ Updated 2026-11-11. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - At 200% text in wide fonts, the saved-commute LED sign (the dark name banner) can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet.
 - DST: check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before the feed replaces the printed timetable (M2).
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends.
-- The builder's sandbox cannot delete branches (git returns HTTP 403). `.github/workflows/branch-cleanup.yml` deletes each merged pull request's branch on GitHub instead; a manual run (dry run unless "delete" is ticked) sweeps older merged branches.
+- The builder's sandbox cannot delete branches (git returns HTTP 403), so merged branches pile up. `scripts/branch-cleanup.mjs` (tested) selects and deletes merged branches safely; the workflow that runs it is out of #142 because every commit containing it hit a GitHub-side "unexpected error" startup failure (Support ticket open, request ID 4007:33BC50:227B926:26A3EEF:6AF5A77C). It returns in its own pull request.
 - The builder's sandbox blocks github.io, so the "confirm Pages after merge" step needs a browser outside it or an environment network change.

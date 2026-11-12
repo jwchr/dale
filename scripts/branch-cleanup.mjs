@@ -1,5 +1,6 @@
 // Deletes work branches whose pull request was merged (owner request 2026-11-11: the builder's sandbox
-// cannot delete branches, so they piled up). Run only by .github/workflows/branch-cleanup.yml.
+// cannot delete branches, so they piled up). Meant to run only from a GitHub Actions workflow on main
+// (added in its own pull request) with GITHUB_TOKEN and a checkout of main.
 //
 // A branch is deleted only when ALL of these hold:
 // - a pull request from this repository with that head branch was merged;
