@@ -7,12 +7,15 @@ import { strings } from '../../src/ui/i18n';
 const API = 'https://dale-live.test.workers.dev';
 const printed = [{ id: 'reference', label: 'Hackensack → New York', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }];
 
-async function open(page: Page, lang: 'en' | 'es', saved: unknown[] | null, url = '/') {
+async function open(page: Page, lang: 'en' | 'es', saved: unknown[] | null, url = '/', official: unknown[] | null = null) {
   const requests: string[] = [];
-  await page.addInitScript(({ lang, saved }) => {
+  await page.addInitScript(({ lang, saved, official }) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'garden', theme: 'light' }));
     if (saved) localStorage.setItem('arriba.favorites.v1', JSON.stringify(saved));
-  }, { lang, saved });
+    if (official) localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify(official));
+  }, { lang, saved, official });
   await page.clock.install({ time: NOW });
   await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
@@ -53,6 +56,25 @@ for (const lang of ['en', 'es'] as const) {
     expect(requests).toEqual(['schedule', 'printed', 'printed']);
   });
 }
+
+for (const lang of ['en', 'es'] as const) test(`after one commute is re-added, a small reminder lists the printed ones until Done (${lang})`, async ({ page }) => {
+  const t = strings[lang];
+  const official = [{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My official commute' }];
+  await open(page, lang, [...printed, { id: 'back', label: 'New York → Hackensack', fromStopId: 'PABT', toStopId: 'N10', routeIds: [] }], '/', official);
+  const reminder = page.locator('.move-reminder');
+  await expect(reminder).toContainText(t.live.moveReminder);
+  await expect(reminder.getByRole('listitem')).toHaveText(['Hackensack → New York', 'New York → Hackensack']);
+  await expect(page.locator('.fav').first()).toBeVisible();
+  for (const name of [t.live.moveFind, t.live.moveDone]) expect((await reminder.getByRole('button', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await reminder.getByRole('button', { name: t.live.moveDone }).click();
+  await expect(page.locator('.move-reminder')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.fav').first()).toBeVisible();
+  await expect(page.locator('.move-reminder')).toHaveCount(0);
+  // Done hides the reminder only; the printed commutes stay saved for the printed timetable.
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1')!).length)).toBe(2);
+});
 
 test('a new rider without printed commutes sees the usual first-stop screen', async ({ page }) => {
   const requests = await open(page, 'en', null);

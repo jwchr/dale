@@ -85,6 +85,7 @@ const store = rawStore ? {
   setItem: (key: string, value: string) => rawStore.setItem(storageKey(key), value),
   removeItem: (key: string) => rawStore.removeItem(storageKey(key)),
 } : undefined;
+const MOVE_DONE_KEY = 'arriba.printedMoveDone.v1';
 function sourceHref(live: boolean): string {
   const url = new URL(location.href);
   url.searchParams.delete('demo'); url.searchParams.delete(live ? 'printed' : 'live');
@@ -266,6 +267,9 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(store));
   // Commutes saved with the printed timetable live under the unsuffixed key; read them only to offer the update.
   const [printedCommutes] = useState<string[]>(() => liveMode ? loadFavorites(rawStore).map(f => f.label) : []);
+  // Dale cannot tell which printed commutes were re-added (different stop IDs), so the rider says when they are done.
+  const [moveDone, setMoveDone] = useState(() => { try { return rawStore?.getItem(MOVE_DONE_KEY) === '1'; } catch { return false; } });
+  const finishMove = () => { setMoveDone(true); try { rawStore?.setItem(MOVE_DONE_KEY, '1'); } catch { /* still hidden for this visit */ } };
   // A short history: Back returns to the screen the rider came from; going home starts over.
   const [stack, setStack] = useState<Screen[]>([{ name: 'home' }]);
   const screen = stack[stack.length - 1]!;
@@ -400,7 +404,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
-            printedCommutes={printedCommutes} onFind={() => setScreen({ name: 'search' })}
+            printedCommutes={moveDone ? [] : printedCommutes} onFind={() => setScreen({ name: 'search' })} onMoveDone={finishMove}
             onGuide={() => setScreen({ name: 'guide' })}
             onChoose={(favoriteId, reversed, end, level) => { pickerFocus.current = { favoriteId, end, level }; setScreen({ name: 'commute', favoriteId, reversed, end, level }); }}
             onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
@@ -568,14 +572,14 @@ function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefine
   return back ? { ...back, routeIds: f.routeIds } : undefined;
 }
 
-function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind }: {
+function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone }: {
   ctx: Ctx; favorites: Favorite[]; count: number; setFavorites: (fn: (l: Favorite[]) => Favorite[]) => void;
   reversedIds: Set<string>; toggleReversed: (id: string) => void;
   onChoose: (favoriteId: string, reversed: boolean, end: CommutePickEnd, level: 'city' | 'stop') => void;
   onGuide: () => void; onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
   /** Labels of commutes saved with the printed timetable, shown once the official schedule is the source. */
-  printedCommutes?: string[]; onFind?: () => void;
+  printedCommutes?: string[]; onFind?: () => void; onMoveDone?: () => void;
 }) {
   const { t, ds, now } = ctx;
   const [editing, setEditing] = useState(false);
@@ -615,6 +619,14 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   }
   return (
     <>
+      {printedCommutes.length > 0 && onFind && onMoveDone && <section className="card move-reminder" aria-label={t.live.moveReminder}>
+        <p><strong>{t.live.moveReminder}</strong></p>
+        <ul className="move-list">{printedCommutes.map((label, i) => <li key={i}>{label}</li>)}</ul>
+        <div className="choice-list">
+          <button className="chip" onClick={onFind}>{t.live.moveFind}</button>
+          <button className="chip" onClick={onMoveDone}>{t.live.moveDone}</button>
+        </div>
+      </section>}
       <ol className="fav-list">
         {favorites.map((f, i) => (
           <li key={f.id}>
