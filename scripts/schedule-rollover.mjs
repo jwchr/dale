@@ -9,6 +9,9 @@ export const CONTEXT_MAX_BYTES = 16_000_000, CONTEXT_PART_CHARS = 32_000;
 /** Normal collection and archiving for about ten minutes while the deferred update lands. */
 export const ROLLOVER_WRITE_HEADROOM = 600;
 export const ROLLOVER_COVERAGE_DAYS = 7;
+/** Physical SQLite growth exceeds the context's text bytes (rows, pages, manifest, indexes):
+ * count the context twice and keep a fixed margin for collection while the update lands. */
+export const ROLLOVER_DATABASE_FACTOR = 2, ROLLOVER_DATABASE_MARGIN_BYTES = 16_000_000;
 
 /** Same chunking as ensureContext: 32,000 UTF-16 units, never splitting a surrogate pair. */
 export function contextPartCount(body) {
@@ -46,10 +49,10 @@ export function rolloverCapacity(checkpoint, text) {
   if (!c || !['bytes', 'byteLimit', 'databaseByteLimit', 'reservedWrites', 'dailyWriteReservationLimit'].every(k => whole(c[k]))
     || (c.databaseBytes !== undefined && !whole(c.databaseBytes))) throw new Error('rollover-capacity-unknown');
   const summary = { contextBytes: bytes, contextParts: parts, contextWriteUnits: writeUnits, contextByteLimit: CONTEXT_MAX_BYTES,
-    journalBytes: c.bytes, journalByteLimit: c.byteLimit, databaseBytes: c.databaseBytes ?? null, databaseByteLimit: c.databaseByteLimit,
+    journalBytes: c.bytes, journalByteLimit: c.byteLimit, databaseBytes: c.databaseBytes ?? null, databaseHeadroomBytes: ROLLOVER_DATABASE_FACTOR * bytes + ROLLOVER_DATABASE_MARGIN_BYTES, databaseByteLimit: c.databaseByteLimit,
     reservedWrites: c.reservedWrites, writeHeadroom: ROLLOVER_WRITE_HEADROOM, dailyWriteReservationLimit: c.dailyWriteReservationLimit };
   const ok = bytes <= CONTEXT_MAX_BYTES && c.bytes + bytes <= c.byteLimit
-    && (c.databaseBytes === undefined || c.databaseBytes + bytes < c.databaseByteLimit)
+    && (c.databaseBytes === undefined || c.databaseBytes + ROLLOVER_DATABASE_FACTOR * bytes + ROLLOVER_DATABASE_MARGIN_BYTES < c.databaseByteLimit)
     && c.reservedWrites + writeUnits + ROLLOVER_WRITE_HEADROOM <= c.dailyWriteReservationLimit;
   return { ok, summary };
 }

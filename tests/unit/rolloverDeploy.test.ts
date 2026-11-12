@@ -9,6 +9,8 @@ const keyOf = (text: string, feed: string) => feed + ':' + createHash('sha256').
 const text = JSON.stringify(old), context = keyOf(text, old.meta.feedVersion);
 const nextText = JSON.stringify(next), nextContext = keyOf(nextText, next.meta.feedVersion);
 const entry = new URL('../../scripts/deploy-live-worker.mjs', import.meta.url).href;
+// The exact recovery line, read from the script without running it.
+const ROLLOVER_RECOVERY = /const ROLLOVER_RECOVERY = '([^']+)';/.exec(readFileSync(new URL(entry), 'utf8'))![1]!;
 const identityModule = new URL('../../scripts/worker-content-identity.mjs', import.meta.url).href;
 const continuityModule = new URL('../../scripts/enabled-continuity.mjs', import.meta.url).href;
 function deployment(scenario: string) {
@@ -46,7 +48,7 @@ function deployment(scenario: string) {
       if (scenario === 'admission-failed') return {...base, error:true, scheduleVersion:'fedcba654321', scheduleContextStored:false};
       // The new actor stored its context and has not completed a batch yet.
       if (clock < boundary + 20000) return {...base, reason:'starting', scheduleVersion:'fedcba654321', lastSuccessAt:boundary-500, lastAttemptAt:boundary-1000, completedAttempt:boundary-1000, archive:archive(21+progress,boundary-100)};
-      return {...base, scheduleVersion:'fedcba654321', ...(scenario==='regression'?{batches:5}:{})};
+      return {...base, scheduleVersion:'fedcba654321', ...(scenario==='regression'?{observations:5}:{})};
     }
     const calls=[];
     globalThis.fetch=async(input, options={})=>{
@@ -113,7 +115,7 @@ it.each([
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   const lines = r.stderr.trim().split('\n');
   expect(lines[0]).toBe(`Worker proof diagnostic: reason=${reason}.`);
-  expect(lines).toContain('Schedule rollover not proven; no automatic rollback or stop was attempted. Recovery is a reviewed re-run (rollover-enabled while the old schedule is still served, otherwise preserve-enabled with the pins qualify-enabled reports), or the existing disabled choice, which stops collection and preserves all evidence.');
+  expect(lines).toContain(ROLLOVER_RECOVERY);
   expect(r.stdout).not.toContain('Next rollover pins');
   expect(r.stdout + r.stderr).not.toMatch(LEAK);
 });

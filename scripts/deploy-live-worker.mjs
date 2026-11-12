@@ -16,7 +16,7 @@ import { readActiveWorkerIdentity, workerProofDiagnostic, workerProofError } fro
 import { verifyUploadedWorker } from './worker-deployment-proof.mjs';
 import { disabledArchiveEvidence, preservesArchiveEvidence } from './disabled-archive-evidence.mjs';
 let temporary;
-const ROLLOVER_RECOVERY = 'Schedule rollover not proven; no automatic rollback or stop was attempted. Recovery is a reviewed re-run (rollover-enabled while the old schedule is still served, otherwise preserve-enabled with the pins qualify-enabled reports), or the existing disabled choice, which stops collection and preserves all evidence.';
+const ROLLOVER_RECOVERY = 'Schedule rollover not proven; no automatic rollback or stop was attempted. Recovery: if the old schedule is still served, a reviewed rollover-enabled re-run. If the new schedule is served and collection is healthy, preserve-enabled with the pins qualify-enabled reports. If the new context could not be stored (rollover-context-admission-failed), qualify-enabled, preserve-enabled and rollover-enabled all refuse and the actor retries only when rebuilt: after the cause clears (the daily write budget resets at 00:00 UTC; byte capacity needs a reviewed fix), an owner-approved enabled run rebuilds from the current file and redeploys, which rebuilds the actor (untested in production). The existing disabled choice stops collection and preserves all evidence at any time.';
 async function run() {
   if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_REPOSITORY !== 'jwchr/dale') throw workerProofError('manual-main-required');
   const collectionMode = process.env.HISTORY_COLLECTION_MODE || 'disabled';

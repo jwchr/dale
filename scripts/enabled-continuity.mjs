@@ -68,7 +68,9 @@ export function preservesEnabled(before, after, progressSince) {
 /** The cumulative/limit rules of preservesEnabled without its schedule-version equality.
  * A schedule rollover changes the version; these rules still hold across it. */
 export function continuesEnabled(before, after, progressSince) {
-  if (!['observations', 'batches', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
+  // `batches` counts retained hot rows: HistoryJournal.pruneVerified decrements it after verified
+  // archiving, so it is not cumulative evidence. `observations` only ever grows.
+  if (!['observations', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
     || !['byteLimit', 'databaseByteLimit', 'dailyWriteReservationLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
     || (before.budgetDay === after.budgetDay && after.reservedWrites < before.reservedWrites)
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
@@ -145,6 +147,11 @@ export function rolloverProgress(before, collection, feedVersion, boundaryAt, no
   // (capacity or write budget). It does not retry until rebuilt: fail fast.
   if (c.error === true && c.scheduleVersion === feedVersion && c.scheduleContextStored === false) throw workerProofError('rollover-context-admission-failed');
   if (c.scheduleVersion !== feedVersion || c.reason === 'starting' || c.scheduleContextStored !== true) return undefined;
+  // A definite regression in cumulative evidence never recovers: report it now, even if
+  // another health field is not yet valid (which would otherwise just keep waiting).
+  const num = v => typeof v === 'number' && Number.isFinite(v);
+  if (['observations', 'completedAttempt', 'lastSuccessAt', 'lastAttemptAt'].some(k => num(c[k]) && c[k] < before[k])
+    || ['verifiedObjects', 'reservedBytes'].some(k => num(c.archive?.[k]) && c.archive[k] < before.archive[k])) fail();
   let checkpoint;
   try { checkpoint = enabledCheckpoint(c, feedVersion, now); } catch { return undefined; }
   // Cumulative evidence or limits that regress never recover: continuesEnabled throws.
@@ -172,7 +179,10 @@ export async function waitForRolloverProgress(before, readRaw, feedVersion, ackn
  * which only the exact previous context may still be served. */
 export async function waitForServedContext(env, expectedContext, previousContext, { net = fetch, clock = Date.now, sleep } = {}) {
   const served = await waitForReadiness(async () => {
-    const observed = await readCanonicalBytes(env, { net });
+    // An unreadable or invalid response during propagation keeps waiting until the deadline;
+    // only a valid schedule that is neither the old nor the new context fails at once.
+    let observed;
+    try { observed = await readCanonicalBytes(env, { net }); } catch { return undefined; }
     if (observed.context === expectedContext) return observed;
     if (observed.context === previousContext) return undefined;
     throw workerProofError('rollover-schedule-not-served');

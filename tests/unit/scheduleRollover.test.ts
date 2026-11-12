@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { liveDataset, NOW } from '../helpers/liveBus';
 // @ts-expect-error native deployment helper
-import { contextPartCount, requireCoverage, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM } from '../../scripts/schedule-rollover.mjs';
+import { contextPartCount, requireCoverage, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM, ROLLOVER_DATABASE_FACTOR, ROLLOVER_DATABASE_MARGIN_BYTES } from '../../scripts/schedule-rollover.mjs';
 // @ts-expect-error native deployment helper
-import { enabledCheckpoint, preservesEnabled, rolloverProgress, waitForRolloverProgress, CODE_DEFERRAL_MS, ROLLOVER_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
+import { enabledCheckpoint, preservesEnabled, rolloverProgress, waitForRolloverProgress, waitForServedContext, CODE_DEFERRAL_MS, ROLLOVER_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function storage(): { db: DatabaseSync; storage: HistoryStorage } {
@@ -50,6 +50,11 @@ describe('rollover capacity mirrors the Worker context admission', () => {
     expect(rolloverCapacity({ ...c, bytes: c.byteLimit - bytes }, text).ok).toBe(true);
     expect(rolloverCapacity({ ...c, bytes: c.byteLimit - bytes + 1 }, text).ok).toBe(false);
     expect(rolloverCapacity({ ...c, databaseBytes: c.databaseByteLimit - bytes }, text).ok).toBe(false);
+    // Physical SQLite growth: the text bytes alone are not enough headroom near the database limit.
+    const physical = ROLLOVER_DATABASE_FACTOR * bytes + ROLLOVER_DATABASE_MARGIN_BYTES;
+    expect(rolloverCapacity({ ...c, databaseBytes: c.databaseByteLimit - bytes - 1 }, text).ok).toBe(false);
+    expect(rolloverCapacity({ ...c, databaseBytes: c.databaseByteLimit - physical }, text).ok).toBe(false);
+    expect(rolloverCapacity({ ...c, databaseBytes: c.databaseByteLimit - physical - 1 }, text).ok).toBe(true);
     expect(rolloverCapacity({ ...c, reservedWrites: c.dailyWriteReservationLimit - units - ROLLOVER_WRITE_HEADROOM }, text).ok).toBe(true);
     expect(rolloverCapacity({ ...c, reservedWrites: c.dailyWriteReservationLimit - units - ROLLOVER_WRITE_HEADROOM + 1 }, text).ok).toBe(false);
     expect(rolloverCapacity(c, 'x'.repeat(CONTEXT_MAX_BYTES + 1)).ok).toBe(false);
@@ -97,5 +102,30 @@ describe('rollover transition proof', () => {
       const c = collection(NEW, clock); c.observations += 5; c.batches += 5; c.archive.verifiedObjects += 5; return c;
     }, NEW, NOW, { clock: () => clock, sleep: async (ms: number) => { clock += ms; } });
     expect(result.boundaryAt).toBe(NOW + CODE_DEFERRAL_MS); expect(result.checkpoint.completedAttempt).toBeGreaterThan(result.boundaryAt);
+  });
+});
+
+describe('rollover review fixes', () => {
+  it('reports a definite evidence regression at once, even when another health field is not yet valid', () => {
+    const before = enabledCheckpoint(collection(OLD), OLD, NOW);
+    const boundary = NOW + CODE_DEFERRAL_MS, at = boundary + 60_000;
+    const bad = { ...collection(NEW, at), archive: { ...collection(NEW, at).archive, verifiedObjects: 1 } };
+    expect(() => rolloverProgress(before, bad, NEW, boundary, at)).toThrow();
+    const notReady = { ...collection(NEW, at), alarmAt: null };
+    expect(rolloverProgress(before, notReady, NEW, boundary, at)).toBeUndefined();
+  });
+  it('keeps waiting through transient schedule-read failures, then accepts the new context', async () => {
+    const text = (feed: string) => { const ds = structuredClone(liveDataset); ds.meta.feedVersion = feed; ds.meta.source = 'NJ Transit GTFS BUS G2'; return JSON.stringify(ds); };
+    const replies: (() => Response)[] = [() => new Response('busy', { status: 503 }), () => new Response('not json'), () => new Response(text(NEW))];
+    let now = NOW;
+    const net = (async () => replies.shift()!()) as unknown as typeof fetch;
+    const { createHash } = await import('node:crypto');
+    const ctx = (t: string) => JSON.parse(t).meta.feedVersion + ':' + createHash('sha256').update(t).digest('hex');
+    const served = await waitForServedContext({ DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' }, ctx(text(NEW)), ctx(text(OLD)),
+      { net, clock: () => now, sleep: async (ms: number) => { now += ms; } });
+    expect(served.context).toBe(ctx(text(NEW)));
+    const third = text('aaaaaaaaaaaa');
+    await expect(waitForServedContext({ DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' }, ctx(text(NEW)), ctx(text(OLD)),
+      { net: (async () => new Response(third)) as unknown as typeof fetch, clock: () => now, sleep: async (ms: number) => { now += ms; } })).rejects.toThrow();
   });
 });
