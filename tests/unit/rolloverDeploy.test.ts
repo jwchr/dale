@@ -9,8 +9,9 @@ const keyOf = (text: string, feed: string) => feed + ':' + createHash('sha256').
 const text = JSON.stringify(old), context = keyOf(text, old.meta.feedVersion);
 const nextText = JSON.stringify(next), nextContext = keyOf(nextText, next.meta.feedVersion);
 const entry = new URL('../../scripts/deploy-live-worker.mjs', import.meta.url).href;
-// The exact recovery line, read from the script without running it.
-const ROLLOVER_RECOVERY = /const ROLLOVER_RECOVERY = '([^']+)';/.exec(readFileSync(new URL(entry), 'utf8'))![1]!;
+// Independent expectations for the printed recovery guidance (not the script's own constant).
+const RECOVERY_STEPS = ['no automatic rollback or stop was attempted', 'rollover-enabled re-run', 'preserve-enabled with the pins qualify-enabled reports',
+  'rollover-context-admission-failed', 'resets at 00:00 UTC', 'owner-approved enabled run', 'disabled choice stops collection and preserves all evidence'];
 const identityModule = new URL('../../scripts/worker-content-identity.mjs', import.meta.url).href;
 const continuityModule = new URL('../../scripts/enabled-continuity.mjs', import.meta.url).href;
 function deployment(scenario: string) {
@@ -115,7 +116,8 @@ it.each([
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   const lines = r.stderr.trim().split('\n');
   expect(lines[0]).toBe(`Worker proof diagnostic: reason=${reason}.`);
-  expect(lines).toContain(ROLLOVER_RECOVERY);
+  const recovery = lines.find((l: string) => l.startsWith('Schedule rollover not proven;')) ?? '';
+  for (const step of RECOVERY_STEPS) expect(recovery).toContain(step);
   expect(r.stdout).not.toContain('Next rollover pins');
   expect(r.stdout + r.stderr).not.toMatch(LEAK);
 });
