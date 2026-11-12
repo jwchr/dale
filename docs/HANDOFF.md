@@ -16,14 +16,13 @@ Updated 2026-11-12. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Route-distance source (#113, `docs/ROUTE_DISTANCE.md`) is published, but the deployed Worker has no current geometry, so no live distance is shown yet. Geometry failures now print an allowlisted reason and counts (#138).
 
 ## Waiting on the owner
-- Choice for the blocked Worker update (see Known problems): A, a reviewed schedule-rollover step that keeps history running (builder's recommendation), or B, stop history, deploy the new schedule, then re-enable. The owner is getting ChatGPT and Gemini 4 Argon opinions; check their points against the code before acting.
 - Whether the app should stay publicly reachable (anyone with the link can open it today) or be limited to the household.
 - Phone test on Jeff's and Diego's phones: install to the home screen, save a commute, reverse it, open a trip from Port Authority, use it offline.
 - Optional: protect `main` on GitHub (require a pull request and the `test` check, no force pushes or deletions). Only the owner can change it; not required for the rules.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
 ## Next (order chosen by the owner; full list in #144)
-1. Unblock the Worker update (option A or B above), then deploy #145 and the route-distance geometry, telling the owner first. The geometry diagnostic (#138) has still never run against the real feed.
+1. Schedule rollover (owner chose option A, D68): `rollover-enabled` is built on branch `claude/schedule-rollover` and pending review (risky: CodeRabbit plus one independent review). After merge, tell the owner, then run it with the current pins; it also deploys #145 and, if geometry builds, route distance (otherwise distance stays off and the geometry diagnostic prints, owner confirmed). The geometry diagnostic (#138) has still never run against the real feed. Then run it about weekly.
 2. Stop sign photo: Jeff's own stop photo with the real stop number and routes (`docs/STOP_SIGN.md`); screenshots before merging.
 3. Find my stop: town list first.
 4. Check whether history kept the weekday live reports that were rejected as `date-unknown`.
@@ -32,7 +31,7 @@ Updated 2026-11-12. Repository `jwchr/dale`; public app https://jwchr.github.io/
 7. Later: big-text name banner, rest of #106, #113, #103, stop alerts, gate cards, train timetables (#80, last).
 
 ## Known problems
-- **Worker update blocked by a new NJ Transit schedule file.** The `preserve-enabled` run on 2026-11-12 (Actions run 43296311567) stopped at `corridor-validation` and deployed nothing; history kept running. `scripts/prepare-live-worker.mjs` refuses a downloaded G2 file whose hash differs from the deployed context ("requires independently reviewed migration"). The Nov 9 run with the same retained context passed that stage, so NJ Transit almost certainly published a new schedule file; what changed and from when is unknown. Until the Worker takes the new schedule, its official times and live matching may drift from NJ Transit's (unverified).
+- **Deployed official schedule expires after Nov 13.** The read-only schedule check (Actions run 43324583765) showed the deployed schedule (6c4dc1e76d06) covers service dates 2026-11-06 to 2026-11-13 only; NJ Transit's current file (e84f5ae3b53b) covers 2026-11-09 to 2026-11-23 with the same 1,044 trip IDs on Dale's routes, 6 trips retimed and 1 stop swapped. NJ Transit replaces this rolling ~2-week file at least weekly, so `preserve-enabled` (which refuses any changed file) cannot keep up. The rollover mode that fixes this is built and pending review (Next 1). Until it runs, from Nov 14 the app shows "This schedule ended Nov 13" on the official schedule; the printed 165/165T timetable remains one tap away. History keeps collecting meanwhile.
 - At 200% text in wide fonts, the saved-commute LED sign (the dark name banner) can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet.
 - DST: the official schedule is now the default (#143). Check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before the next change, March 14, 2027.
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends.

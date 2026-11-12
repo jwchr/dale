@@ -4,17 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       history_collection:
-        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled stops an existing collector; inspect compares original stop versions; restore-disabled redeploys reviewed code without collecting; schedule-check only compares NJ Transit''s current file with the deployed schedule'
+        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled stops an existing collector; inspect compares original stop versions; restore-disabled redeploys reviewed code without collecting; schedule-check only compares NJ Transit''s current file with the deployed schedule; rollover-enabled switches the enabled collector to NJ Transit''s new schedule file while history keeps collecting'
         type: choice
         required: true
         default: disabled
-        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled, qualify-enabled, schedule-check]
+        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollover-enabled, rollback-enabled, qualify-enabled, schedule-check]
       canonical_context_key:
-        description: 'preserve-enabled/rollback-enabled: operator-verified current feedVersion:SHA256 canonical context; must remain identical'
+        description: 'preserve-enabled/rollover-enabled/rollback-enabled: operator-verified current feedVersion:SHA256 canonical context (rollover-enabled: the schedule being replaced)'
         type: string
         required: false
       expected_worker_version:
-        description: 'preserve-enabled/rollback-enabled: operator-verified CURRENT active Worker UUID (not the rollback target)'
+        description: 'preserve-enabled/rollover-enabled/rollback-enabled: operator-verified CURRENT active Worker UUID (not the rollback target)'
         type: string
         required: false
       rollback_reference:
@@ -34,7 +34,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && github.repository == 'jwchr/dale'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,7 +73,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - name: Require the configured deployment secrets before contacting NJ Transit
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollover-enabled'
         run: node -e 'const keys=["NJT_API_USERNAME","NJT_API_PASSWORD","CLOUDFLARE_API_TOKEN","CLOUDFLARE_ACCOUNT_ID","DALE_WORKER_URL"];if(keys.some(k=>!process.env[k]?.trim())){console.error("Deployment configuration is incomplete. No NJ Transit request sent.");process.exit(1)}'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -82,9 +82,9 @@ jobs:
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - run: npm ci
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollback-enabled' || inputs.history_collection == 'qualify-enabled' || inputs.history_collection == 'schedule-check'
-      - name: Prepare official G2 schedule; preserve exact current context when requested (no raw artifacts)
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollback-enabled' || inputs.history_collection == 'qualify-enabled' || inputs.history_collection == 'schedule-check' || inputs.history_collection == 'rollover-enabled'
+      - name: Prepare official G2 schedule; preserve exact current context or prepare a reviewed rollover when requested (no raw artifacts)
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollover-enabled'
         run: npm run worker:prepare
         env:
           HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}
@@ -96,7 +96,7 @@ jobs:
           NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
       - name: Deploy the reviewed private relay and verify an actual matched bus
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollover-enabled'
         run: node scripts/deploy-live-worker.mjs
         env:
           WRANGLER_SEND_METRICS: 'false'

@@ -57,11 +57,18 @@ export function enabledCheckpoint(collection, feedVersion, now) {
     reservedWrites: c.reservedWrites, budgetDay: c.budgetDay, pendingInterruptionCount: c.pendingInterruptionCount,
     byteLimit: c.byteLimit, databaseByteLimit: c.databaseByteLimit, dailyWriteReservationLimit: c.dailyWriteReservationLimit,
     effectiveIntervalMs: c.effectiveIntervalMs, archive: { verifiedObjects: a.verifiedObjects, reservedBytes: a.reservedBytes,
-      lastSuccessAt: a.lastSuccessAt, byteLimit: a.byteLimit, classALimit32Days: a.classALimit32Days, classBLimit32Days: a.classBLimit32Days } };
+      lastSuccessAt: a.lastSuccessAt, byteLimit: a.byteLimit, classALimit32Days: a.classALimit32Days, classBLimit32Days: a.classBLimit32Days },
+    // Aggregate size only; used by the schedule-rollover capacity gate, never by preservation rules.
+    databaseBytes: c.databaseBytes };
 }
 export function preservesEnabled(before, after, progressSince) {
-  if (before.feedVersion !== after.feedVersion
-    || !['observations', 'batches', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
+  if (before.feedVersion !== after.feedVersion) fail();
+  return continuesEnabled(before, after, progressSince);
+}
+/** The cumulative/limit rules of preservesEnabled without its schedule-version equality.
+ * A schedule rollover changes the version; these rules still hold across it. */
+export function continuesEnabled(before, after, progressSince) {
+  if (!['observations', 'batches', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
     || !['byteLimit', 'databaseByteLimit', 'dailyWriteReservationLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
     || (before.budgetDay === after.budgetDay && after.reservedWrites < before.reservedWrites)
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
@@ -81,10 +88,14 @@ async function readBounded(url, limit, net, timeoutMs = 15_000) {
   finally { reader.releaseLock(); }
   return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
 }
-export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000 } = {}) {
+/** Raw bounded /v1/collection health; callers apply every proof predicate. */
+export async function readCollection(env, { net = fetch, timeoutMs = 15_000 } = {}) {
   const url = liveApiUrl(env.DALE_WORKER_URL); if (!url) fail();
-  const raw = JSON.parse(await readBounded(url + '/v1/collection', 128_000, net, timeoutMs));
-  return enabledCheckpoint(raw.collection, feedVersion, clock());
+  return JSON.parse(await readBounded(url + '/v1/collection', 128_000, net, timeoutMs)).collection;
+}
+export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000 } = {}) {
+  const collection = await readCollection(env, { net, timeoutMs });
+  return enabledCheckpoint(collection, feedVersion, clock());
 }
 export async function readCanonicalBytes(env, { net = fetch, expectedContext } = {}) {
   const url = liveApiUrl(env.DALE_WORKER_URL); if (!url) fail();
@@ -119,4 +130,53 @@ export async function waitForTransitionProgress(before, read, acknowledgedAt, { 
   }, { clock, ...(sleep ? { sleep } : {}), timeoutMs: remaining, intervalMs: 5000 });
   if (!checkpoint || !preservesEnabled(before, checkpoint, boundaryAt)) fail();
   return { checkpoint, acknowledgedAt, boundaryAt };
+}
+
+// Schedule rollover (D68): the reviewed update deliberately changes the schedule version.
+// The new actor stores the new context before its first batch, so it reports 'starting'
+// (and the old actor keeps reporting the old version) for a while: those reads wait.
+export const ROLLOVER_PROOF_MS = 600_000, SERVED_SCHEDULE_WAIT_MS = 60_000;
+/** Classifies one raw /v1/collection read. Returns the qualifying checkpoint, undefined
+ * to keep waiting, or throws on a definite failure (context refused, evidence regressed). */
+export function rolloverProgress(before, collection, feedVersion, boundaryAt, now) {
+  const c = collection;
+  if (!c || typeof c !== 'object') return undefined;
+  // The new actor exists, but its constructor could not store the new context
+  // (capacity or write budget). It does not retry until rebuilt: fail fast.
+  if (c.error === true && c.scheduleVersion === feedVersion && c.scheduleContextStored === false) throw workerProofError('rollover-context-admission-failed');
+  if (c.scheduleVersion !== feedVersion || c.reason === 'starting' || c.scheduleContextStored !== true) return undefined;
+  let checkpoint;
+  try { checkpoint = enabledCheckpoint(c, feedVersion, now); } catch { return undefined; }
+  // Cumulative evidence or limits that regress never recover: continuesEnabled throws.
+  return continuesEnabled(before, checkpoint, boundaryAt) ? checkpoint : undefined;
+}
+/** Like waitForTransitionProgress, across a schedule change: no actor reads during the
+ * deferral, a longer deadline, and transient states (and unreadable reads) keep waiting. */
+export async function waitForRolloverProgress(before, readRaw, feedVersion, acknowledgedAt, { clock = Date.now, sleep } = {}) {
+  if (!stamp(acknowledgedAt) || acknowledgedAt > clock() || !/^[a-f0-9]{12}$/.test(feedVersion ?? '') || feedVersion === before.feedVersion) fail();
+  const boundaryAt = acknowledgedAt + CODE_DEFERRAL_MS, deadline = acknowledgedAt + ROLLOVER_PROOF_MS;
+  const remaining = deadline - clock(); if (remaining <= 0) throw workerProofError('rollover-progress-unverified');
+  const checkpoint = await waitForReadiness(async timeoutMs => {
+    const at = clock();
+    if (at <= boundaryAt) return undefined; // Do not poll the actor during deferral.
+    const left = deadline - at; if (left <= 0) return undefined;
+    let raw;
+    try { raw = await readRaw(Math.min(timeoutMs, left)); } catch { return undefined; }
+    const now = clock(); if (now >= deadline) return undefined;
+    return rolloverProgress(before, raw, feedVersion, boundaryAt, now);
+  }, { clock, ...(sleep ? { sleep } : {}), timeoutMs: remaining, intervalMs: 5000 });
+  if (!checkpoint) throw workerProofError('rollover-progress-unverified');
+  return { checkpoint, acknowledgedAt, boundaryAt };
+}
+/** After upload the stateless router serves the new bytes; allow brief propagation, during
+ * which only the exact previous context may still be served. */
+export async function waitForServedContext(env, expectedContext, previousContext, { net = fetch, clock = Date.now, sleep } = {}) {
+  const served = await waitForReadiness(async () => {
+    const observed = await readCanonicalBytes(env, { net });
+    if (observed.context === expectedContext) return observed;
+    if (observed.context === previousContext) return undefined;
+    throw workerProofError('rollover-schedule-not-served');
+  }, { clock, ...(sleep ? { sleep } : {}), timeoutMs: SERVED_SCHEDULE_WAIT_MS, intervalMs: 5000 });
+  if (!served) throw workerProofError('rollover-schedule-not-served');
+  return served;
 }
