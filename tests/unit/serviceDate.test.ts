@@ -35,6 +35,16 @@ describe('omitted service date from the report timestamp', () => {
       expect(v.unresolvedDateTrips).toEqual(['T1']);
     }
   });
+  it('closes the window three hours after the explicit last arrival, not a later last departure', () => {
+    const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
+    trip.times = [7 * 3600, 7 * 3600 + 1200, 8 * 3600];
+    trip.arrivals = [7 * 3600, 7 * 3600 + 1200, 7 * 3600 + 2400];
+    const arrivalEnd = at('20261104', 7 * 3600 + 2400) + OMITTED_DATE_MARGIN_MS;
+    expect(resolveOmittedDate(ds, trip, arrivalEnd)).toBe('20261104');
+    expect(resolveOmittedDate(ds, trip, arrivalEnd + 1000)).toBeUndefined();
+    trip.arrivals = [7 * 3600, 7 * 3600 + 1200, null];
+    expect(resolveOmittedDate(ds, trip, at('20261104', 8 * 3600) + OMITTED_DATE_MARGIN_MS)).toBe('20261104');
+  });
   it('never uses receipt time, and a report without its own timestamp stays unknown', () => {
     const v = createNormalizer(liveDataset)(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: undated, timestamp: undefined }) }]), 'vehicles', NOW);
     expect(v.observations).toEqual([]);
@@ -53,15 +63,18 @@ describe('omitted service date from the report timestamp', () => {
   it('refuses when two active service dates both fit the report', () => {
     const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
     trip.times = [7 * 3600, 7 * 3600 + 600, 7 * 3600 + 20 * 3600];
+    delete trip.arrivals;
     const overlap = at('20261105', 5 * 3600);
     expect(resolveOmittedDate(ds, trip, overlap)).toBeUndefined();
     expect(reportAt(ds, 'T1', overlap).observations).toEqual([]);
     expect(resolveOmittedDate(ds, trip, at('20261104', 7 * 3600))).toBe('20261104');
   });
-  it('fails closed for trips longer than the bounded date scan', () => {
+  it('fails closed for trips longer than the bounded date scan or with out-of-order times', () => {
     const ds = structuredClone(liveDataset), trip = ds.trips.find((t) => t.id === 'T1')!;
     trip.times = [7 * 3600, 8 * 3600, 61 * 3600];
     expect(resolveOmittedDate(ds, trip, at('20261104', 7 * 3600))).toBeUndefined();
+    trip.times = [62 * 3600, 10 * 3600];
+    expect(resolveOmittedDate(ds, trip, at('20261104', 10 * 3600))).toBeUndefined();
   });
   it.each([' ', '20261344', '20261105'])('never repairs an explicit invalid/inactive date %j using the unique date', (startDate) => {
     expect(createNormalizer(oneDate())(report({ ...undated, startDate } as typeof undated), 'vehicles', NOW).observations).toEqual([]);
