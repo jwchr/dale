@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       history_collection:
-        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled stops an existing collector; inspect compares original stop versions; restore-disabled redeploys reviewed code without collecting'
+        description: 'Private bus history: enable only after independent review and current Free-plan capacity verification; disabled stops an existing collector; inspect compares original stop versions; restore-disabled redeploys reviewed code without collecting; schedule-check only compares NJ Transit''s current file with the deployed schedule'
         type: choice
         required: true
         default: disabled
-        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled, qualify-enabled]
+        options: [disabled, enabled, inspect, restore-disabled, cadence-test, cadence-cleanup, preserve-enabled, rollback-enabled, qualify-enabled, schedule-check]
       canonical_context_key:
         description: 'preserve-enabled/rollback-enabled: operator-verified current feedVersion:SHA256 canonical context; must remain identical'
         type: string
@@ -82,7 +82,7 @@ jobs:
           NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
       - run: npm ci
-        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollback-enabled' || inputs.history_collection == 'qualify-enabled'
+        if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled' || inputs.history_collection == 'rollback-enabled' || inputs.history_collection == 'qualify-enabled' || inputs.history_collection == 'schedule-check'
       - name: Prepare official G2 schedule; preserve exact current context when requested (no raw artifacts)
         if: inputs.history_collection == 'enabled' || inputs.history_collection == 'restore-disabled' || inputs.history_collection == 'preserve-enabled'
         run: npm run worker:prepare
@@ -128,3 +128,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
           HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}
+      - name: Read-only schedule check; compare NJ Transit's current file with the deployed schedule (aggregate summary only)
+        if: inputs.history_collection == 'schedule-check'
+        run: node scripts/check-schedule.mjs
+        env:
+          HISTORY_COLLECTION_MODE: ${{ inputs.history_collection }}
+          DALE_WORKER_URL: ${{ vars.DALE_WORKER_URL }}
+          NJT_API_USERNAME: ${{ secrets.NJT_API_USERNAME }}
+          NJT_API_PASSWORD: ${{ secrets.NJT_API_PASSWORD }}

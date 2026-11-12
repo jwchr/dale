@@ -56,6 +56,8 @@ An ephemeral mode-0600 JSON file supplies only the NJ Transit secrets to Wrangle
 
 After this passes, set public repository variable `DALE_LIVE_API_URL` to that same verified URL and rerun the current main CI/Pages run. Pages builds read that variable; test builds always use an intercepted synthetic endpoint. Verify the public app's actual report source/time/vehicle and feed-loss behavior separately before saying it is live. No raw recordings or credentials in review packets, tests, logs, public artifacts or git.
 
+**Schedule check (owner-approved 2026-11-12).** `schedule-check` is a separate read-only choice on the same manual main-only workflow. It reads the deployed canonical schedule from the Worker's public `/v1/schedule`, downloads NJ Transit's current G2 file in runner memory, builds the candidate with the same converter options as preparation (without stop-city lookups) and prints only aggregate counts, feed versions and service dates (`scripts/check-schedule.mjs`, `scripts/schedule-compare.mjs`): trips per route, trips common/added/removed/changed (route, direction, stop order, departure times), stops common/added/removed, calendar ranges, trips today, and for each service date from yesterday to 60 days ahead whether the active trips differ. It never prints trip or stop IDs, times or names, has no Cloudflare credentials, writes no files and cannot deploy, stop or change collection.
+
 Rollback: clear `DALE_LIVE_API_URL`, rebuild Pages and stop invoking/delete only the dedicated `dale-live` Worker after explicit destructive-action approval if needed. Printed 165 data and private saved commutes remain. Do not touch other Workers or websites in the account.
 
 ## Validation and remaining acceptance
