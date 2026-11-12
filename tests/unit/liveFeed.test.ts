@@ -37,7 +37,7 @@ describe('official GTFS-RT normalization', () => {
     expect(normalize(updates(), 'updates', NOW).updates[0]).toMatchObject({ cancelled: false, predictions: [{ stopIndex: 1, at: NOW + 300_000, observedAt: NOW - 20_000, kind: 'departure' }] });
   });
   it.each([
-    { trip: { ...descriptor, startDate: '' } }, { trip: { ...descriptor, startDate: '20261344' } },
+    { trip: { ...descriptor, startDate: '' }, timestamp: NOW / 1000 - 5 * 3600 }, { trip: { ...descriptor, startDate: '20261344' } },
     { trip: { ...descriptor, routeId: 'other' } }, { trip: { ...descriptor, directionId: 1 } },
     { trip: { ...descriptor, startDate: '20261107' } }, { trip: { ...descriptor, tripId: 'not-in-static-feed' } },
     { trip: { ...descriptor, scheduleRelationship: 1 } }, { timestamp: 0 }, { timestamp: NOW / 1000 + 5 },
