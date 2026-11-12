@@ -38,6 +38,13 @@ describe('read-only schedule check comparison', () => {
     const empty = clone((ds) => { for (const cal of Object.values(ds.calendars)) { cal.start = '20261201'; cal.added = []; } });
     expect(plainVerdict(compareSchedules(liveDataset, empty, { today: TODAY, days: 7 }))).toContain('no trips on Dale\'s routes for today');
   });
+  it('treats an arrival-only change as a differing service date', () => {
+    const changed = clone((ds) => { const t = ds.trips.find((x) => x.id === 'T1')!; t.arrivals = t.times.map((x, i) => i === t.times.length - 1 ? x - 120 : x); });
+    const s = compareSchedules(liveDataset, changed, { today: TODAY, days: 7 });
+    expect(s.trips).toMatchObject({ coreChanged: 0, arrivalsOnlyChanged: 1 });
+    expect(s.serviceDates.firstDifferentDate).not.toBeNull();
+    expect(s.serviceDates.firstDifferences[0]).toMatchObject({ changed: 1, onlyDeployed: 0, onlyCandidate: 0 });
+  });
   it('outputs only aggregate counts, dates and feed versions, never IDs, times or names', () => {
     const text = JSON.stringify(compareSchedules(liveDataset, liveDataset, { today: TODAY, days: 7 }));
     for (const ds of [liveDataset]) {

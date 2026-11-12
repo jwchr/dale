@@ -46,7 +46,8 @@ function calendarRange(ds, cores) {
 
 function activeOn(ds, cores, date) {
   const out = new Map();
-  for (const [id, t] of cores) if (isServiceActive(ds.calendars[t.serviceId], date)) out.set(id, t.core);
+  // Arrivals are included: the live bus-day fix closes its matching window on the final arrival.
+  for (const [id, t] of cores) if (isServiceActive(ds.calendars[t.serviceId], date)) out.set(id, JSON.stringify([t.core, t.arrivals]));
   return out;
 }
 
@@ -103,6 +104,6 @@ export function compareSchedules(deployed, candidate, { today, days = 60 }) {
 export function plainVerdict(s) {
   const { serviceDates: d } = s;
   if (!s.candidate.tripsToday && s.deployed.tripsToday) return `NJ Transit's current file has no trips on Dale's routes for today (${s.window.today}); the deployed schedule has ${s.deployed.tripsToday}.`;
-  if (!d.different) return `For every service date from ${s.window.from} to ${s.window.to}, the trips on Dale's routes are identical (route, direction, stops and departure times).`;
+  if (!d.different) return `For every service date from ${s.window.from} to ${s.window.to}, the trips on Dale's routes are identical (route, direction, stops, departure and arrival times).`;
   return `Trips on Dale's routes first differ on ${d.firstDifferentDate}; ${d.different} of ${d.compared} service dates from ${s.window.from} to ${s.window.to} differ.`;
 }
