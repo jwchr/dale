@@ -10,7 +10,7 @@ import { parseDataset } from '../src/domain/dataset.ts';
 import { localYmd } from '../src/domain/time.ts';
 import { buildDataset } from './gtfs-lib.mjs';
 import { readCanonicalBytes } from './enabled-continuity.mjs';
-import { compareSchedules, plainVerdict } from './schedule-compare.mjs';
+import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
 
 let phase = 'preflight';
 try {
@@ -34,7 +34,8 @@ try {
   parseDataset(candidate);
   phase = 'comparison';
   const today = localYmd(Date.now(), deployed.ds.meta.timezone);
-  const summary = compareSchedules(deployed.ds, candidate, { today, days: 60 });
+  // Cover both calendars to their last date (at least 60 days, at most 366).
+  const summary = compareSchedules(deployed.ds, candidate, { today, days: windowDays(deployed.ds, candidate, today) });
   console.log(`Schedule check (aggregate counts and dates only): ${JSON.stringify({ ...summary, sameSourceFile: summary.candidate.feedVersion === summary.deployed.feedVersion, deployedContext: deployed.context, checkerCommit: process.env.GITHUB_SHA })}`);
   console.log(`Plain summary: ${plainVerdict(summary)}`);
   console.log('Read-only: nothing on Dale\'s server was changed and no NJ Transit data was saved.');
