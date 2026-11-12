@@ -10,7 +10,7 @@ for (const lang of ['en', 'es'] as const) {
     await page.addInitScript((language) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: language })), lang);
     let recover = false;
     await page.route('**/data/corridor.json', (route) => recover ? route.fulfill({ json: printed }) : route.fulfill({ status: 503 }));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.getByRole('alert')).toContainText(t.loadFailed);
     await page.getByRole('button', { name: t.guide.title, exact: true }).click();
     await expect(page.getByRole('heading', { name: t.guide.title, exact: true })).toBeFocused();
@@ -42,7 +42,7 @@ for (const lang of ['en', 'es'] as const) {
     let release!: () => void;
     const ready = new Promise<void>((resolve) => { release = resolve; });
     await page.route('**/data/corridor.json', async (route) => { await ready; await route.fulfill({ json: printed }); });
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await page.getByRole('button', { name: j.trainMode, exact: true }).click();
     await page.getByRole('button', { name: lang === 'en' ? 'Español' : 'English', exact: true }).click();
     const other = strings[lang === 'en' ? 'es' : 'en'];

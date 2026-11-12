@@ -97,6 +97,8 @@ main { flex: 1; padding-bottom: 24px; }
 .warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
 
 .hero-empty { text-align: center; padding: 28px 16px; }
+.move-commutes .move-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.move-commutes .move-list li { font-weight: 750; overflow-wrap: anywhere; }
 .fav-list { list-style: none; margin: 0; padding: 0; }
 .fav h2 { margin: 0; font-size: 1.05rem; }
 .commute-header { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 4px; min-width: 0; }

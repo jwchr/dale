@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { liveDataset } from '../helpers/liveBus';
 import { expect, test, type Page } from '@playwright/test';
 
 // Wednesday Nov 4 2026, 7:50 AM New York time, on the invented demo dataset.
@@ -185,7 +186,7 @@ test.describe('real data', () => {
 
   test('NJ Transit source line, no demo banner, filled-in times read as estimates', async ({ page }) => {
     await page.route('**/data/corridor.json', (route) => route.fulfill({ json: realStyle }));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('footer.foot')).toContainText('obtained from NJ Transit and redistributed from Dale');
     await expect(page.locator('footer.foot')).toContainText('may not be real time');
     await expect(page.locator('.demo-banner')).toHaveCount(0);
@@ -209,7 +210,7 @@ test.describe('real data', () => {
   test('a failed load shows an error with a retry, never the demo', async ({ page }) => {
     let fail = true;
     await page.route('**/data/corridor.json', (route) => (fail ? route.abort('internetdisconnected') : route.fulfill({ json: realStyle })));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.getByRole('alert')).toContainText("Couldn't load the schedule");
     await expect(page.locator('.demo-banner')).toHaveCount(0);
     fail = false;
@@ -221,13 +222,13 @@ test.describe('real data', () => {
     const savedAt = Date.parse('2026-11-04T12:30:00Z'); // 7:30 AM in New York
     await page.route('**/data/corridor.json', (route) =>
       route.fulfill({ json: realStyle, headers: { 'x-arriba-from-cache': '1', 'x-arriba-saved-at': String(savedAt) } }));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('.status-line')).toHaveText('The network is slow or down. Showing the schedule saved 11/4/2026, 7:30 AM.');
   });
 
   test('with no real dataset published, the labeled demo loads', async ({ page }) => {
     await page.route('**/data/corridor.json', (route) => route.fulfill({ status: 404, body: 'Not found' }));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('.demo-banner')).toBeVisible();
   });
 });
@@ -237,7 +238,7 @@ test.describe('printed timetable data (route 165)', () => {
   test.use({ serviceWorkers: 'block' });
 
   test('a commute to an in-between stop reverses from across the street', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /^Hackensack \(Sears\) .*\(to New York\)$/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     const card = page.getByRole('article');
@@ -255,7 +256,7 @@ test.describe('printed timetable data (route 165)', () => {
 
   test('commute sign and departure rows fit a 320 px phone with large text, in English and Spanish', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    await page.goto('/?now=2026-11-04T17:10');
+    await page.goto('/?printed=1&now=2026-11-04T17:10');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /Reverse/ }).click(); // Port Authority rows carry a gate line
@@ -285,7 +286,7 @@ test.describe('printed timetable data (route 165)', () => {
 
   test('a trip that runs through the clock change says so', async ({ page }) => {
     // Fall-back night: the Saturday 1:10 AM bus toward Westwood runs to Oradell past 2 AM, when the clocks go back.
-    await page.goto('/?now=2026-11-01T01:00');
+    await page.goto('/?printed=1&now=2026-11-01T01:00');
     await saveCommute(page, 'port authority', /^New York - Port Authority Bus Terminal$/, /^Oradell - Kinderkamack Rd\. at New Milford Ave\./);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.locator('.dep').first().click();
@@ -293,13 +294,13 @@ test.describe('printed timetable data (route 165)', () => {
     await expect(page.getByRole('note').filter({ hasText: 'Clocks go back an hour at 2 AM during this trip' })).toBeVisible();
     await expect(page.locator('.stop-list li[data-role="alight"] .stop-time')).toHaveText('1:08 AM');
     // An ordinary Saturday night: no note.
-    await page.goto('/?now=2026-11-08T01:00');
+    await page.goto('/?printed=1&now=2026-11-08T01:00');
     await page.locator('.dep').first().click();
     await expect(page.locator('.trip-ticket .big-time').first()).toContainText('1:10 AM');
     await expect(page.locator('.stop-list li[data-role="alight"] .stop-time')).toHaveText('2:08 AM');
     await expect(page.getByRole('note').filter({ hasText: 'Clocks go' })).toHaveCount(0);
     // Fall-back night again: a ride on the same bus that ends before 2 AM (Port Authority to Hackensack) gets no note.
-    await page.goto('/?now=2026-11-01T01:00');
+    await page.goto('/?printed=1&now=2026-11-01T01:00');
     await saveCommute(page, 'port authority', /^New York - Port Authority Bus Terminal$/, /^Hackensack \(Sears\) .*\(to Westwood\)$/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('article').nth(1).locator('.dep').first().click();
@@ -330,7 +331,7 @@ test.describe('printed timetable data (route 165)', () => {
 
   test('the all-day timetable explains the clock change only where a listed bus runs through it', async ({ page }) => {
     // Spring-forward day: at Oradell the 1:10 AM bus's printed 2:08 arrival shows 3:08 AM, so the note shows.
-    await page.goto('/?now=2027-03-14T00:30');
+    await page.goto('/?printed=1&now=2027-03-14T00:30');
     await saveCommute(page, 'river edge', /^River Edge .*\(to Westwood\)$/, /^Oradell - Kinderkamack Rd\. at New Milford Ave\./);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /All day/ }).click();
@@ -347,7 +348,7 @@ test.describe('printed timetable data (route 165)', () => {
   });
 
   test('banner, wrong-side guard without coordinates, return trip with published gate', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('.demo-banner')).toHaveCount(0);
     await expect(page.locator('.data-banner')).toHaveCount(0);
     await expect(page.getByText("on NJ Transit's holiday list")).toHaveCount(0);
@@ -394,7 +395,7 @@ test.describe('printed timetable data (route 165)', () => {
   });
 
   test("Thanksgiving: holiday warning at the top, in the timetable and on the trip", async ({ page }) => {
-    await page.goto('/?now=2026-11-26T07:50');
+    await page.goto('/?printed=1&now=2026-11-26T07:50');
     await expect(page.locator('.status-line')).toContainText("Today is on NJ Transit's holiday list");
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
@@ -408,7 +409,7 @@ test.describe('printed timetable data (route 165)', () => {
   });
 
   test('a stop whose buses never reach Port Authority says which side to use instead', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await page.getByRole('button', { name: /find a stop/i }).first().click();
     await page.getByRole('searchbox').fill('emerson');
     await page.getByRole('button', { name: /Emerson .*\(to Westwood\)/ }).click();
@@ -420,7 +421,7 @@ test.describe('printed timetable data (route 165)', () => {
 test.describe('Get me home (issue #32)', () => {
   test.use({ serviceWorkers: 'block' });
   test('lists every scheduled way home in the data and says what it did not search', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.locator('.dep').first().click();
@@ -463,7 +464,7 @@ test.describe('history (issue #48)', () => {
   test.use({ serviceWorkers: 'block' });
 
   test('more than 20 screens deep, Back still reaches home', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /Reverse/ }).click();
@@ -478,7 +479,7 @@ test.describe('history (issue #48)', () => {
   });
 
   test('the timetable keeps its chosen day when the rider comes back from a trip', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /All day/ }).click();
@@ -489,7 +490,7 @@ test.describe('history (issue #48)', () => {
   });
 
   test('the phone’s or browser’s own Back steps back inside Dale', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     const url = page.url();
@@ -504,7 +505,7 @@ test.describe('history (issue #48)', () => {
 test.describe('last-bus reminder (issue #58)', () => {
   test.use({ serviceWorkers: 'block' });
   test('counts down to the last listed return and saves a calendar reminder', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.locator('.dep').first().click();
@@ -525,7 +526,7 @@ test.describe('last-bus reminder (issue #58)', () => {
 test.describe('boarding check (issue #55)', () => {
   test.use({ serviceWorkers: 'block' });
   test('confirms the scheduled trip serves your stop and shows the driver a bilingual card', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /Reverse/ }).click();
@@ -551,7 +552,7 @@ test.describe('boarding check (issue #55)', () => {
 test.describe('boarding check on a request-only stop', () => {
   test.use({ serviceWorkers: 'block' });
   test('a PM Parkway express to the Exit 165 Park/Ride says it stops only if you ask', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T17:10');
+    await page.goto('/?printed=1&now=2026-11-04T17:10');
     await saveCommute(page, 'port authority', /^New York - Port Authority Bus Terminal$/, /^Paramus - GSP Exit 165 Park\/Ride Lot/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /All day/ }).click();
@@ -577,7 +578,7 @@ test.describe('leave-by countdown (issue #54)', () => {
   });
 
   test('counts down to leaving, plans an arrive-by time, and keeps the plan on this phone', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T06:49');
+    await page.goto('/?printed=1&now=2026-11-04T06:49');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     const card = page.getByRole('article');
@@ -629,7 +630,7 @@ test.describe('leave-by countdown (issue #54)', () => {
 test.describe('saved backup plans (issue #62)', () => {
   test.use({ serviceWorkers: 'block' });
   test('the rider keeps their own plans on the rescue screen, labeled as their notes', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     await page.getByRole('button', { name: /Reverse/ }).click();
@@ -683,7 +684,7 @@ test.describe('saved backup plans (issue #62)', () => {
 test.describe('home card actions and version (owner request 2026-11-04)', () => {
   test.use({ serviceWorkers: 'block' });
   test('the commute card opens Get me home directly, and the footer and Settings show the version and build time', async ({ page }) => {
-    await page.goto('/?now=2026-11-04T18:00');
+    await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     const card = page.getByRole('article');
@@ -711,9 +712,14 @@ test.describe('a real commute opened on the demo (owner report 2026-11-05)', () 
     await expect(card).toContainText('Hackensack - State St. at Lawerence St.');
     await expect(page.locator('main')).not.toContainText('N10');
     expect((await new AxeBuilder({ page }).include('.fav-missing').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([]);
+    // Leaving the demo opens the real schedule, now NJ Transit's official one by default (owner decision 2026-11-12),
+    // which asks once to pick this printed-timetable commute's stop again; the printed timetable is one tap away.
+    await page.route('https://dale-live.test.workers.dev/v1/schedule', route => route.fulfill({ json: liveDataset }));
     await card.getByRole('link', { name: 'Leave the demo' }).click();
     await expect(page).toHaveURL(/\?now=2026-11-05T07:30$/);
     await expect(page.locator('.demo-banner')).toHaveCount(0);
+    await expect(page.locator('.move-commutes')).toContainText('Hackensack - State St. at Lawerence St.');
+    await page.locator('.move-commutes').getByRole('link', { name: 'Open the printed 165 schedule' }).click();
     await expect(page.getByRole('article').locator('[data-end="from"] .highway-name')).toHaveText('Hackensack');
     await expect(page.getByRole('article').locator('.dep').first()).toBeVisible();
   });

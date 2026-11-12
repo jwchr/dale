@@ -11,7 +11,7 @@ for (const lang of ['en', 'es']) test(`compact next165T cue preserves the three 
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
   }, lang);
   await page.setViewportSize({ width: 320, height: 900 });
-  await page.goto('/?now=2026-11-04T07:00');
+  await page.goto('/?printed=1&now=2026-11-04T07:00');
   const card = page.getByRole('article'), cue = card.getByTestId('next-express');
   await expect(card.locator('.dep .route-badge')).toHaveText(['165', '165', '165']);
   await expect(cue).toContainText(lang === 'en' ? 'Next' : 'Próximo');
@@ -23,6 +23,6 @@ for (const lang of ['en', 'es']) test(`compact next165T cue preserves the three 
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   if (lang === 'en') await page.screenshot({ path: 'test-results/next-express-preview.png', fullPage: true });
   // Once the express enters the main three rows, the extra cue disappears.
-  await page.goto('/?now=2026-11-04T07:11');
+  await page.goto('/?printed=1&now=2026-11-04T07:11');
   await expect(cue).toHaveCount(0); await expect(card.locator('.dep .route-badge')).toContainText(['165', '165T']);
 });

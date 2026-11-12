@@ -17,7 +17,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
   for (const lang of ['en', 'es'] as const) {
     test(`screens pass axe, ${colorScheme}, ${lang}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme });
-      await page.goto('/?now=2026-11-04T17:10');
+      await page.goto('/?printed=1&now=2026-11-04T17:10');
       if (lang === 'es') {
         await page.getByRole('button', { name: 'Settings' }).click();
         await page.getByRole('button', { name: 'Español' }).click();
@@ -70,7 +70,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await audit(page, 'edit mode');
 
     await page.route('**/data/corridor.json', (route) => route.abort('internetdisconnected'));
-    await page.goto('/?now=2026-11-04T07:50');
+    await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.getByRole('alert')).toBeVisible();
     await audit(page, 'load error');
   });
@@ -81,7 +81,7 @@ for (const [skin, colorScheme] of [['garden', 'light'], ['garden', 'dark'], ['cl
   test(`style ${skin} (${colorScheme}) passes axe on the main screens`, async ({ page }) => {
     await page.emulateMedia({ colorScheme });
     await page.addInitScript((s) => { try { localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin: s })); } catch { /* ignore */ } }, skin);
-    await page.goto('/?now=2026-11-04T17:10');
+    await page.goto('/?printed=1&now=2026-11-04T17:10');
     await expect(page.locator('html')).toHaveAttribute('data-skin', skin);
     await expect(page.locator('.skin-backdrop')).toHaveCount(1);
     await page.getByRole('button', { name: /Find a stop/i }).first().click();

@@ -30,7 +30,7 @@ test('stop descriptions precede selection; final Port Authority first; city grou
 });
 
 test('city destinations use native keyboard disclosures and keep Port Authority above them', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: /Find a stop/ }).first().click(); await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St. \(to New York\)/ }).click();
   const city = page.locator('.destination-cities details').filter({ has: page.locator('summary', { hasText: /^Hackensack/ }) });
@@ -43,7 +43,7 @@ test('city destinations use native keyboard disclosures and keep Port Authority 
 
 test('one local photo is held across navigation; failed image retains original art', async ({ page }) => {
   const requested = new Set<string>(); page.on('request', r => { if (r.url().includes('/backgrounds/') && r.url().endsWith('.webp')) requested.add(r.url()); });
-  await page.goto('/?now=2026-11-04T07:50'); await expect(page.locator('.photo-backdrop')).toHaveCount(1);
+  await page.goto('/?printed=1&now=2026-11-04T07:50'); await expect(page.locator('.photo-backdrop')).toHaveCount(1);
   const choice = await page.locator('.photo-backdrop').getAttribute('data-photo');
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', choice!); expect(requested.size).toBe(1);
@@ -53,7 +53,7 @@ test('one local photo is held across navigation; failed image retains original a
 });
 
 test('rail heading uses New York while station instructions retain New York Penn', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50'); await page.getByRole('button', { name: 'Train', exact: true }).click();
+  await page.goto('/?printed=1&now=2026-11-04T07:50'); await page.getByRole('button', { name: 'Train', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hackensack ↔ New York', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'NEW YORK', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.journey-step')).toContainText('New York Penn');

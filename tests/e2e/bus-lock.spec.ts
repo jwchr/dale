@@ -10,7 +10,7 @@ async function selectDemoTrip(page: Page, estimatedBoarding = false) {
     ds.trips = ds.trips.map((trip) => ({ ...trip, estimated: [1] }));
     await page.route('**/data/corridor.json', (route) => route.fulfill({ json: ds }));
   }
-  await page.goto(`/?now=2026-11-04T07:50${estimatedBoarding ? '' : '&demo'}`);
+  await page.goto(`/?${estimatedBoarding ? "printed=1&" : ""}now=2026-11-04T07:50${estimatedBoarding ? '' : '&demo'}`);
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('90002');
   await page.getByRole('button', { name: /Maple Ave & Main St \(to NYC\)/ }).click();
@@ -93,7 +93,7 @@ test('vehicle replacement needs confirmation and keeps the scheduled departure',
 });
 
 test('printed timetable never exposes invented GPS controls or claims community sharing', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T17:10');
+  await page.goto('/?printed=1&now=2026-11-04T17:10');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -107,7 +107,7 @@ test('printed timetable never exposes invented GPS controls or claims community 
 });
 
 test('printed last return includes its next-day date, earlier option, following service and actual destination', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T03:00');
+  await page.goto('/?printed=1&now=2026-11-04T03:00');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -184,7 +184,7 @@ test('ride mode counts down 3, 2, 1 stops from fresh demo GPS and says when it c
 });
 
 test('ride mode on the printed timetable gives scheduled times only, never a stop count', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -246,7 +246,7 @@ test('full-screen ride: keep the screen on, Escape exits, "I got off" ends the r
 });
 
 test('a lock survives a reload: offered back, never resumed silently, original times kept', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -300,7 +300,7 @@ test('full screen keeps the DEMO banner, makes the app behind it inert, and step
 });
 
 test('full screen on the printed timetable omits the retired top notice', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -356,7 +356,7 @@ test('trip update: the rider shares or copies a plain message; Dale sends nothin
 });
 
 test('trip update on the printed timetable has no DEMO mark, and reads in Spanish', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Español' }).click();
   await page.getByRole('button', { name: 'Atrás' }).click();
@@ -452,7 +452,7 @@ test('missed stop / wrong bus: the rider says where they are and gets scheduled 
 
 test('report history: last week’s own reports show for the same bus, labeled as past, and can be cleared', async ({ page }) => {
   // Last Wednesday: the rider waits, the bus arrives, and they say there were seats.
-  await page.goto('/?now=2026-10-28T06:10');
+  await page.goto('/?printed=1&now=2026-10-28T06:10');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -470,7 +470,7 @@ test('report history: last week’s own reports show for the same bus, labeled a
   await expect(page.locator('.past-reports')).toHaveCount(0);
 
   // A week later, the same scheduled bus.
-  await page.goto('/?now=2026-11-04T06:10');
+  await page.goto('/?printed=1&now=2026-11-04T06:10');
   await page.locator('.dep').first().click();
   const card = page.locator('.past-reports');
   await expect(card.getByRole('heading', { name: 'Your past reports for this bus' })).toBeVisible();
@@ -536,7 +536,7 @@ test('ride progress: LED bar and strip map, from the timetable, a tap, then the 
 });
 
 test('ride progress on the printed timetable: no stop locations, so taps only, said plainly', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
   await page.getByRole('searchbox').fill('irvington');
   await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
@@ -610,7 +610,7 @@ for (const [why, setup] of [
 }
 
 test('Settings links the open-source and map data licences', async ({ page }) => {
-  await page.goto('/?now=2026-11-04T07:50');
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Settings' }).click();
   const link = page.getByRole('link', { name: 'Open-source software and map data licences' });
   const href = await link.getAttribute('href');
