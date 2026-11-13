@@ -73,7 +73,7 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
             {/* Highlighter over the rider's own bus, like a marker on the printed sign. */}
             {lines.map((line, row) => line.yours && <polygon key={`mark-${row}`} className="stop-sign-mark" points={signRowBand(row).map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')} />)}
             {lines.map((line, row) => <SignText key={row} at={signRowPlacement(row)} className={line.yours ? 'stop-sign-row stop-sign-row-yours' : 'stop-sign-row'}>{line.text}</SignText>)}
-            {yourRow >= 0 && <g className="stop-sign-callout" transform={`translate(${(signRowBand(yourRow)[1]![0] + 5).toFixed(1)} ${(signRowPlacement(yourRow).y - 6).toFixed(1)})`}>
+            {yourRow >= 0 && <g className="stop-sign-callout" transform={`translate(${(signRowBand(yourRow)[1]![0] - 22).toFixed(1)} ${(signRowPlacement(yourRow).y - 11).toFixed(1)})`}>
               <rect x="0" y="-18" width="146" height="36" rx="18" filter="url(#stop-sign-tag-shadow)" />
               <SignText at={{ x: 12, y: 7, slope: 0, maxWidth: 124 }} className="stop-sign-callout-text" ink={false}>{`◀ ${s.yourBus}`}</SignText>
             </g>}
