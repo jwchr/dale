@@ -14,7 +14,7 @@ Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Offline: service worker keeps the last schedule and says how old it is.
 - Live bus pilot (#89, `docs/LIVE_BUS_PILOT.md`): private Cloudflare Worker relay on the Free plan with exact trip/date matching, source age and scheduled fallback. Private corridor history collection (#91) is ON at 30-second pacing.
 - Weekly schedule rollover (#148, D68) ran successfully on 2026-11-13 00:02-00:08 UTC (Actions run 43333818465): the Worker now serves NJ Transit schedule `e84f5ae3b53b` (service dates 2026-11-09 to 2026-11-23) and includes the live bus day fix (#145, D67). Proof: new context stored; native collection and verified archiving advanced under it; observations 39,036 to 39,397 within about five minutes (they had been flat at 39,036 from 3:01 PM to 7:01 PM ET on a weekday, so before #145 weekday GPS positions were not saved); verified archive objects 13,035 to 13,047. Next rollover pins: `expected_worker_version=1f582daa-b8dc-415e-8a32-3c284189456d`, `canonical_context_key=e84f5ae3b53b:1f4785c84ba5d07fe0bf709273395def8f4cc57627927977a8ab6838a8721559` (run `qualify-enabled` first to confirm them).
-- Route distance stays off (owner-confirmed geometry-off fallback, D68). The first real geometry diagnostic (same run) is `no-matched-trips` with `tripStopDistance` 1,044 of 1,044 trips: all 81 shapes are valid, but every trip has a stop more than 100 m from its mapped point on the shape. Unknown whether that is a unit mismatch between `shapes.txt` and `stop_times.txt` measures or Port Authority stops sitting away from where shapes start; diagnostic v2 (this pull request) adds aggregate counts that tell those causes apart; they print at the next rollover (`docs/ROUTE_DISTANCE.md`).
+- Route distance stays off (owner-confirmed geometry-off fallback, D68). The first real geometry diagnostic (same run) is `no-matched-trips` with `tripStopDistance` 1,044 of 1,044 trips: all 81 shapes are valid, but every trip has a stop more than 100 m from its mapped point on the shape. Unknown whether that is a unit mismatch between `shapes.txt` and `stop_times.txt` measures or Port Authority stops sitting away from where shapes start; diagnostic v2 (this pull request) adds aggregate counts that tell those causes apart. They print only when geometry fails, as it did for every trip in the last run; a rollover that matches at least one trip prints no counts (`docs/ROUTE_DISTANCE.md`).
 
 ## Waiting on the owner
 - Whether the app should stay publicly reachable (anyone with the link can open it today) or be limited to the household.
@@ -24,7 +24,7 @@ Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
 ## Next (order the owner approved 2026-11-13; details in #153)
-1. Road-shaped distance, part 1: aggregate geometry diagnostic v2 (this pull request). Its counts print at the next rollover.
+1. Road-shaped distance, part 1: aggregate geometry diagnostic v2 (this pull request). Its counts print at the next rollover only if geometry fails again (no trip matched).
 2. Road-shaped distance, part 2: the fix, chosen from those counts. Never straight-line distance.
 3. Find my stop: town list first.
 4. Big-text name banner fix ("HACKENSACK" splitting at 200% text).
