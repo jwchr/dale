@@ -66,13 +66,16 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
           <img key={scene} src={pictures[`../assets/stop-signs/${scene}.webp`]} alt="" width={SIGN_VIEW.width} height={SIGN_VIEW.height}
             decoding="async" fetchPriority="low" onError={() => setFailed(true)} />
           <svg viewBox={`0 0 ${SIGN_VIEW.width} ${SIGN_VIEW.height}`} focusable="false">
-            <defs><filter id="stop-sign-ink" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation=".35" /></filter></defs>
+            <defs>
+              <filter id="stop-sign-ink" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation=".35" /></filter>
+              <filter id="stop-sign-tag-shadow" x="-10%" y="-30%" width="120%" height="170%"><feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity=".55" /></filter>
+            </defs>
             {/* Highlighter over the rider's own bus, like a marker on the printed sign. */}
             {lines.map((line, row) => line.yours && <polygon key={`mark-${row}`} className="stop-sign-mark" points={signRowBand(row).map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')} />)}
             {lines.map((line, row) => <SignText key={row} at={signRowPlacement(row)} className={line.yours ? 'stop-sign-row stop-sign-row-yours' : 'stop-sign-row'}>{line.text}</SignText>)}
-            {yourRow >= 0 && <g className="stop-sign-callout" transform={`translate(${(signRowBand(yourRow)[1]![0] + 9).toFixed(1)} ${(signRowPlacement(yourRow).y - 6).toFixed(1)})`}>
-              <rect x="0" y="-14" width="128" height="28" rx="14" />
-              <SignText at={{ x: 10, y: 6, slope: 0, maxWidth: 110 }} className="stop-sign-callout-text" ink={false}>{`◀ ${s.yourBus}`}</SignText>
+            {yourRow >= 0 && <g className="stop-sign-callout" transform={`translate(${(signRowBand(yourRow)[1]![0] + 5).toFixed(1)} ${(signRowPlacement(yourRow).y - 6).toFixed(1)})`}>
+              <rect x="0" y="-18" width="146" height="36" rx="18" filter="url(#stop-sign-tag-shadow)" />
+              <SignText at={{ x: 12, y: 7, slope: 0, maxWidth: 124 }} className="stop-sign-callout-text" ink={false}>{`◀ ${s.yourBus}`}</SignText>
             </g>}
             <SignText at={SIGN_NUMBER} className="stop-sign-number">{from.code || '—'}</SignText>
           </svg>
