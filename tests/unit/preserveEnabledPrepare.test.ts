@@ -85,7 +85,7 @@ it.each([
   const prefix = 'Geometry diagnostic (aggregate counts only): ';
   expect(lines[0]!.startsWith(prefix)).toBe(true);
   const diagnostic = JSON.parse(lines[0]!.slice(prefix.length));
-  expect(diagnostic).toMatchObject({ v: 1, reason: 'no-matched-trips', counts: expected });
+  expect(diagnostic).toMatchObject({ v: 2, reason: 'no-matched-trips', counts: expected });
   expect(Object.values(diagnostic.counts).every(n => Number.isSafeInteger(n) && (n as number) >= 0)).toBe(true);
   // No trip IDs, shape IDs, coordinates, credentials or the thrown message.
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|"T\d|"s"|40\.8|-74\.0|No matched geometry/);

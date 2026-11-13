@@ -52,7 +52,9 @@ const cases: Case[] = [
     { tripMeasureOutOfRange: 1, matchedTrips: 1 }],
   ['stop measure moving backward', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_C,3,35', 'PRIVTRIP_A,PRIVSTOP_C,3,5'); },
     { tripBackward: 1, matchedTrips: 1 }],
-  ['stop far from its mapped point', (_, ds) => { ds.stops[1]!.lat = B.lat + 0.01; }, { tripStopDistance: 2, matchedTrips: 0 }],
+  // B moved onto C: on the shape line, but its measure (17) is about half the shape measure there (35).
+  ['stop far from its mapped point', (_, ds) => { ds.stops[1]!.lat = B.lat + 0.01; }, { tripStopDistance: 2, matchedTrips: 0,
+    farFirstAtMiddleStop: 2, farFirst1To5km: 2, farTripSomeStops: 2, farFirstNearShapeLine: 2, farRatioOther: 2 }],
   ['stop without coordinates', (_, ds) => { delete (ds.stops[1] as { lat?: number }).lat; }, { tripStopCoordinates: 2 }],
   ['stop order differing from the pattern', f => { f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_B,PRIVSTOP_B,2,17', 'PRIVTRIP_B,PRIVSTOP_C,2,17'); },
     { tripStopMismatch: 1, matchedTrips: 1 }],
@@ -77,7 +79,8 @@ describe('geometry builder report', () => {
     expect(geometry.trips.PRIVTRIP_A.stopMeters[2]).toBeCloseTo(AB + BC, 0);
     expect(Object.keys(counts)).toEqual([...GEOMETRY_COUNT_KEYS]);
     expect(counts).toMatchObject({ shapesFile: 1, shapeMeasureColumn: 1, tripShapeColumn: 1, stopTimeMeasureColumn: 1,
-      datasetTrips: 2, sourceTripRows: 2, requestedShapes: 1, foundShapes: 1, validShapes: 1, matchedTrips: 2, outputShapes: 1 });
+      datasetTrips: 2, sourceTripRows: 2, requestedShapes: 1, foundShapes: 1, validShapes: 1, matchedTrips: 2, outputShapes: 1,
+      shapeUnitOther: 1, shapeUnitMeters: 0, shapeMeasureStartNonzero: 0, farFirstAtFirstStop: 0, farFirstNearShapeLine: 0 });
     expect(JSON.stringify(geometry)).not.toContain('matchedTrips');
   });
 
@@ -90,6 +93,62 @@ describe('geometry builder report', () => {
     expect(Object.keys(geometry.trips)).toHaveLength(counts.matchedTrips);
     expect(JSON.stringify(ds)).toBe(before);
     expectPrivate(geometryFailureDiagnostic(new GeometryError('no-matched-trips', 'x', counts)));
+  });
+});
+
+// Shape and stop_times measures rewritten together; stop coordinates and road lengths stay the same.
+function measures(f: Record<string, string | undefined>, shape: number[], stop: number[]) {
+  const [s0, s1, s2] = shape.map(String), [t0, t1, t2] = stop.map(String);
+  f['shapes.txt'] = `shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\nPRIVSHAPE,${A.lat},${A.lon},1,${s0}\nPRIVSHAPE,${B.lat},${B.lon},2,${s1}\nPRIVSHAPE,${C.lat},${C.lon},3,${s2}\n`;
+  f['stop_times.txt'] = 'trip_id,stop_id,stop_sequence,shape_dist_traveled\n' + ['PRIVTRIP_A', 'PRIVTRIP_B']
+    .map(t => `${t},PRIVSTOP_A,1,${t0}\n${t},PRIVSTOP_B,2,${t1}\n${t},PRIVSTOP_C,3,${t2}\n`).join('');
+}
+const MILE = 1609.344;
+const far: [string, (f: Record<string, string | undefined>, ds: Dataset) => void, Record<string, number>][] = [
+  ['a Port Authority-style first stop beside the start of the shape', (_, ds) => { ds.stops[0]!.lat = A.lat + 0.00135; },
+    { tripStopDistance: 2, farFirstAtFirstStop: 2, farFirst100To250m: 2, farTripOnlyFirstStop: 2, farFirstOffShapeLine100To250m: 2, farFirstNearShapeLine: 0 }],
+  ['first and last stops beside the shape ends', (_, ds) => { ds.stops[0]!.lat = A.lat + 0.00135; ds.stops[2]!.lon = C.lon + 0.0018; },
+    { tripStopDistance: 2, farFirstAtFirstStop: 2, farTripOnlyFirstAndLastStops: 2, farFirstOffShapeLine100To250m: 2 }],
+  ['a far first stop in a trip whose last measure is off the shape', (f, ds) => { ds.stops[0]!.lat = A.lat + 0.00135; f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_C,3,35', 'PRIVTRIP_A,PRIVSTOP_C,3,99'); },
+    { tripStopDistance: 2, farFirstAtFirstStop: 2, farTripIncomplete: 1, farTripOnlyFirstStop: 1 }],
+  ['a last stop beyond the end of the shape', (_, ds) => { ds.stops[2]!.lat = C.lat + 0.01; },
+    { tripStopDistance: 2, farFirstAtLastStop: 2, farFirst1To5km: 2, farTripOnlyLastStop: 2, farFirstOffShapeLineOver250m: 2 }],
+  ['shape measures in meters and stop measures in miles', f => measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]),
+    { shapeUnitMeters: 1, tripStopDistance: 2, farFirstAtMiddleStop: 2, farFirst250mTo1km: 2, farTripMostStops: 2, farFirstNearShapeLine: 2, farRatioX0_000621: 2 }],
+  ['shape measures in miles and stop measures in feet', f => measures(f, [0, AB / MILE, (AB + BC) / MILE], [0, AB / MILE * 5280, (AB + BC) / MILE * 5280]),
+    { shapeUnitMiles: 1, tripMeasureOutOfRange: 2, tripStopDistance: 0, farFirstNearShapeLine: 0 }],
+  ['a shape whose measure starts above zero', f => measures(f, [5, 22, 40], [5, 22, 40]), { shapeMeasureStartNonzero: 1, matchedTrips: 2 }],
+];
+
+describe('stop distance evidence', () => {
+  it.each(far)('counts %s without changing what is included', (_, mutate, expected) => {
+    const f = files(), ds = dataset(); mutate(f, ds);
+    const { geometry, counts } = buildRouteGeometryWithReport(f, ds, SHA);
+    expect(geometry).toEqual(buildRouteGeometry(f, ds, SHA));
+    expect(counts).toMatchObject(expected);
+    expect(Object.keys(geometry.trips)).toHaveLength(counts.matchedTrips);
+    expectPrivate(geometryFailureDiagnostic(new GeometryError('no-matched-trips', 'x', counts)));
+  });
+  it('reads each unit from the shape itself and keeps the same accepted output', () => {
+    for (const [scale, key] of [[1, 'shapeUnitMeters'], [3.28084, 'shapeUnitFeet'], [0.001, 'shapeUnitKilometers'], [1 / MILE, 'shapeUnitMiles']] as const) {
+      const f = files(), values = [0, AB * scale, (AB + BC) * scale]; measures(f, values, values);
+      const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
+      expect(counts[key]).toBe(1); expect(counts.shapeUnitOther).toBe(0); expect(counts.matchedTrips).toBe(2);
+      expect(JSON.stringify(geometry)).toBe(BASELINE.accepted);
+    }
+  });
+  it('splits every rejected trip into exactly one bucket of each kind', () => {
+    for (const [, mutate] of far) {
+      const f = files(), ds = dataset(); mutate(f, ds);
+      const { counts } = buildRouteGeometryWithReport(f, ds, SHA), sum = (prefix: string) =>
+        GEOMETRY_COUNT_KEYS.filter((k: string) => k.startsWith(prefix)).reduce((n: number, k: string) => n + counts[k], 0);
+      expect(sum('farFirstAt')).toBe(counts.tripStopDistance);
+      expect(sum('farFirst') - sum('farFirstAt') - sum('farFirstNear') - sum('farFirstOff')).toBe(counts.tripStopDistance);
+      expect(sum('farTrip')).toBe(counts.tripStopDistance);
+      expect(sum('farFirstNear') + sum('farFirstOff')).toBe(counts.tripStopDistance);
+      expect(sum('farRatio')).toBe(counts.farFirstNearShapeLine);
+      expect(sum('shapeUnit')).toBe(counts.validShapes);
+    }
   });
 });
 
