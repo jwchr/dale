@@ -537,7 +537,15 @@ main { flex: 1; padding-bottom: 24px; }
 .city-control, .stop-control { inline-size: 100%; text-align: start; cursor: pointer; }
 .city-control { min-block-size: 48px; }
 .stop-control { min-block-size: 48px; }
-.sign-caret { position: absolute; inset-inline-end: 5px; inset-block-start: 1px; font-size: .65rem; line-height: 1; pointer-events: none; }
+/* Owner request 2026-11-13: a bigger, labelled "Change" tag so riders notice the city sign is tappable.
+   It sits in its own top row, so it can never cover the city name at any text size. */
+.highway-sign.city-control { grid-template-rows: auto minmax(0, 1fr); row-gap: 2px; }
+.city-control .highway-label { grid-row: 1 / span 2; }
+.city-control .highway-name { grid-row: 2; }
+.sign-change { grid-area: 1 / 1; justify-self: end; display: inline-flex; align-items: center; gap: 3px; margin-inline-end: 4px;
+  padding: 2px 5px 2px 7px; border-radius: 999px; background: #fff; color: #064c33; font-size: .62rem; font-weight: 800;
+  letter-spacing: .08em; line-height: 1; text-transform: uppercase; pointer-events: none; }
+.sign-change-caret { font-size: 1.05rem; line-height: .55; transform: translateY(-.1em); }
 .commute-picker h1 { margin-block-start: 0; }
 .commute-picker label { display: block; margin-block-end: 4px; }
 .commute-picker .search { min-block-size: 48px; font-size: 1rem; }
