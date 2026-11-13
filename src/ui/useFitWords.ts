@@ -53,9 +53,12 @@ export function useFitWords(ref: RefObject<HTMLElement | null>, texts: string, v
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(fit);
     observer?.observe(container);
     const refit = () => { lastKey = ''; fit(); };
-    // Late web fonts change word widths without resizing the signs.
+    // Late web fonts change word widths without resizing the signs. `ready` resolves only once, often
+    // before a sign's own font is even requested, so also re-fit after every later font load.
     document.fonts?.ready.then(refit).catch(() => undefined);
+    const fonts = document.fonts as (FontFaceSet & EventTarget) | undefined;
+    fonts?.addEventListener?.('loadingdone', refit);
     window.addEventListener('resize', refit);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', refit); };
+    return () => { observer?.disconnect(); fonts?.removeEventListener?.('loadingdone', refit); window.removeEventListener('resize', refit); };
   }, [ref, texts, visible]);
 }
