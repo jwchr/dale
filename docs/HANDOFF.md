@@ -1,6 +1,6 @@
 # Handoff: current state
 
-Updated 2026-11-12. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
+Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
 
 ## Built and live
 - Public app v0.3.294 (main after #145, Pages deploy succeeded 2026-11-12 3:05 PM ET; the builder's sandbox cannot open github.io, so the live page itself was not viewed). #145 changes only the Worker, so the app looks the same; the owner confirmed #141's look on his phone.
@@ -11,9 +11,9 @@ Updated 2026-11-12. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Bus Lock: exact-bus lock that never switches buses silently, waiting/arrived/boarded/left states, ride mode with strip map and street map (self-hosted OpenStreetMap), kept on the phone across refreshes. Live GPS works only where the live pilot is active and matched; otherwise everything is labelled scheduled.
 - Train: Bus/Train selector, Penn-style board with sample (not current) Pascack Valley times via Secaucus, trip checklist kept on the phone.
 - Offline: service worker keeps the last schedule and says how old it is.
-- Live bus pilot (#89, `docs/LIVE_BUS_PILOT.md`): private Cloudflare Worker relay on the Free plan with exact trip/date matching, source age and scheduled fallback. Deployed Worker version `ca1159e3-cf70-4532-9c10-bad2bd63672e`, schedule context `6c4dc1e76d06`. Private corridor history collection (#91) verified ON by a read-only `qualify-enabled` run on 2026-11-12 3:01 PM ET (30-second pacing; 39,036 observations; 12,552 verified archive objects). That run's rollback reference digest is `ca961d48ea1b6e1410b16074b09c4c7153f513c0e59ef2bcc054d58d307bfdf3` (full reference in the run log, Actions run 43295998296).
-- Live bus day fix (#145, D67): merged but **not deployed**. An omitted NJ Transit trip date resolves from the report's own timestamp when exactly one active service day's trip window (minus 3 h / plus 3 h) contains it; undated cancellations stay unknown. Weekday rows keep saying "Scheduled only" until the Worker update lands. Whether NJ Transit puts a timestamp on every report is unverified.
-- Route-distance source (#113, `docs/ROUTE_DISTANCE.md`) is published, but the deployed Worker has no current geometry, so no live distance is shown yet. Geometry failures now print an allowlisted reason and counts (#138).
+- Live bus pilot (#89, `docs/LIVE_BUS_PILOT.md`): private Cloudflare Worker relay on the Free plan with exact trip/date matching, source age and scheduled fallback. Private corridor history collection (#91) is ON at 30-second pacing.
+- Weekly schedule rollover (#148, D68) ran successfully on 2026-11-13 00:02-00:08 UTC (Actions run 43333818465): the Worker now serves NJ Transit schedule `e84f5ae3b53b` (service dates 2026-11-09 to 2026-11-23) and includes the live bus day fix (#145, D67). Proof: new context stored; native collection and verified archiving advanced under it; observations 39,036 to 39,397 within about five minutes (they had been flat at 39,036 from 3:01 PM to 7:01 PM ET on a weekday, so before #145 weekday GPS positions were not saved); verified archive objects 13,035 to 13,047. Next rollover pins: `expected_worker_version=1f582daa-b8dc-415e-8a32-3c284189456d`, `canonical_context_key=e84f5ae3b53b:1f4785c84ba5d07fe0bf709273395def8f4cc57627927977a8ab6838a8721559` (run `qualify-enabled` first to confirm them).
+- Route distance stays off (owner-confirmed geometry-off fallback, D68). The first real geometry diagnostic (same run) is `no-matched-trips` with `tripStopDistance` 1,044 of 1,044 trips: all 81 shapes are valid, but every trip has a stop more than 100 m from its mapped point on the shape. Unknown whether that is a unit mismatch between `shapes.txt` and `stop_times.txt` measures or Port Authority stops sitting away from where shapes start; the diagnostic does not say which stop fails.
 
 ## Waiting on the owner
 - Whether the app should stay publicly reachable (anyone with the link can open it today) or be limited to the household.
@@ -22,16 +22,14 @@ Updated 2026-11-12. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
 ## Next (order chosen by the owner; full list in #144)
-1. Schedule rollover (owner chose option A, D68): `rollover-enabled` is built on branch `claude/schedule-rollover` and pending review (risky: CodeRabbit plus one independent review). After merge, tell the owner, then run it with the current pins; it also deploys #145 and, if geometry builds, route distance (otherwise distance stays off and the geometry diagnostic prints, owner confirmed). The geometry diagnostic (#138) has still never run against the real feed. Then run it about weekly.
-2. Stop sign photo: Jeff's own stop photo with the real stop number and routes (`docs/STOP_SIGN.md`); screenshots before merging.
-3. Find my stop: town list first.
-4. Check whether history kept the weekday live reports that were rejected as `date-unknown`.
-5. Two test timing fixes (`live-bus.spec.ts` offline lock, `journey-signs.spec.ts` resize re-fit).
-6. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
-7. Later: big-text name banner, rest of #106, #113, #103, stop alerts, gate cards, train timetables (#80, last).
+1. Run the weekly rollover again before 2026-11-23 (the deployed schedule ends then): tell the owner, `qualify-enabled`, then `rollover-enabled` with the pins above.
+2. Route distance: add a read-only, aggregate geometry diagnostic (which stop position fails and how far, units of the two measures) to tell the two causes apart, then fix it in its own pull request.
+3. Stop sign photo: Jeff's own stop photo with the real stop number and routes (`docs/STOP_SIGN.md`); screenshots before merging.
+4. Find my stop: town list first.
+5. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
+6. Later: big-text name banner, rest of #106, #113, #103, stop alerts, gate cards, train timetables (#80, last).
 
 ## Known problems
-- **Deployed official schedule expires after Nov 13.** The read-only schedule check (Actions run 43324583765) showed the deployed schedule (6c4dc1e76d06) covers service dates 2026-11-06 to 2026-11-13 only; NJ Transit's current file (e84f5ae3b53b) covers 2026-11-09 to 2026-11-23 with the same 1,044 trip IDs on Dale's routes, 6 trips retimed and 1 stop swapped. NJ Transit replaces this rolling ~2-week file at least weekly, so `preserve-enabled` (which refuses any changed file) cannot keep up. The rollover mode that fixes this is built and pending review (Next 1). Until it runs, from Nov 14 the app shows "This schedule ended Nov 13" on the official schedule; the printed 165/165T timetable remains one tap away. Collection keeps polling meanwhile, but once the deployed schedule has no active service date it cannot match buses, so no new matched GPS positions are saved until the rollover runs.
 - At 200% text in wide fonts, the saved-commute LED sign (the dark name banner) can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet.
 - DST: the official schedule is now the default (#143). Check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before the next change, March 14, 2027.
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends.

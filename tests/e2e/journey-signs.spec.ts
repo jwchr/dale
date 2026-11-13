@@ -1,8 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { STOP_CITY_SOURCE } from '../../src/domain/stopInfo';
 import { strings } from '../../src/ui/i18n';
+
+/** Resolves once every sign name's fit and box are unchanged for three consecutive frames (bounded). */
+async function signsSettled(page: Page) {
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    const snapshot = () => JSON.stringify([...document.querySelectorAll<HTMLElement>('.highway-name')].map(node => {
+      const r = node.getBoundingClientRect();
+      return [node.style.getPropertyValue('--sign-fit'), Math.round(r.width * 10), Math.round(r.height * 10), getComputedStyle(node).fontSize];
+    }));
+    let last = '', stable = 0, frames = 0;
+    const tick = () => {
+      const now = snapshot();
+      stable = now === last ? stable + 1 : 0; last = now;
+      if (stable >= 3 || ++frames > 120) resolve(); else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+}
 
 // Read text by its real rendered line, including spans used for oversized words.
 const renderedSignLines = (nodes: Element[]) => nodes.map(node => {
@@ -54,8 +71,8 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         document.getElementById('sign-font')?.remove();
         if (font) document.head.append(Object.assign(document.createElement('style'), { id: 'sign-font', textContent: `.highway-name { font-family: ${font} !important; }` }));
       }, { scale, font });
-      // Sign names re-fit in a ResizeObserver callback, which runs before the next paint: measure what a rider sees.
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      // Sign names re-fit in a ResizeObserver callback: wait until the fit has settled, then measure what a rider sees.
+      await signsSettled(page);
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
         return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
@@ -207,7 +224,7 @@ test('a long stop name without a town wraps between words and keeps the shared s
   await expect(page.locator('[data-end="from"] .highway-name')).toHaveText(from.name);
   for (const width of [390, 674]) {
     await page.setViewportSize({ width, height: 850 });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await signsSettled(page);
     const names = await page.locator('.highway-name').evaluateAll(nodes => nodes.map(node => ({
       text: node.textContent, fit: (node as HTMLElement).style.getPropertyValue('--sign-fit'), fontSize: parseFloat(getComputedStyle(node).fontSize),
       inside: (() => { const sign = node.closest('.highway-sign')!.getBoundingClientRect();

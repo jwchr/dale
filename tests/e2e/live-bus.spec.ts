@@ -128,6 +128,8 @@ test('live schedule is available offline without turning a saved position into l
   await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', (route) => route.abort('failed'));
   await page.route(API + '/v1/live?**', (route) => route.abort('failed'));
+  // Reload only after the lock is actually saved; under load the save can trail the live render.
+  await expect.poll(async () => (await saved(page))?.session?.lock?.vehicleId).toBe('bus-A');
   await page.reload();
   await expect(page.getByText(/Showing the schedule saved/)).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
