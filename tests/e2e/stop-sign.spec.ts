@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { strings } from '../../src/ui/i18n';
-import { STOP_SCENES } from '../../src/domain/stopSign';
+import { signRowPlacement, STOP_SCENES } from '../../src/domain/stopSign';
 
 test.use({ serviceWorkers: 'block', viewport: { width: 305, height: 780 } });
 const API = 'https://dale-live.test.workers.dev';
@@ -110,4 +110,32 @@ test('physical sign wording stays printed when surrounding UI changes language',
   await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();
   await expect(page.locator('.stop-sign h3')).toHaveText(strings.es.stopSign.title);
   expect(await lettering.textContent()).toBe(physical);
+});
+
+test('a long sign line stays squeezed onto its ruled row when fonts load again', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  const to = ds.stops.find(s => s.id === '3')!;
+  delete to.terminal;
+  to.name = 'Hackensack Bus Terminal Lane 12 Platform B at River Street';
+  await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
+  });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', r => r.abort('failed'));
+  await page.goto('/?live=1');
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
+  const row = page.locator('.stop-sign-row').first();
+  await expect(row).toHaveAttribute('textLength', String(signRowPlacement(0).maxWidth));
+  // Measuring an already-squeezed line again must keep the squeeze.
+  for (let i = 0; i < 2; i++) await page.evaluate(() => document.fonts.dispatchEvent(new Event('loadingdone')));
+  await expect(row).toHaveAttribute('textLength', String(signRowPlacement(0).maxWidth));
+  const fits = await page.locator('.stop-sign-art').evaluate(art => {
+    const svg = art.querySelector('svg')!, text = art.querySelector('.stop-sign-row') as SVGTextElement;
+    const scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    return text.getBoundingClientRect().right <= svg.getBoundingClientRect().left + 680 * scale - 395 * scale;
+  });
+  expect(fits).toBe(true);
 });

@@ -18,8 +18,12 @@ function SignText({ at, className, children }: { at: SignPlacement; className: s
     const fit = () => {
       const node = ref.current;
       if (!node || typeof node.getComputedTextLength !== 'function') return;
+      // Measure the natural width, then put any squeeze back: if the answer is unchanged React will not re-render.
+      const kept = node.getAttribute('textLength');
       node.removeAttribute('textLength');
-      setSqueeze(node.getComputedTextLength() > at.maxWidth);
+      const natural = node.getComputedTextLength();
+      if (kept !== null) node.setAttribute('textLength', kept);
+      setSqueeze(natural > at.maxWidth);
     };
     fit();
     document.fonts?.addEventListener?.('loadingdone', fit);
