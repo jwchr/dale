@@ -31,8 +31,11 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await expect(sign.locator('img')).toHaveJSProperty('complete', true);
   await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
   const rows = sign.locator('.stop-sign-row');
-  await expect(rows).toHaveCount(await sign.locator('.stop-sign-route-tags strong').count());
-  await expect(rows.first()).toHaveText(/^\S+ To New York$/);
+  // Every route that boards here is lettered; the rider's own bus is highlighted.
+  expect(await rows.count()).toBeGreaterThanOrEqual(await sign.locator('.stop-sign-route-tags strong').count());
+  await expect(sign.locator('.stop-sign-row-yours').first()).toHaveText(/^\S+ To New York$/);
+  await expect(sign.locator('.stop-sign-mark')).toHaveCount(await sign.locator('.stop-sign-row-yours').count());
+  await expect(sign.locator('.stop-sign-callout')).toHaveText(`◀ ${t.stopSign.yourBus}`);
   await expect(sign).not.toContainText('13583');
   await expect(sign).not.toContainText('707');
   await expect(sign.locator('figcaption')).toHaveText(t.stopSign.illustration);
@@ -43,7 +46,7 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
       await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption(scene);
       await expect(sign.locator('img')).toHaveAttribute('src', new RegExp(scene));
       await expect(sign.locator('img')).toHaveJSProperty('complete', true);
-      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(340);
+      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(530);
       // The lettering layer covers exactly the photo, so every line lands on the sign's ruled rows.
       expect(await sign.locator('.stop-sign-art').evaluate(node => {
         const image = node.querySelector('img')!.getBoundingClientRect(), svg = node.querySelector('svg')!.getBoundingClientRect();
@@ -102,14 +105,17 @@ test('physical sign wording stays printed when surrounding UI changes language',
   await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
   const lettering = page.locator('.stop-sign-art svg');
   await expect(lettering).toContainText('To New York');
-  const physical = await lettering.textContent();
+  // Printed lettering only: the "Your bus" tag is app wording and translates.
+  const printed = () => lettering.evaluate(svg => [...svg.querySelectorAll('.stop-sign-row, .stop-sign-number')].map(n => n.textContent).join('|'));
+  const physical = await printed();
   await expect(page.locator('.stop-sign-face')).toBeHidden();
   await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   await page.getByRole('button', { name: strings.es.back, exact: true }).click();
   await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();
   await expect(page.locator('.stop-sign h3')).toHaveText(strings.es.stopSign.title);
-  expect(await lettering.textContent()).toBe(physical);
+  expect(await printed()).toBe(physical);
+  await expect(page.locator('.stop-sign-callout')).toHaveText(`◀ ${strings.es.stopSign.yourBus}`);
 });
 
 test('a long sign line stays squeezed onto its ruled row when fonts load again', async ({ page }) => {
@@ -132,10 +138,11 @@ test('a long sign line stays squeezed onto its ruled row when fonts load again',
   // Measuring an already-squeezed line again must keep the squeeze.
   for (let i = 0; i < 2; i++) await page.evaluate(() => document.fonts.dispatchEvent(new Event('loadingdone')));
   await expect(row).toHaveAttribute('textLength', String(signRowPlacement(0).maxWidth));
-  const fits = await page.locator('.stop-sign-art').evaluate(art => {
+  const fits = await page.locator('.stop-sign-art').evaluate((art, at) => {
     const svg = art.querySelector('svg')!, text = art.querySelector('.stop-sign-row') as SVGTextElement;
     const scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
-    return text.getBoundingClientRect().right <= svg.getBoundingClientRect().left + 680 * scale - 395 * scale;
-  });
+    // Ends before the right end of its ruled line (plus a little for the photo's slant).
+    return text.getBoundingClientRect().right <= svg.getBoundingClientRect().left + (at.x + at.maxWidth + 3) * scale;
+  }, signRowPlacement(0));
   expect(fits).toBe(true);
 });

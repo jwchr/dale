@@ -22,7 +22,7 @@ Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
 ## Next (order chosen by the owner 2026-11-13; also recorded in #144)
-1. Stop sign photo (D69, this pull request): the real NJ Transit sign with the rider's routes and stop number, power lines removed (`docs/STOP_SIGN.md`). Owner sees screenshots before merging.
+1. Stop sign photo (D69, this pull request): the real NJ Transit sign, sharp and as photographed, listing every Dale route that boards there with the rider's bus highlighted and the real stop number (`docs/STOP_SIGN.md`). Owner sees screenshots before merging.
 2. Run the weekly rollover again before 2026-11-23 (the deployed schedule ends then): tell the owner, `qualify-enabled`, then `rollover-enabled` with the pins above.
 3. Route distance: add a read-only, aggregate geometry diagnostic (which stop position fails and how far, units of the two measures) to tell the two causes apart, then fix it in its own pull request.
 4. Schedule-change alerts (#151, owner-approved 2026-11-13): tell riders when NJ Transit changes the times on their saved commutes.

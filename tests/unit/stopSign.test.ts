@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { resolveStopScene, SIGN_NUMBER, SIGN_ROWS, SIGN_VIEW, signRowPlacement, signRowTexts, STOP_SCENES, stopSceneChoice, stopSignRoutes } from '../../src/domain/stopSign';
+import { resolveStopScene, SIGN_NUMBER, SIGN_ROWS, SIGN_VIEW, signRowBand, signRowPlacement, STOP_SCENES, stopSignLines, stopSceneChoice, stopSignRoutes } from '../../src/domain/stopSign';
 import { liveDataset } from '../helpers/liveBus';
 import manifest from '../../src/assets/stop-scenes/source-manifest.json';
 
@@ -52,7 +52,7 @@ describe('photographed stop sign (D69)', () => {
     for (const scene of STOP_SCENES) {
       const data = readFileSync(new URL(`../../src/assets/stop-signs/${scene}.webp`, import.meta.url));
       expect(webpSize(data)).toEqual([SIGN_VIEW.width, SIGN_VIEW.height]);
-      expect(data.byteLength).toBeLessThan(120_000);
+      expect(data.byteLength).toBeLessThan(200_000);
     }
     // The preparation script crops to the same box the app letters on.
     const script = readFileSync(new URL('../../scripts/stop-sign-photos.py', import.meta.url), 'utf8');
@@ -76,12 +76,44 @@ describe('photographed stop sign (D69)', () => {
     expect(signRowPlacement(99)).toEqual(rows[SIGN_ROWS - 1]);
     expect(signRowPlacement(-2)).toEqual(rows[0]);
   });
-  it('letters routes the way the sign prints them and never overflows its rows', () => {
-    expect(signRowTexts(['165', '165T'], 'New York')).toEqual(['165 To New York', '165T To New York']);
-    expect(signRowTexts([], 'New York')).toEqual([]);
-    const many = Array.from({ length: 9 }, (_, i) => String(100 + i));
-    const lines = signRowTexts(many, 'New York');
-    expect(lines).toHaveLength(SIGN_ROWS);
-    expect(lines.at(-1)).toBe('+3 more');
+  it('lists every route that picks up here, the way the sign prints it, and marks the rider\'s bus', () => {
+    const ds = {
+      routes: [{ id: 'r165', shortName: '165' }, { id: 'r163', shortName: '163' }, { id: 'r164', shortName: '164' }],
+      stops: [{ id: 'A', name: 'Main St' }, { id: 'B', name: 'Elm St' }, { id: 'P', name: 'Port Authority', terminal: 'PABT' }, { id: 'H', name: 'Hackensack Terminal' }],
+      patterns: [
+        { id: 'p1', routeId: 'r165', stopIds: ['A', 'B', 'P'] },
+        { id: 'p2', routeId: 'r163', stopIds: ['A', 'P'] },
+        { id: 'p3', routeId: 'r164', stopIds: ['P', 'A', 'H'] },
+        { id: 'p4', routeId: 'r164', stopIds: ['B', 'A'] },              // ends here: nothing to board
+        { id: 'p5', routeId: 'r165', stopIds: ['A', 'P'], noPickup: [0] }, // drop-off only here
+      ],
+    } as unknown as Parameters<typeof stopSignLines>[0];
+    expect(stopSignLines(ds, 'A', 'B', [])).toEqual([
+      { text: '163 To New York', yours: false },
+      { text: '164 To Hackensack Terminal', yours: false },
+      { text: '165 To New York', yours: true },
+    ]);
+    // Both New York routes reach Port Authority; a saved route filter keeps only the chosen one marked.
+    expect(stopSignLines(ds, 'A', 'P', ['r163']).filter(l => l.yours).map(l => l.text)).toEqual(['163 To New York']);
+    expect(stopSignLines(ds, 'A', 'P', []).filter(l => l.yours)).toHaveLength(2);
+    expect(stopSignLines(ds, 'Z', 'P', [])).toEqual([]);
   });
+  it('keeps the rider\'s own lines when more routes than rows board here', () => {
+    const routes = Array.from({ length: 10 }, (_, i) => ({ id: `r${i}`, shortName: String(100 + i) }));
+    const ds = {
+      routes, stops: [{ id: 'A', name: 'A' }, { id: 'P', name: 'Port Authority', terminal: 'PABT' }],
+      patterns: routes.map(r => ({ id: `p${r.id}`, routeId: r.id, stopIds: ['A', 'P'] })),
+    } as unknown as Parameters<typeof stopSignLines>[0];
+    const lines = stopSignLines(ds, 'A', 'P', ['r9']);
+    expect(lines).toHaveLength(SIGN_ROWS);
+    expect(lines.filter(l => l.yours).map(l => l.text)).toEqual(['109 To New York']);
+    expect(lines.at(-1)).toEqual({ text: '+4 more', yours: false });
+  });
+  it('highlights inside the ruled row', () => {
+    const band = signRowBand(2), row = signRowPlacement(2);
+    expect(band).toHaveLength(4);
+    expect(band[0]![1]).toBeLessThan(row.y);
+    expect(band[3]![1]).toBeGreaterThan(row.y);
+    expect(band[1]![1]).toBeLessThan(band[0]![1]); // tilted with the photo
+});
 });

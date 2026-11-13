@@ -1,9 +1,9 @@
 export const stopSignStrings = {
   en: {
-    open: 'See bus stop sign', title: 'Your boarding stop', stop: 'STOP', routes: 'Routes for this trip',
+    open: 'See bus stop sign', yourBus: 'Your bus', title: 'Your boarding stop', stop: 'STOP', routes: 'Routes for this trip',
     unknownRoutes: 'No boarding route confirmed for this destination.',
     note: 'Match the number and direction on the real sign. These routes are in the loaded schedule; check departures for when they run.',
-    illustration: 'A real NJ Transit stop sign, pictured by season. Dale writes in your stop number and routes. Your stop may look a little different, and the weather is not live.',
+    illustration: 'A real NJ Transit stop sign, pictured by season. Dale writes in your stop number and the Dale routes that board here, and highlights your bus. The real sign may list more routes, and the weather is not live.',
     artwork: 'Picture style', automatic: 'Automatic season',
     automaticNote: 'Automatic follows the season in New Jersey. Weather data is not connected.',
     failed: 'Picture unavailable. Your stop details are still shown.',
@@ -16,10 +16,10 @@ export const stopSignStrings = {
     },
   },
   es: {
-    open: 'Ver letrero de la parada', title: 'Tu parada de salida', stop: 'PARADA', routes: 'Rutas para este viaje',
+    open: 'Ver letrero de la parada', yourBus: 'Tu autobús', title: 'Tu parada de salida', stop: 'PARADA', routes: 'Rutas para este viaje',
     unknownRoutes: 'No hay una ruta de salida confirmada para este destino.',
     note: 'Comprueba el número y la dirección en la señal real. Estas rutas aparecen en el horario cargado; consulta las salidas para saber cuándo pasan.',
-    illustration: 'Una señal real de parada de NJ Transit, según la estación. Dale escribe el número y las rutas de tu parada. Tu parada puede verse un poco distinta y el tiempo no es en vivo.',
+    illustration: 'Una señal real de parada de NJ Transit, según la estación. Dale escribe el número de tu parada y las rutas de Dale que salen de aquí, y resalta tu autobús. La señal real puede tener más rutas y el tiempo no es en vivo.',
     artwork: 'Estilo de imagen', automatic: 'Automática',
     automaticNote: 'La opción automática sigue la estación del año en Nueva Jersey. No hay datos meteorológicos conectados.',
     failed: 'Imagen no disponible. Los datos de tu parada siguen visibles.',

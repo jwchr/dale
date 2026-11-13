@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
 import {
-  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowPlacement, signRowTexts, STOP_SCENES, stopSceneChoice, stopSignRoutes,
+  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowBand, signRowPlacement, STOP_SCENES, stopSceneChoice, stopSignLines, stopSignRoutes,
   type SignPlacement, type StopSceneChoice,
 } from '../domain/stopSign';
 import type { Strings } from './i18n';
@@ -11,7 +11,7 @@ import './stopSign.css';
 const pictures = import.meta.glob('../assets/stop-signs/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
 /** One line of lettering on the photographed sign, squeezed only if it would run off the ruled line. */
-function SignText({ at, className, children }: { at: SignPlacement; className: string; children: string }) {
+function SignText({ at, className, children, ink = true }: { at: SignPlacement; className: string; children: string; ink?: boolean }) {
   const ref = useRef<SVGTextElement>(null);
   const [squeeze, setSqueeze] = useState(false);
   useLayoutEffect(() => {
@@ -29,7 +29,7 @@ function SignText({ at, className, children }: { at: SignPlacement; className: s
     document.fonts?.addEventListener?.('loadingdone', fit);
     return () => document.fonts?.removeEventListener?.('loadingdone', fit);
   }, [children, at.maxWidth]);
-  return <text ref={ref} className={className} filter="url(#stop-sign-ink)"
+  return <text ref={ref} className={className} filter={ink ? 'url(#stop-sign-ink)' : undefined}
     transform={`matrix(1 ${at.slope.toFixed(4)} 0 1 ${at.x.toFixed(2)} ${at.y.toFixed(2)})`}
     {...(squeeze ? { textLength: at.maxWidth, lengthAdjust: 'spacingAndGlyphs' } : {})}>{children}</text>;
 }
@@ -48,7 +48,8 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
   // Physical sign wording stays as printed; surrounding controls/explanations translate.
   const signDestination = to.terminal === 'PABT' ? 'New York · Port Authority' : to.name;
-  const rowDestination = to.terminal === 'PABT' ? 'New York' : to.name;
+  const lines = open ? stopSignLines(ds, from.id, to.id, routeIds) : [];
+  const yourRow = lines.findIndex(line => line.yours);
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
   const photo = scene && !failed;
   return <>
@@ -66,7 +67,13 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
             decoding="async" fetchPriority="low" onError={() => setFailed(true)} />
           <svg viewBox={`0 0 ${SIGN_VIEW.width} ${SIGN_VIEW.height}`} focusable="false">
             <defs><filter id="stop-sign-ink" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation=".35" /></filter></defs>
-            {signRowTexts(routes, rowDestination).map((line, row) => <SignText key={row} at={signRowPlacement(row)} className="stop-sign-row">{line}</SignText>)}
+            {/* Highlighter over the rider's own bus, like a marker on the printed sign. */}
+            {lines.map((line, row) => line.yours && <polygon key={`mark-${row}`} className="stop-sign-mark" points={signRowBand(row).map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')} />)}
+            {lines.map((line, row) => <SignText key={row} at={signRowPlacement(row)} className={line.yours ? 'stop-sign-row stop-sign-row-yours' : 'stop-sign-row'}>{line.text}</SignText>)}
+            {yourRow >= 0 && <g className="stop-sign-callout" transform={`translate(${(signRowBand(yourRow)[1]![0] + 9).toFixed(1)} ${(signRowPlacement(yourRow).y - 6).toFixed(1)})`}>
+              <rect x="0" y="-14" width="128" height="28" rx="14" />
+              <SignText at={{ x: 10, y: 6, slope: 0, maxWidth: 110 }} className="stop-sign-callout-text" ink={false}>{`◀ ${s.yourBus}`}</SignText>
+            </g>}
             <SignText at={SIGN_NUMBER} className="stop-sign-number">{from.code || '—'}</SignText>
           </svg>
         </div>}
