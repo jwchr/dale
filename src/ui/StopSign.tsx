@@ -1,11 +1,34 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
-import { resolveStopScene, STOP_SCENES, stopSceneChoice, stopSignRoutes, type StopSceneChoice } from '../domain/stopSign';
+import {
+  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowPlacement, signRowTexts, STOP_SCENES, stopSceneChoice, stopSignRoutes,
+  type SignPlacement, type StopSceneChoice,
+} from '../domain/stopSign';
 import type { Strings } from './i18n';
 import './stopSign.css';
 
-// Import URLs, not image bytes. Only the chosen image is requested after opening.
-const pictures = import.meta.glob('../assets/stop-scenes/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+// Import URLs, not image bytes. Only the chosen photo is requested after opening.
+const pictures = import.meta.glob('../assets/stop-signs/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+
+/** One line of lettering on the photographed sign, squeezed only if it would run off the ruled line. */
+function SignText({ at, className, children }: { at: SignPlacement; className: string; children: string }) {
+  const ref = useRef<SVGTextElement>(null);
+  const [squeeze, setSqueeze] = useState(false);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const node = ref.current;
+      if (!node || typeof node.getComputedTextLength !== 'function') return;
+      node.removeAttribute('textLength');
+      setSqueeze(node.getComputedTextLength() > at.maxWidth);
+    };
+    fit();
+    document.fonts?.addEventListener?.('loadingdone', fit);
+    return () => document.fonts?.removeEventListener?.('loadingdone', fit);
+  }, [children, at.maxWidth]);
+  return <text ref={ref} className={className} filter="url(#stop-sign-ink)"
+    transform={`matrix(1 ${at.slope.toFixed(4)} 0 1 ${at.x.toFixed(2)} ${at.y.toFixed(2)})`}
+    {...(squeeze ? { textLength: at.maxWidth, lengthAdjust: 'spacingAndGlyphs' } : {})}>{children}</text>;
+}
 
 /** Lazy boarding-sign panel; the caller places its linked disclosure button among trip actions. */
 export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
@@ -21,7 +44,9 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
   // Physical sign wording stays as printed; surrounding controls/explanations translate.
   const signDestination = to.terminal === 'PABT' ? 'New York · Port Authority' : to.name;
+  const rowDestination = to.terminal === 'PABT' ? 'New York' : to.name;
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
+  const photo = scene && !failed;
   return <>
     {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}>{s.open}</button>)}
     <section id={`${id}-panel`} className="stop-sign" hidden={!open} aria-label={s.title}>
@@ -30,18 +55,23 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
       <p><strong>{from.name}</strong><br />{number}<br />{t.selection.towards}: {destination}</p>
       <p>{s.routes}: {routes.length ? routes.join(' · ') : s.unknownRoutes}</p>
       <figure>
-        <div className="stop-sign-art" aria-hidden="true">
-          {/* Crop to the leftmost 40% of the approved scene: the original sign is entirely
-              outside this window. No loading, failure or text-wrap state can reveal it. */}
-          {scene && !failed && <img key={scene} src={pictures[`../assets/stop-scenes/${scene}.webp`]}
-            alt="" width="941" height="1672" decoding="async" fetchPriority="low" onError={() => setFailed(true)} />}
-          <div className="stop-sign-face">
-            <strong className="stop-sign-brand">DALE!</strong>
-            <span>Bus Stop</span>
-            <strong className="stop-sign-number">{from.code || '—'}</strong>
-            <div className="stop-sign-route-tags">{routes.map(route => <strong key={route}>{route}</strong>)}</div>
-            <span>{signDestination}</span>
-          </div>
+        {/* The real NJ Transit sign as photographed (D69); Dale writes this stop's routes and number on it.
+            Decorative: the same facts are in the text above. */}
+        {photo && <div className="stop-sign-art" aria-hidden="true">
+          <img key={scene} src={pictures[`../assets/stop-signs/${scene}.webp`]} alt="" width={SIGN_VIEW.width} height={SIGN_VIEW.height}
+            decoding="async" fetchPriority="low" onError={() => setFailed(true)} />
+          <svg viewBox={`0 0 ${SIGN_VIEW.width} ${SIGN_VIEW.height}`} focusable="false">
+            <defs><filter id="stop-sign-ink" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation=".35" /></filter></defs>
+            {signRowTexts(routes, rowDestination).map((line, row) => <SignText key={row} at={signRowPlacement(row)} className="stop-sign-row">{line}</SignText>)}
+            <SignText at={SIGN_NUMBER} className="stop-sign-number">{from.code || '—'}</SignText>
+          </svg>
+        </div>}
+        {/* Plain drawn sign when the photo is unavailable or the device forces its own colors. */}
+        <div className="stop-sign-face" data-fallback={photo ? 'forced-colors' : 'always'} aria-hidden="true">
+          <span>Bus Stop</span>
+          <strong className="stop-sign-face-number">{from.code || '—'}</strong>
+          <div className="stop-sign-route-tags">{routes.map(route => <strong key={route}>{route}</strong>)}</div>
+          <span>{signDestination}</span>
         </div>
         <figcaption>{s.illustration}</figcaption>
       </figure>

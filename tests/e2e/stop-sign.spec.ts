@@ -30,6 +30,9 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await expect(page.getByRole('button', { name: t.stopSign.open, exact: true })).toHaveAttribute('aria-expanded', 'true');
   await expect(sign.locator('img')).toHaveJSProperty('complete', true);
   await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
+  const rows = sign.locator('.stop-sign-row');
+  await expect(rows).toHaveCount(await sign.locator('.stop-sign-route-tags strong').count());
+  await expect(rows.first()).toHaveText(/^\S+ To New York$/);
   await expect(sign).not.toContainText('13583');
   await expect(sign).not.toContainText('707');
   await expect(sign.locator('figcaption')).toHaveText(t.stopSign.illustration);
@@ -40,11 +43,11 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
       await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption(scene);
       await expect(sign.locator('img')).toHaveAttribute('src', new RegExp(scene));
       await expect(sign.locator('img')).toHaveJSProperty('complete', true);
-      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(941);
-      // No source-sign pixels (x>400) or baked bottom caption can enter the crop.
-      expect(await sign.locator('img').evaluate(node => {
-        const image = node.getBoundingClientRect(), frame = node.parentElement!.getBoundingClientRect();
-        return frame.width / image.width <= .4 && getComputedStyle(node).clipPath.includes('10%');
+      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(340);
+      // The lettering layer covers exactly the photo, so every line lands on the sign's ruled rows.
+      expect(await sign.locator('.stop-sign-art').evaluate(node => {
+        const image = node.querySelector('img')!.getBoundingClientRect(), svg = node.querySelector('svg')!.getBoundingClientRect();
+        return [image.x - svg.x, image.y - svg.y, image.width - svg.width, image.height - svg.height].every(d => Math.abs(d) < 1);
       })).toBe(true);
       await sign.screenshot({ path: `test-results/stop-sign-${scene}.png` });
     }
@@ -59,7 +62,8 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
     await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption('winter-snow');
     await expect(sign.getByRole('status')).toHaveText(t.stopSign.failed);
     await expect(sign.locator('img')).toHaveCount(0);
-    await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
+    await expect(sign.locator('.stop-sign-face')).toBeVisible();
+    await expect(sign.locator('.stop-sign-face-number')).toHaveText('00123');
   }
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
   await page.getByRole('button', { name: t.stopSign.open, exact: true }).click();
@@ -96,13 +100,14 @@ test('physical sign wording stays printed when surrounding UI changes language',
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.goto('/?live=1');
   await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
-  const physical = await page.locator('.stop-sign-face').innerText();
-  await expect(page.locator('.stop-sign-face')).toContainText('Bus Stop');
-  await expect(page.locator('.stop-sign-face')).toContainText('New York · Port Authority');
+  const lettering = page.locator('.stop-sign-art svg');
+  await expect(lettering).toContainText('To New York');
+  const physical = await lettering.textContent();
+  await expect(page.locator('.stop-sign-face')).toBeHidden();
   await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   await page.getByRole('button', { name: strings.es.back, exact: true }).click();
   await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();
   await expect(page.locator('.stop-sign h3')).toHaveText(strings.es.stopSign.title);
-  expect(await page.locator('.stop-sign-face').innerText()).toBe(physical);
+  expect(await lettering.textContent()).toBe(physical);
 });
