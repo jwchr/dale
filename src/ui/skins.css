@@ -92,6 +92,8 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
 :root[data-skin='turnpike'] .highway-sign { background: var(--sign-bg); color: var(--sign-ink); border: 3px solid var(--sign-rim);
   box-shadow: 0 0 0 4px var(--sign-bg), 0 10px 18px rgba(0, 0, 0, 0.45); margin: 4px; }
+:root[data-skin='turnpike'] .sign-change, :root[data-skin='nyc'] .sign-change { background: var(--accent); color: #111; }
+:root:is([data-skin='parkway'], [data-skin='garden']) .sign-change { background: var(--sign-rim); color: #10261b; }
 :root[data-skin='turnpike'] .highway-label { display: inline-block; background: var(--accent); color: #111; padding: 4px 2px; border-radius: 4px; letter-spacing: 0.12em; }
 :root[data-skin='turnpike'] .commute-stop { background: var(--plate-bg); color: var(--plate-ink); border-color: #3a4756; margin-left: 4px; margin-right: 4px; }
 :root[data-skin='turnpike'] .route-badge { background: var(--sign-bg); color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 2px var(--sign-bg); border-radius: 7px; }
@@ -168,5 +170,5 @@
 }
 
 @media (forced-colors: active) {
-  .highway-label { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .highway-label, .sign-change { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
 }

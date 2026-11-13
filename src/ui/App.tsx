@@ -668,7 +668,7 @@ function HighwayPlace({ place, label, end, t, onCity, onStop }: { place: { name:
   const city = <><span className="highway-label">{label}</span><strong className="highway-name"><SignText text={place.name} /></strong></>;
   const stop = <span className="commute-stop-name"><SignText text={place.detail} /></span>;
   return <div className="commute-place" data-end={end}>
-    {onCity ? <button type="button" className="highway-sign city-control" onClick={onCity}>{city}<span className="sr-only"> {t.cityPicker.city}</span><span className="sign-caret" aria-hidden="true">⌄</span></button> : <div className="highway-sign">{city}</div>}
+    {onCity ? <button type="button" className="highway-sign city-control" onClick={onCity}>{city}<span className="sign-change">{t.cityPicker.changeTag}<span className="sr-only"> {t.cityPicker.changeTagFor}</span><span className="sign-change-caret" aria-hidden="true">⌄</span></span></button> : <div className="highway-sign">{city}</div>}
     {place.detail && (onStop ? <button type="button" className="commute-stop stop-control" title={t.cityPicker.stop} onClick={onStop}>{stop}</button> : <p className="commute-stop">{stop}</p>)}
   </div>;
 }
