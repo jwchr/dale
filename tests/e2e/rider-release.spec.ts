@@ -18,6 +18,9 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   const choice = page.getByRole('button', { name: /^STATE ST AT LAWRENCE ST/ });
   await expect(choice).toContainText('Stop #32728'); await expect(choice).toContainText('Toward: New York · Port Authority');
   await choice.click();
+  // The change link shares the stop-number line (owner, #155).
+  const [number, change] = await Promise.all([page.locator('.stop-number-row p').boundingBox(), page.getByRole('button', { name: 'Choose another boarding stop' }).boundingBox()]);
+  expect(Math.abs(number!.y + number!.height / 2 - (change!.y + change!.height / 2))).toBeLessThan(8);
   await expect(page.locator('.route-descriptions li')).toHaveCount(1);
   const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(2);
   await saves.first().click(); await expect(page.getByRole('alert')).toContainText('Choose a destination');

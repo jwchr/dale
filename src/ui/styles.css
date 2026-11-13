@@ -23,6 +23,8 @@
     linear-gradient(180deg, #eaf1fc 0%, #f3f6fc 60%, #eef3fb 100%);
   --glass: rgba(255, 255, 255, 0.62);
   --glass-strong: rgba(255, 255, 255, 0.78);
+  /* Alternate departure rows (owner, #155): light blue first, then the usual row, so cards never blend together. */
+  --dep-alt: #dceafb; --dep-alt-muted: #4a5c72;
   --glass-border: rgba(255, 255, 255, 0.75);
   --glass-edge: rgba(20, 36, 58, 0.10);
   --glass-shadow: 0 10px 30px rgba(20, 36, 58, 0.10), 0 1px 2px rgba(20, 36, 58, 0.06);
@@ -30,13 +32,13 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #091421; --surface: #13243a; --text: #eef4fc; --muted: #acbdd2; --line: #2b405b;
+    --bg: #091421; --surface: #13243a; --text: #eef4fc; --muted: #acbdd2; --line: #2b405b; --dep-alt: #2a5286; --dep-alt-muted: #dbe6f5;
     --brand: #2a70be; --brand-text: #86bfff; --alert: #ff6b6b; --warn-bg: #3a2f0b; --warn-ink: #ffe08a; --express: #e2b33c; --focus: #9ccaff; --backdrop: radial-gradient(60rem 40rem at 10% -10%, #17345e 0%, transparent 60%), radial-gradient(50rem 36rem at 110% 20%, #0f3b33 0%, transparent 55%), linear-gradient(180deg, #08111d 0%, #091421 60%, #0a1626 100%); --glass: rgba(19, 36, 58, 0.58); --glass-strong: rgba(19, 36, 58, 0.78); --glass-border: rgba(255, 255, 255, 0.10); --glass-edge: rgba(0, 0, 0, 0.35); --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #091421; --surface: #13243a; --text: #eef4fc; --muted: #acbdd2; --line: #2b405b;
+  --bg: #091421; --surface: #13243a; --text: #eef4fc; --muted: #acbdd2; --line: #2b405b; --dep-alt: #2a5286; --dep-alt-muted: #dbe6f5;
   --brand: #2a70be; --brand-text: #86bfff; --alert: #ff6b6b; --warn-bg: #3a2f0b; --warn-ink: #ffe08a; --express: #e2b33c; --focus: #9ccaff; --backdrop: radial-gradient(60rem 40rem at 10% -10%, #17345e 0%, transparent 60%), radial-gradient(50rem 36rem at 110% 20%, #0f3b33 0%, transparent 55%), linear-gradient(180deg, #08111d 0%, #091421 60%, #0a1626 100%); --glass: rgba(19, 36, 58, 0.58); --glass-strong: rgba(19, 36, 58, 0.78); --glass-border: rgba(255, 255, 255, 0.10); --glass-edge: rgba(0, 0, 0, 0.35); --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
@@ -89,6 +91,8 @@ main { flex: 1; padding-bottom: 24px; }
 .primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 700; }
 .primary.wide { width: 100%; }
 .ghost { border: none; background: transparent; color: var(--brand-text); font-weight: 600; padding-left: 0; }
+.stop-number-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 1rem; }
+.stop-number-row > p { margin: 0; }
 .link { display: inline-block; border: none; background: none; color: var(--brand-text); font-weight: 600; padding: 8px 0; text-decoration: none; }
 .danger { color: var(--alert); border-color: var(--alert); }
 .chip { border-radius: 999px; padding: 8px 14px; }
@@ -314,6 +318,10 @@ main { flex: 1; padding-bottom: 24px; }
 .led-line { margin: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase;
   color: #ffb02e; text-shadow: 0 0 6px rgba(255, 160, 40, 0.6); overflow-wrap: anywhere; }
 .led-key { color: #ff6a3d; text-shadow: 0 0 6px rgba(255, 90, 50, 0.7); margin-right: 6px; }
+/* A wrapped stop name stays in one block beside NEXT / AT, not under it (owner, #155). */
+.led-next { display: flex; align-items: baseline; }
+.led-next .led-key { flex: none; white-space: nowrap; }
+.led-name { min-inline-size: 0; }
 .led-pace { font-size: 1rem; margin-top: 2px; }
 .led-pace[data-pace='behind'] { color: #ff8a7a; text-shadow: 0 0 6px rgba(255, 110, 90, 0.6); }
 .led-pace[data-pace='ahead'], .led-pace[data-pace='on'] { color: #7dffa8; text-shadow: 0 0 6px rgba(90, 255, 150, 0.5); }
@@ -514,6 +522,9 @@ main { flex: 1; padding-bottom: 24px; }
 @media (forced-colors: active) { .live-symbol { color: CanvasText; filter: none; } .live-glow { text-shadow: none; } }
 
 .map-views { margin-block: .5rem; }
+/* Street, Transit and Line diagram share one row (owner, #155); the row wraps only when the words cannot fit (large text). */
+.map-views .choice-list { gap: 6px; }
+.map-views .chip { flex: 1 1 0; min-inline-size: min-content; padding: 6px 8px; font-size: .9rem; line-height: 1.15; border-radius: 14px; }
 .map-camera-controls { margin-top: .5rem; }
 .transit-line-map { background: var(--surface); color: var(--text); border-radius: 12px; padding: 12px; }
 .line-stations { list-style: none; padding: 0; margin: 1rem 0; }
@@ -537,15 +548,14 @@ main { flex: 1; padding-bottom: 24px; }
 .city-control, .stop-control { inline-size: 100%; text-align: start; cursor: pointer; }
 .city-control { min-block-size: 48px; }
 .stop-control { min-block-size: 48px; }
-/* Owner request 2026-11-13: a bigger, labelled "Change" tag so riders notice the city sign is tappable.
-   It sits in its own top row, so it can never cover the city name at any text size. */
-.highway-sign.city-control { grid-template-rows: auto minmax(0, 1fr); row-gap: 2px; }
-.city-control .highway-label { grid-row: 1 / span 2; }
-.city-control .highway-name { grid-row: 2; }
-.sign-change { grid-area: 1 / 1; justify-self: end; display: inline-flex; align-items: center; gap: 3px; margin-inline-end: 4px;
-  padding: 2px 5px 2px 7px; border-radius: 999px; background: #fff; color: #064c33; font-size: .62rem; font-weight: 800;
-  letter-spacing: .08em; line-height: 1; text-transform: uppercase; pointer-events: none; }
-.sign-change-caret { font-size: 1.05rem; line-height: .55; transform: translateY(-.1em); }
+/* Owner requests 2026-11-13: a labelled "Change" tag so riders notice the city sign is tappable (#150), then smaller and
+   straddling the sign's top-right corner (#155), so the city name keeps the sign's whole face. */
+.sign-change { position: absolute; inset-block-start: 0; inset-inline-end: 0; transform: translate(10%, -55%); z-index: 1;
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 6px; border-radius: 999px; background: #fff; color: #064c33;
+  font-size: .55rem; font-weight: 800; letter-spacing: .08em; line-height: 1; text-transform: uppercase; pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .45); }
+[dir='rtl'] .sign-change { transform: translate(-10%, -55%); }
+.sign-change-caret { font-size: .85rem; line-height: .55; transform: translateY(-.1em); }
 .commute-picker h1 { margin-block-start: 0; }
 .commute-picker label { display: block; margin-block-end: 4px; }
 .commute-picker .search { min-block-size: 48px; font-size: 1rem; }

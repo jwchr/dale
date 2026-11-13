@@ -783,7 +783,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
                 const reason = live && homeArrivalReason(ctx, d, live);
                 const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
                 return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
-                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
+                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''} ${i % 2 === 0 ? 'dep-alt' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
                     <span className="dep-route"><RouteBadge ds={ds} routeId={d.route.id} />
                       <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
                     </span>
@@ -916,8 +916,10 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
     if (submitted.current) return; submitted.current = true;
     onSave({ id: `${stop.id}>${dest}`, label: `${stopName(stop.id)} → ${stopName(dest)}`, fromStopId: stop.id, toStopId: dest, routeIds: [] });
   }}>
-    <h1>{stop.name}</h1><p>{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}</p>
-    <button type="button" className="link" onClick={() => { setStop(undefined); setDest(undefined); }}>{t.selection.change}</button>
+    <h1>{stop.name}</h1>
+    {/* Stop number and the change link share one line, wrapping only when there is no room (owner, #155). */}
+    <div className="stop-number-row"><p>{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}</p>
+      <button type="button" className="link" onClick={() => { setStop(undefined); setDest(undefined); }}>{t.selection.change}</button></div>
     {info && info.headsigns.length > 0 && <><p>{t.busesHereGoTo}:</p><ul className="route-descriptions">{info.headsigns.map(text => <li key={text}>{text}</li>)}</ul></>}
     <h2 ref={destinationHeading} tabIndex={-1}>{t.whereTo}</h2>
     {dest && <p className="selected-destination"><strong>{t.selection.selected}:</strong> {stopName(dest)}</p>}

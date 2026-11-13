@@ -61,6 +61,8 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
     await expect(left.locator('.commute-stop')).toHaveText(from.name);
     await expect(right.locator('.highway-name')).toHaveText(t.commuteNewYork);
     await expect(right.locator('.commute-stop')).toHaveText(t.commutePabt);
+    // LED stop boxes read in capitals, like the boarding stop (owner, #155).
+    await expect(right.locator('.commute-stop')).toHaveCSS('text-transform', 'uppercase');
     const trigger = page.getByRole('button', { name: t.stopSign.open, exact: true });
     const reverse = page.getByRole('button', { name: t.reverse, exact: true });
     for (const [width, scale, font] of [[390, 100, ''], [305, 100, ''], [320, 130, ''], [320, 200, ''], [320, 130, 'Verdana']] as const) {

@@ -30,7 +30,7 @@
 .sign-word { display: inline-block; max-inline-size: 100%; vertical-align: top; overflow-wrap: normal; }
 .sign-word-part { white-space: nowrap; }
 .commute-stop-name { display: block; }
-.commute-stop { align-self: start; margin: 0; font-size: 1rem; padding: 7px 8px; line-height: 1.25; }
+.commute-stop { align-self: start; margin: 0; font-size: 1rem; padding: 7px 8px; line-height: 1.25; text-transform: uppercase; } /* LED boxes all capitals (owner, #155) */
 .commute-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
 .commute-controls:not(:has(.leave-set)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .commute-controls .chip, .commute-controls .stop-sign-toggle { min-inline-size: 0; min-block-size: 44px; padding: 6px 4px; font-size: .8rem; border-radius: .65rem; overflow-wrap: anywhere; }
@@ -52,16 +52,19 @@
 :root[data-skin='turnpike'] {
   --bg: #0b1626; --surface: #181d24; --brand: #0b6b3f; --brand-text: #7fe0ad; --accent: #ffd23f; --express: #ffd23f;
   --glass: rgba(14, 18, 24, 0.55); --glass-strong: rgba(22, 27, 34, 0.84);
+  --dep-alt: #2c3644; --dep-alt-muted: #d5dee8;
   --sign-bg: #0b6b3f; --sign-ink: #ffffff; --sign-rim: #ffffff; --plate-bg: #10151b; --plate-ink: #ffd23f;
 }
 :root:is([data-skin='parkway'], [data-skin='garden']) {
   --bg: #0c2219; --surface: #15281f; --brand: #0d5c3a; --brand-text: #f3d27a; --accent: #f3c642; --express: #f3c642;
   --muted: #c3d3c6; --glass: rgba(10, 26, 18, 0.55); --glass-strong: rgba(18, 36, 27, 0.84);
+  --dep-alt: #284a38; --dep-alt-muted: #dbe7dd;
   --sign-bg: #0d5c3a; --sign-ink: #fffbea; --sign-rim: #f3c642; --plate-bg: #2a2418; --plate-ink: #f8e3a0;
 }
 :root[data-skin='nyc'] {
   --bg: #05070c; --surface: #101217; --brand: #f7c600; --brand-ink: #111111; --brand-text: #ffd84d; --accent: #f7c600; --express: #f7c600;
   --muted: #c2c6cf; --glass: rgba(6, 7, 10, 0.55); --glass-strong: rgba(16, 17, 22, 0.88); --focus: #ffb21a;
+  --dep-alt: #262930; --dep-alt-muted: #d8dbe1;
   --sign-bg: #111214; --sign-ink: #ffffff; --sign-rim: #ffffff; --plate-bg: #1c1d21; --plate-ink: #ffffff;
 }
 /* The scene sits behind the page: the page itself must not paint over it (only the root does). */
@@ -172,3 +175,6 @@
 @media (forced-colors: active) {
   .highway-label, .sign-change { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
 }
+/* Alternate departure rows on every style (owner, #155): a lighter shade of each style's own card, light blue in Clean.
+   The Turnpike's green next-bus card keeps its own highlight. */
+:root .dep.dep-alt:not(:root[data-skin='turnpike'] .dep-next) { background: var(--dep-alt); --muted: var(--dep-alt-muted); }

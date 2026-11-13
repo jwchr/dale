@@ -115,7 +115,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
       <SignalWarning session={session} now={now} t={t} estimated={progress.basis === 'timetable' || progress.projected} />
       {/* The LED bar: next stop and pace, like the sign over the car doors. */}
       <div className="led-bar" role="status" aria-live="polite">
-        <p className="led-line"><span className="led-key">{currentIndex === lastIndex ? p.at : p.next}</span> {nextLabel.town}{nextLabel.detail ? ` · ${nextLabel.detail}` : ''}</p>
+        <p className="led-line led-next"><span className="led-key">{currentIndex === lastIndex ? p.at : p.next}</span> <span className="led-name">{nextLabel.town}{nextLabel.detail ? ` · ${nextLabel.detail}` : ''}</span></p>
         <p className="led-line led-pace" data-pace={delay === undefined ? 'unknown' : delay > 0 ? 'behind' : delay < 0 ? 'ahead' : 'on'}>{pace}</p>
       </div>
       <p className="small progress-source">{progress.basis !== 'tap' && progress.basis !== 'phone_gps' && !busIsDemo && <LiveIndicator live={progress.basis === 'bus_gps' && !progress.projected} />}{progress.projected ? `${p.estimated} ` : ''}{source}</p>

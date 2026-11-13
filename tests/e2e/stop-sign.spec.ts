@@ -1,13 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { strings } from '../../src/ui/i18n';
-import { signRowPlacement, STOP_SCENES } from '../../src/domain/stopSign';
+import { signRowPlacement } from '../../src/domain/stopSign';
 
 test.use({ serviceWorkers: 'block', viewport: { width: 305, height: 780 } });
 const API = 'https://dale-live.test.workers.dev';
-for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads only chosen art and preserves trip (${lang})`, async ({ page }) => {
-  const t = strings[lang];
+async function openHome(page: Page, lang: 'en' | 'es', failScene?: string) {
   const ds = structuredClone(liveDataset);
   ds.stops.find(s => s.id === '2')!.code = '00123';
   const favorites = [{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My saved trip' }];
@@ -19,11 +18,17 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', route => route.fulfill({ json: ds }));
   await page.route(API + '/v1/departures?**', route => route.abort('failed'));
+  if (failScene) await page.route(`**/${failScene}-*.webp`, route => route.abort('failed'));
   const images: string[] = [];
   page.on('request', request => { if (/\/(spring|summer|autumn|winter)-[^/]+\.webp/.test(request.url())) images.push(request.url()); });
   await page.goto('/?live=1');
   await expect(page.locator('.dep').first()).toBeVisible();
   expect(images).toEqual([]);
+  return { favorites, images };
+}
+for (const lang of ['en', 'es'] as const) test(`seasonal sign loads only the season's art and preserves trip (${lang})`, async ({ page }) => {
+  const t = strings[lang];
+  const { favorites, images } = await openHome(page, lang);
   const sign = page.locator('.stop-sign');
   await page.getByRole('button', { name: t.stopSign.open, exact: true }).focus();
   await page.keyboard.press('Enter');
@@ -41,33 +46,20 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await expect(sign.locator('figcaption')).toHaveText(t.stopSign.illustration);
   await expect(sign.locator('img')).toHaveAttribute('src', /autumn-clear/);
   expect(images).toHaveLength(1);
-  if (lang === 'en') {
-    for (const scene of STOP_SCENES) {
-      await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption(scene);
-      await expect(sign.locator('img')).toHaveAttribute('src', new RegExp(scene));
-      await expect(sign.locator('img')).toHaveJSProperty('complete', true);
-      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(530);
-      // The lettering layer covers exactly the photo, so every line lands on the sign's ruled rows.
-      expect(await sign.locator('.stop-sign-art').evaluate(node => {
-        const image = node.querySelector('img')!.getBoundingClientRect(), svg = node.querySelector('svg')!.getBoundingClientRect();
-        return [image.x - svg.x, image.y - svg.y, image.width - svg.width, image.height - svg.height].every(d => Math.abs(d) < 1);
-      })).toBe(true);
-      await sign.screenshot({ path: `test-results/stop-sign-${scene}.png` });
-    }
-  }
+  // Automatic season only (owner, #155): no picture-style control.
+  await expect(sign.getByRole('combobox')).toHaveCount(0);
+  await expect(sign).not.toContainText(/Picture style|Estilo de imagen/);
+  expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(530);
+  // The lettering layer covers exactly the photo, so every line lands on the sign's ruled rows.
+  expect(await sign.locator('.stop-sign-art').evaluate(node => {
+    const image = node.querySelector('img')!.getBoundingClientRect(), svg = node.querySelector('svg')!.getBoundingClientRect();
+    return [image.x - svg.x, image.y - svg.y, image.width - svg.width, image.height - svg.height].every(d => Math.abs(d) < 1);
+  })).toBe(true);
+  await sign.screenshot({ path: `test-results/stop-sign-${lang}.png` });
   expect((await new AxeBuilder({ page }).include('.stop-sign').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await sign.screenshot({ path: `test-results/stop-sign-${lang}-large.png` });
-  await page.route('**/winter-snow-*.webp', route => route.abort('failed'));
-  // Pick a not-yet-loaded URL in Spanish; English's selected variant is already cached.
-  if (lang === 'es') {
-    await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption('winter-snow');
-    await expect(sign.getByRole('status')).toHaveText(t.stopSign.failed);
-    await expect(sign.locator('img')).toHaveCount(0);
-    await expect(sign.locator('.stop-sign-face')).toBeVisible();
-    await expect(sign.locator('.stop-sign-face-number')).toHaveText('00123');
-  }
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
   await page.getByRole('button', { name: t.stopSign.open, exact: true }).click();
   await expect(sign.locator('img')).toHaveCount(0);
@@ -175,4 +167,15 @@ test('accessible text lists every route on the sign, including ones that do not 
   await expect(routesLine).toContainText(`(${strings.en.stopSign.yourBus})`);
   // Route 199 is listed but not marked as the rider's bus.
   await expect(routesLine).not.toContainText(`199 (${strings.en.stopSign.yourBus})`);
+});
+
+test('an unavailable season photo shows the drawn sign with the stop details', async ({ page }) => {
+  const t = strings.es;
+  await openHome(page, 'es', 'autumn-clear');
+  const sign = page.locator('.stop-sign');
+  await page.getByRole('button', { name: t.stopSign.open, exact: true }).click();
+  await expect(sign.getByRole('status')).toHaveText(t.stopSign.failed);
+  await expect(sign.locator('img')).toHaveCount(0);
+  await expect(sign.locator('.stop-sign-face')).toBeVisible();
+  await expect(sign.locator('.stop-sign-face-number')).toHaveText('00123');
 });

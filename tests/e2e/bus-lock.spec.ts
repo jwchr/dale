@@ -509,6 +509,9 @@ test('ride progress: LED bar and strip map, from the timetable, a tap, then the 
   const dialog = page.getByRole('dialog', { name: /Riding to/ });
   const led = dialog.locator('.led-bar');
   await expect(led.locator('.led-line').first()).toHaveText(/^Next Oak St & River Rd$/i);
+  // The stop name is one block beside NEXT, so a wrapped line never runs back under it (owner, #155).
+  const [key, name] = await Promise.all([led.locator('.led-key').boundingBox(), led.locator('.led-name').boundingBox()]);
+  expect(name!.x).toBeGreaterThanOrEqual(key!.x + key!.width);
   await expect(led.locator('.led-pace')).toHaveText('By the timetable');
   await expect(dialog.locator('.progress-source')).toContainText('No GPS or stop taps yet');
   const strip = dialog.getByRole('list', { name: 'The line: tap a stop when the bus reaches it' });

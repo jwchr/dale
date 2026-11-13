@@ -2,6 +2,7 @@
   "sourceCommit": "75fd141da684ef8d89d63a8850c6be6c706bdb1f",
   "sourceSkin": "parkway",
   "ownerConfirmedOn": "2026-11-08",
+  "ownerChanges": "2026-11-13 (#155): the first departure row uses the alternating lighter card shade.",
   "referenceImageSha256": "a5a52e8f456cb299b44d71304e7e517a20fec1d447c307ab817995351e7b98b0",
   "printedDatasetSha256": "7ff25735382ea21c7b505038d84ac2e95f226667faaedd391289a8d5c633dc39",
   "tokens": {
@@ -28,7 +29,7 @@
       "border": "1px solid rgb(74, 61, 37)"
     },
     "departure": {
-      "background": "rgba(18, 36, 27, 0.84) none repeat scroll 0% 0% / auto padding-box border-box",
+      "background": "rgb(40, 74, 56) none repeat scroll 0% 0% / auto padding-box border-box",
       "color": "rgb(238, 243, 248)",
       "border": "2px solid rgb(243, 198, 66)"
     }

@@ -17,8 +17,8 @@ Issue #106 (asset handoff), owner decision D69 (2026-11-13). Each valid saved ho
 
 ## Loading and fallback
 
-- Closed disclosure: no image request, season formatting or route scan. Opening requests only the selected WebP (about 90-125 KB) with low fetch priority; the service worker does not precache them.
-- Automatic follows New Jersey's calendar (December-February winter, March-May spring, June-August summer, September-November autumn) with clear-weather artwork; no weather service is connected. Manual choices select artwork only and reset for a different trip leg; no new storage key, GPS, upload or background work.
+- Closed disclosure: no image request, season formatting or route scan. Opening requests only the current season's WebP (about 90-125 KB) with low fetch priority; the service worker does not precache them.
+- The picture always follows New Jersey's calendar (December-February winter, March-May spring, June-August summer, September-November autumn) with clear-weather artwork; no weather service is connected. There is no picture-style control (owner, 2026-11-13, #155: too much customization), so the rain, storm, mist and snow scenes are kept but not shown. No storage key, GPS or upload is involved.
 - If the picture fails, or the device forces its own colors, a plain drawn sign shows the same stop number and routes, and a translated message says the picture is unavailable. Image failure never hides the stop information.
 - Existing skins, forced colors and 305 px / 130% text remain supported.
 
