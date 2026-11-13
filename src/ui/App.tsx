@@ -923,7 +923,6 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
     {info && info.headsigns.length > 0 && <><p>{t.busesHereGoTo}:</p><ul className="route-descriptions">{info.headsigns.map(text => <li key={text}>{text}</li>)}</ul></>}
     <h2 ref={destinationHeading} tabIndex={-1}>{t.whereTo}</h2>
     {dest && <p className="selected-destination"><strong>{t.selection.selected}:</strong> {stopName(dest)}</p>}
-    {saveButton()}
     {saveError && <p className="warn" role="alert">{check && !check.ok ? t.notServed : t.selection.choose}</p>}
     {groups.terminal.length > 0 && <div className="pinned-destinations"><h3>{t.commutePabt}</h3><div className="choice-list">{groups.terminal.map(destination)}</div></div>}
     {groups.cities.length > 0 && <fieldset className="destination-cities"><legend>{t.selection.cities}</legend>{groups.cities.map(group => <details key={group.city || 'unknown'}>
@@ -932,6 +931,7 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
     {!stop.terminal && !destinations.some(s => s.terminal) && <p className="warn small" role="note">{t.noTerminalFromHere}</p>}
     {check && !check.ok && check.reason === 'wrong-side' && <div className="warn" role="alert"><p>{check.distanceM === undefined ? t.wrongSideNoDistance(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`) : t.wrongSide(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`, check.distanceM)}</p><button type="button" className="primary" onClick={() => pick(check.useStop)}>{t.useThatStop}</button></div>}
     {check && !check.ok && check.reason === 'not-served' && <div className="warn" role="alert">{t.notServed}</div>}
+    {/* One Save trip, pinned to the bottom of the screen while the destinations scroll (owner, #155). */}
     {saveButton()}
   </form>;
 }

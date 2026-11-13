@@ -1,5 +1,6 @@
 import { transitContextLayers } from './mapStyle';
 import type { MapStrings } from './mapStrings';
+import { leadPadding } from './leadPadding';
 // The ride on a street map (owner decision 2026-11-04: self-hosted OpenStreetMap). Everything is served
 // from Dale's own site: the North Jersey and Manhattan map file (Protomaps build of OpenStreetMap data,
 // ODbL), the fonts (Noto, OFL) and icons (MIT); no tile company sees what the rider looks at.
@@ -22,6 +23,15 @@ export interface MapStop { id: string; city?: string; lat: number; lon: number; 
 export interface RouteMapProps { stops: MapStop[]; bus?: { lat: number; lon: number }; dark: boolean; label: string; failedText: string; text: MapStrings; presentation?: 'street' | 'transit' }
 
 let protocolAdded = false;
+
+/** Following the bus (owner, #155): the dot sits off-centre, away from where the route goes next, so more of the
+ *  route ahead stays on screen. Screen padding only; the bus position itself is drawn exactly where it was reported. */
+function followBus(m: MapLibreMap, bus: { lat: number; lon: number }, stops: MapStop[], zoom: number) {
+  const target = stops.filter(s => s.state !== 'passed').slice(0, 4).at(-1);
+  const { clientWidth: w, clientHeight: h } = m.getContainer();
+  const padding = target ? leadPadding(m.project([bus.lon, bus.lat]), m.project([target.lon, target.lat]), w, h) : leadPadding({ x: 0, y: 0 }, { x: 0, y: 0 }, w, h);
+  m.jumpTo({ center: [bus.lon, bus.lat], zoom, padding });
+}
 
 export default function RouteMap({ stops, bus, dark, label, failedText, text, presentation = 'street' }: RouteMapProps) {
   const [failed, setFailed] = useState(false);
@@ -81,7 +91,7 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
     m.on('dragstart', userMoved);
     m.on('zoomstart', e => { if (e.originalEvent) userMoved(); });
     m.on('load', () => {
-      if (following.current && latest.current.bus) { const b = latest.current.bus; m.jumpTo({ center: [b.lon, b.lat], zoom: Math.max(13.5, m.getZoom()) }); setView('bus'); }
+      if (following.current && latest.current.bus) { followBus(m, latest.current.bus, latest.current.stops, Math.max(13.5, m.getZoom())); setView('bus'); }
       m.addSource('route', { type: 'geojson', data: routeData(latest.current.stops) });
       m.addSource('stops', { type: 'geojson', data: stopData(latest.current.stops) });
       m.addSource('bus', { type: 'geojson', data: busData(latest.current.bus) });
@@ -125,14 +135,14 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
     }
     if (drawn.current.bus !== busKey) {
       (m.getSource('bus') as GeoJSONSource | undefined)?.setData(busData(bus)); drawn.current.bus = busKey;
-      if (following.current && bus) { m.jumpTo({ center: [bus.lon, bus.lat], zoom: Math.max(13.5, m.getZoom()) }); setView('bus'); }
+      if (following.current && bus) { followBus(m, bus, stops, Math.max(13.5, m.getZoom())); setView('bus'); }
     }
   }, [stops, bus]);
 
   // A labelled region, not an image: it holds the zoom buttons and the attribution link.
   if (failed) return <p className="warn small" role="note">{failedText}</p>;
   return <><div className="choice-list map-camera-controls">
-    <button type="button" className="chip" disabled={!bus} aria-pressed={view === 'bus'} onClick={() => { if (!map.current || !bus) return; following.current = true; setView('bus'); map.current.jumpTo({ center: [bus.lon, bus.lat], zoom: 13.5 }); }}>{text.close}</button>
+    <button type="button" className="chip" disabled={!bus} aria-pressed={view === 'bus'} onClick={() => { if (!map.current || !bus) return; following.current = true; setView('bus'); followBus(map.current, bus, stops, 13.5); }}>{text.close}</button>
     <button type="button" className="chip" aria-pressed={view === 'route'} onClick={() => { if (!map.current || !stops.length) return; following.current = false; setView('route'); map.current.fitBounds([[Math.min(...stops.map(s => s.lon)), Math.min(...stops.map(s => s.lat))], [Math.max(...stops.map(s => s.lon)), Math.max(...stops.map(s => s.lat))]], { padding: 36, maxZoom: 14, duration: 0 }); }}>{text.route}</button>
   </div><section className="route-map" ref={el} aria-label={label} data-camera={view} data-presentation={presentation} /></>;
 }

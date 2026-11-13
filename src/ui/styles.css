@@ -318,10 +318,13 @@ main { flex: 1; padding-bottom: 24px; }
 .led-line { margin: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase;
   color: #ffb02e; text-shadow: 0 0 6px rgba(255, 160, 40, 0.6); overflow-wrap: anywhere; }
 .led-key { color: #ff6a3d; text-shadow: 0 0 6px rgba(255, 90, 50, 0.7); margin-right: 6px; }
-/* A wrapped stop name stays in one block beside NEXT / AT, not under it (owner, #155). */
-.led-next { display: flex; align-items: baseline; }
-.led-next .led-key { flex: none; white-space: nowrap; }
-.led-name { min-inline-size: 0; }
+/* Owner, #155: a wrapped stop name stays in one block beside NEXT / AT, and the smaller pace line ("On time") sits
+   under NEXT, beside the name's second line, to save a row. */
+.led-bar { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: .45rem; align-items: baseline; }
+.led-next { display: contents; }
+.led-next .led-key { grid-area: 1 / 1; margin-right: 0; white-space: nowrap; }
+.led-name { grid-column: 2; grid-row: 1 / span 2; align-self: start; min-inline-size: 0; }
+.led-bar .led-pace { grid-area: 2 / 1; align-self: start; max-inline-size: 7.5rem; font-size: .72rem; line-height: 1.2; margin-top: 3px; }
 .led-pace { font-size: 1rem; margin-top: 2px; }
 .led-pace[data-pace='behind'] { color: #ff8a7a; text-shadow: 0 0 6px rgba(255, 110, 90, 0.6); }
 .led-pace[data-pace='ahead'], .led-pace[data-pace='on'] { color: #7dffa8; text-shadow: 0 0 6px rgba(90, 255, 150, 0.5); }
@@ -459,6 +462,7 @@ main { flex: 1; padding-bottom: 24px; }
 .destination-cities details { border-block-end: 1px solid var(--line); }
 .destination-choice { display: inline-flex; flex-direction: column; align-items: flex-start; text-align: start; }
 .save-trip { min-block-size: 48px; margin-block: .5rem; }
+.trip-selection .save-trip { position: sticky; inset-block-end: max(12px, env(safe-area-inset-bottom)); z-index: 2; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
 .selected-destination { padding: .5rem; border-inline-start: .3rem solid var(--brand); }
 
 .destination-arrival { margin-block: 1rem; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
@@ -479,6 +483,9 @@ main { flex: 1; padding-bottom: 24px; }
 .fav .deps .dep > .dep-main { grid-column: 2; grid-row: 1; min-inline-size: 0; }
 .fav .deps .dep-min { font-size: .85rem; overflow-wrap: anywhere; }
 .fav .deps .dep-evidence { margin: 3px 4px 7px; }
+/* The source line under each bus card sits on black, so it never blends into the next card (owner, #155). */
+.fav .deps .dep-evidence { padding: 5px 10px; border-radius: 10px; background: #000; color: #eef2f7; }
+@media (forced-colors: active) { .fav .deps .dep-evidence { background: Canvas; color: CanvasText; border: 1px solid CanvasText; } }
 .dep-source, .dep-reason { display: block; }
 .dep-paired { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 4px; }
 .dep-clock { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-inline-size: 0; }

@@ -4,7 +4,7 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 const API = 'https://dale-live.test.workers.dev';
 test.use({ serviceWorkers: 'block' });
 
-test('stop descriptions precede selection; final Port Authority first; city groups and top/bottom Save share one action', async ({ page }) => {
+test('stop descriptions precede selection; final Port Authority first; city groups and one pinned Save', async ({ page }) => {
   const ds = structuredClone(liveDataset);
   Object.assign(ds.stops.find(s => s.id === '2')!, { city: 'Hackensack', code: '32728', name: 'STATE ST AT LAWRENCE ST' });
   await page.clock.install({ time: NOW });
@@ -22,7 +22,9 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   const [number, change] = await Promise.all([page.locator('.stop-number-row p').boundingBox(), page.getByRole('button', { name: 'Choose another boarding stop' }).boundingBox()]);
   expect(Math.abs(number!.y + number!.height / 2 - (change!.y + change!.height / 2))).toBeLessThan(8);
   await expect(page.locator('.route-descriptions li')).toHaveCount(1);
-  const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(2);
+  // One Save trip, pinned in view at the bottom while destinations scroll (owner, #155).
+  const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(1);
+  await expect(saves).toBeInViewport();
   await saves.first().click(); await expect(page.getByRole('alert')).toContainText('Choose a destination');
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeFocused();
   await page.getByRole('button', { name: 'PORT AUTHORITY BUS TERMINAL', exact: true }).click();

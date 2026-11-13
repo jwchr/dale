@@ -50,11 +50,11 @@ export function signRowPlacement(row: number): SignPlacement {
 }
 /** The stop number on the mybus plate, after "This stop #". */
 export const SIGN_NUMBER: SignPlacement = { x: 602 - SIGN_VIEW.x, y: 841.6 - SIGN_VIEW.y, slope: -0.006, maxWidth: 70 };
-/** Corners of ruled row r (inside its two lines), for the highlight behind the rider's own bus. */
+/** Corners of the highlight behind the rider's own bus on ruled row r: the row plus a little room on every side (owner, #155). */
 export function signRowBand(row: number): Array<[number, number]> {
-  const r = Math.min(Math.max(Math.trunc(row), 0), SIGN_ROWS - 1), left = RULE_LEFT + 1, right = RULE_RIGHT - 1;
+  const r = Math.min(Math.max(Math.trunc(row), 0), SIGN_ROWS - 1), left = RULE_LEFT - 4, right = RULE_RIGHT + 3;
   const at = (k: number, x: number, dy: number): [number, number] => [x - SIGN_VIEW.x, ruleY(k, x) + dy - SIGN_VIEW.y];
-  return [at(r, left, 2), at(r, right, 2), at(r + 1, right, -.5), at(r + 1, left, -.5)];
+  return [at(r, left, -2.5), at(r, right, -2.5), at(r + 1, right, 3), at(r + 1, left, 3)];
 }
 
 /** One printed line of the sign's route list; `yours` marks the bus for this saved trip.
