@@ -27,6 +27,52 @@ function simplify(points) {
   // Retain original cumulative path length, not simplified chord lengths.
   return [...keep].sort((a, b) => a - b).map(i => [round(points[i][0], 1e6), round(points[i][1], 1e6), round(points[i][2], 10)]);
 }
+const near = (value, target, tolerance) => value >= target * (1 - tolerance) && value <= target * (1 + tolerance);
+function shapeUnitEvidence(points, bump) {
+  if (points[0].measure > 0) bump('shapeMeasureStartNonzero');
+  const ratio = (points.at(-1).measure - points[0].measure) / points.at(-1).m;
+  const unit = [['shapeUnitMeters', 1], ['shapeUnitFeet', 3.28084], ['shapeUnitKilometers', 0.001], ['shapeUnitMiles', 1 / 1609.344]]
+    .find(([, target]) => near(ratio, target, 0.05));
+  bump(unit ? unit[0] : 'shapeUnitOther');
+}
+// Nearest point on the whole shape line (local flat projection) and the shape measure there.
+function nearestOnShape(points, stop) {
+  const scaleY = 111195, scaleX = scaleY * Math.cos(stop.lat * Math.PI / 180);
+  let best = Infinity, measure;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const ax = (a.lon - stop.lon) * scaleX, ay = (a.lat - stop.lat) * scaleY, dx = (b.lon - a.lon) * scaleX, dy = (b.lat - a.lat) * scaleY;
+    const den = dx * dx + dy * dy, t = den ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / den)) : 0;
+    const distance = Math.hypot(ax + t * dx, ay + t * dy);
+    if (distance < best) { best = distance; measure = a.measure + t * (b.measure - a.measure); }
+  }
+  return { distance: best, measure };
+}
+const RATIOS = [['farRatioX1', 1], ['farRatioX3_281', 3.28084], ['farRatioX0_3048', 0.3048], ['farRatioX1000', 1000], ['farRatioX0_001', 0.001],
+  ['farRatioX1609', 1609.344], ['farRatioX0_000621', 1 / 1609.344], ['farRatioX5280', 5280], ['farRatioX0_000189', 1 / 5280]];
+// Aggregate evidence for a trip already rejected for tripStopDistance at call `failed`. Counts only; never changes output.
+function stopDistanceEvidence(points, calls, stops, failed, bump) {
+  bump(failed === 0 ? 'farFirstAtFirstStop' : failed === calls.length - 1 ? 'farFirstAtLastStop' : 'farFirstAtMiddleStop');
+  const far = [], checked = [];
+  for (let i = 0; i < calls.length; i++) {
+    const stop = stops.get(calls[i].stop_id), measure = number(calls[i].shape_dist_traveled), point = mappedPoint(points, measure);
+    if (!point || stop?.lat === undefined || stop.lon === undefined) continue;
+    const distance = meters([stop.lat, stop.lon], [point.lat, point.lon]);
+    checked.push(i);
+    if (distance > 100) far.push(i);
+    if (i === failed) bump(distance <= 250 ? 'farFirst100To250m' : distance <= 1000 ? 'farFirst250mTo1km' : distance <= 5000 ? 'farFirst1To5km' : 'farFirstOver5km');
+  }
+  const last = calls.length - 1, only = list => far.length === list.length && list.every(i => far.includes(i));
+  bump(only([0]) ? 'farTripOnlyFirstStop' : only([last]) ? 'farTripOnlyLastStop' : only([0, last]) ? 'farTripOnlyFirstAndLastStops'
+    : far.length * 2 > checked.length ? 'farTripMostStops' : 'farTripSomeStops');
+  const stop = stops.get(calls[failed].stop_id), nearest = nearestOnShape(points, stop);
+  if (nearest.distance > 100) { bump(nearest.distance <= 250 ? 'farFirstOffShapeLine100To250m' : 'farFirstOffShapeLineOver250m'); return; }
+  bump('farFirstNearShapeLine');
+  const measure = number(calls[failed].shape_dist_traveled), ratio = measure / nearest.measure;
+  if (!(measure > 0) || !(nearest.measure > 0) || !Number.isFinite(ratio)) { bump('farRatioUnknown'); return; }
+  const match = RATIOS.find(([, target]) => near(ratio, target, 0.1));
+  bump(match ? match[0] : 'farRatioOther');
+}
 function mappedPoint(points, d) {
   if (d === undefined || d < points[0].measure || d > points.at(-1).measure) return;
   let lo = 0, hi = points.length - 1;
@@ -46,7 +92,19 @@ export const GEOMETRY_COUNT_KEYS = Object.freeze([
   'shapeTooFewPoints', 'shapeInvalidCoordinate', 'shapeInvalidMeasure', 'shapeInvalidSequence', 'shapeNonIncreasingMeasure', 'shapeLength',
   'tripDuplicate', 'tripUnsafeId', 'tripNoShape', 'tripNoPattern', 'tripCallCount',
   'tripInvalidSequence', 'tripStopMismatch', 'tripMissingMeasure', 'tripMeasureOutOfRange', 'tripStopCoordinates', 'tripBackward', 'tripStopDistance',
-  'matchedTrips', 'outputShapes']);
+  'matchedTrips', 'outputShapes',
+  // Unit evidence for each valid shape: its measure span divided by its own road length in meters, within 5%.
+  'shapeUnitMeters', 'shapeUnitFeet', 'shapeUnitKilometers', 'shapeUnitMiles', 'shapeUnitOther', 'shapeMeasureStartNonzero',
+  // Trips rejected for tripStopDistance only: where the first far stop is and how far it is from its mapped point.
+  'farFirstAtFirstStop', 'farFirstAtLastStop', 'farFirstAtMiddleStop',
+  'farFirst100To250m', 'farFirst250mTo1km', 'farFirst1To5km', 'farFirstOver5km',
+  // Same trips: which of their stops are far from their mapped points (every call checked, output unaffected).
+  'farTripOnlyFirstStop', 'farTripOnlyLastStop', 'farTripOnlyFirstAndLastStops', 'farTripMostStops', 'farTripSomeStops',
+  // Same trips: the first far stop's distance to the nearest point anywhere on the shape line.
+  'farFirstNearShapeLine', 'farFirstOffShapeLine100To250m', 'farFirstOffShapeLineOver250m',
+  // Near the line only: its stop_times measure divided by the shape measure at that nearest point, within 10%.
+  'farRatioX1', 'farRatioX3_281', 'farRatioX0_3048', 'farRatioX1000', 'farRatioX0_001',
+  'farRatioX1609', 'farRatioX0_000621', 'farRatioX5280', 'farRatioX0_000189', 'farRatioOther', 'farRatioUnknown']);
 const MAX_COUNT = 1_000_000;
 export class GeometryError extends Error {
   constructor(reason, message, counts) {
@@ -67,10 +125,10 @@ export function geometryFailureDiagnostic(error) {
   const source = error instanceof GeometryError ? error.counts : undefined, counts = {};
   for (const key of GEOMETRY_COUNT_KEYS) {
     const value = source?.[key];
-    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_COUNT) return { v: 1, reason, counts: null };
+    if (!Number.isSafeInteger(value) || value < 0 || value > MAX_COUNT) return { v: 2, reason, counts: null };
     counts[key] = value;
   }
-  return { v: 1, reason, counts };
+  return { v: 2, reason, counts };
 }
 export function buildRouteGeometry(files, ds, sourceSHA256) {
   return buildRouteGeometryWithReport(files, ds, sourceSHA256).geometry;
@@ -120,6 +178,7 @@ function derive(files, ds, sourceSHA256, counts, bump) {
     }
     if (rejected) { bump(rejected); continue; }
     if (points.at(-1)?.m <= 0 || points.at(-1)?.m > 250000) { bump('shapeLength'); continue; }
+    shapeUnitEvidence(points, bump);
     const compact = simplify(points.map(p => [p.lat, p.lon, p.m]));
     totalPoints += compact.length; if (totalPoints > 50000) throw new GeometryError('point-limit', 'Geometry size limit', counts);
     normalized.set(id, { points, compact }); counts.validShapes = normalized.size;
@@ -138,7 +197,7 @@ function derive(files, ds, sourceSHA256, counts, bump) {
     if (!shape) { bump('tripNoShape'); continue; }
     if (!pattern) { bump('tripNoPattern'); continue; }
     if (calls.length !== pattern.stopIds.length || calls.length > 250) { bump('tripCallCount'); continue; }
-    const stopMeters = []; let previous = -1, previousSequence = -1, rejected;
+    const stopMeters = []; let previous = -1, previousSequence = -1, rejected, failed;
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i], stop = stops.get(call.stop_id), measure = number(call.shape_dist_traveled), point = mappedPoint(shape.points, measure);
       const sequence = number(call.stop_sequence);
@@ -148,10 +207,10 @@ function derive(files, ds, sourceSHA256, counts, bump) {
       if (!point) { rejected = 'tripMeasureOutOfRange'; break; }
       if (stop?.lat === undefined || stop.lon === undefined) { rejected = 'tripStopCoordinates'; break; }
       if (point.m < previous) { rejected = 'tripBackward'; break; }
-      if (meters([stop.lat, stop.lon], [point.lat, point.lon]) > 100) { rejected = 'tripStopDistance'; break; }
+      if (meters([stop.lat, stop.lon], [point.lat, point.lon]) > 100) { rejected = 'tripStopDistance'; failed = i; break; }
       stopMeters.push(round(point.m, 10)); previous = point.m; previousSequence = sequence;
     }
-    if (rejected) { bump(rejected); continue; }
+    if (rejected) { bump(rejected); if (rejected === 'tripStopDistance') stopDistanceEvidence(shape.points, calls, stops, failed, bump); continue; }
     output.shapes[source.shape_id] = { points: shape.compact };
     output.trips[source.trip_id] = { shapeId: source.shape_id, stopIds: [...pattern.stopIds], stopMeters };
     bump('matchedTrips');
