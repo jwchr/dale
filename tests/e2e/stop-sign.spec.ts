@@ -146,3 +146,33 @@ test('a long sign line stays squeezed onto its ruled row when fonts load again',
   }, signRowPlacement(0));
   expect(fits).toBe(true);
 });
+
+test('accessible text lists every route on the sign, including ones that do not reach the destination', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  const base = ds.patterns.find(p => p.stopIds.includes('2') && p.stopIds.indexOf('3') > p.stopIds.indexOf('2'))!;
+  // Route 199 picks up here but ends at a garage, so it is on the sign without being the rider's bus.
+  ds.routes.push({ ...ds.routes.find(r => r.id === base.routeId)!, id: 'x199', shortName: '199' });
+  const garage = { ...ds.stops.find(s => s.id === '2')!, id: 'zgarage', name: 'Paterson Garage', code: '99999' };
+  delete garage.terminal;
+  ds.stops.push(garage);
+  const p199 = { ...base, id: 'p199', routeId: 'x199', stopIds: ['2', 'zgarage'], headsign: 'Paterson Garage' };
+  // Per-stop lists must match the two stops; leave the optional ones out.
+  delete p199.stopSequences; delete p199.noPickup; delete p199.noDropOff;
+  ds.patterns.push(p199);
+  await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
+  });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', r => r.abort('failed'));
+  await page.goto('/?live=1');
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
+  await expect(page.locator('.stop-sign-row', { hasText: '199 To Paterson Garage' })).toHaveCount(1);
+  const routesLine = page.locator('.stop-sign p', { hasText: strings.en.stopSign.routes });
+  await expect(routesLine).toContainText('199');
+  await expect(routesLine).toContainText(`(${strings.en.stopSign.yourBus})`);
+  // Route 199 is listed but not marked as the rider's bus.
+  await expect(routesLine).not.toContainText(`199 (${strings.en.stopSign.yourBus})`);
+});

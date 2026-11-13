@@ -89,9 +89,9 @@ describe('photographed stop sign (D69)', () => {
       ],
     } as unknown as Parameters<typeof stopSignLines>[0];
     expect(stopSignLines(ds, 'A', 'B', [])).toEqual([
-      { text: '163 To New York', yours: false },
-      { text: '164 To Hackensack Terminal', yours: false },
-      { text: '165 To New York', yours: true },
+      { route: '163', text: '163 To New York', yours: false },
+      { route: '164', text: '164 To Hackensack Terminal', yours: false },
+      { route: '165', text: '165 To New York', yours: true },
     ]);
     // Both New York routes reach Port Authority; a saved route filter keeps only the chosen one marked.
     expect(stopSignLines(ds, 'A', 'P', ['r163']).filter(l => l.yours).map(l => l.text)).toEqual(['163 To New York']);
@@ -107,7 +107,7 @@ describe('photographed stop sign (D69)', () => {
     const lines = stopSignLines(ds, 'A', 'P', ['r9']);
     expect(lines).toHaveLength(SIGN_ROWS);
     expect(lines.filter(l => l.yours).map(l => l.text)).toEqual(['109 To New York']);
-    expect(lines.at(-1)).toEqual({ text: '+4 more', yours: false });
+    expect(lines.at(-1)).toEqual({ route: '', text: '+4 more', yours: false });
   });
   it('highlights inside the ruled row', () => {
     const band = signRowBand(2), row = signRowPlacement(2);

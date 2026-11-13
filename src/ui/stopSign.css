@@ -19,6 +19,7 @@
 .stop-sign-face-number { font-size: clamp(1.5rem, 6vw, 2.25rem); }
 .stop-sign-route-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
 .stop-sign-route-tags strong { background: #173b57; color: #fffefa; padding: .35rem .5rem; border-radius: 6px; }
+.stop-sign-route-tags strong.stop-sign-tag-yours { background: #ffe600; color: #0b2f9e; outline: 2px solid #0b2f9e; }
 @media (forced-colors: active) {
   .stop-sign-art { display: none; }
   .stop-sign-face[data-fallback="forced-colors"] { display: flex; }

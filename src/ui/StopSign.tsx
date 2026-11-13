@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
 import {
-  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowBand, signRowPlacement, STOP_SCENES, stopSceneChoice, stopSignLines, stopSignRoutes,
+  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowBand, signRowPlacement, STOP_SCENES, stopSceneChoice, stopSignLines,
   type SignPlacement, type StopSceneChoice,
 } from '../domain/stopSign';
 import type { Strings } from './i18n';
@@ -44,7 +44,6 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const [choice, setChoice] = useState<StopSceneChoice>('auto');
   const [failed, setFailed] = useState(false);
   const scene = open ? resolveStopScene(choice, now) : undefined;
-  const routes = open ? stopSignRoutes(ds, from.id, to.id, routeIds) : [];
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
   // Physical sign wording stays as printed; surrounding controls/explanations translate.
   const signDestination = to.terminal === 'PABT' ? 'New York · Port Authority' : to.name;
@@ -58,7 +57,11 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
     {open && <div className="stop-sign-content">
       <h3>{s.title}</h3>
       <p><strong>{from.name}</strong><br />{number}<br />{t.selection.towards}: {destination}</p>
-      <p>{s.routes}: {routes.length ? routes.join(' · ') : s.unknownRoutes}</p>
+      {/* Accessible list of every route shown on the sign, with the rider's own bus noted;
+          route numbers stay language-neutral, "Your bus" translates. */}
+      <p>{s.routes}: {lines.length
+        ? lines.map(line => line.yours && line.route ? `${line.route} (${s.yourBus})` : line.route || line.text).join(' · ')
+        : s.unknownRoutes}</p>
       <figure>
         {/* The real NJ Transit sign as photographed (D69); Dale writes this stop's routes and number on it.
             Decorative: the same facts are in the text above. */}
@@ -84,7 +87,7 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
         <div className="stop-sign-face" data-fallback={photo ? 'forced-colors' : 'always'} aria-hidden="true">
           <span>Bus Stop</span>
           <strong className="stop-sign-face-number">{from.code || '—'}</strong>
-          <div className="stop-sign-route-tags">{routes.map(route => <strong key={route}>{route}</strong>)}</div>
+          <div className="stop-sign-route-tags">{lines.filter(line => line.route).map(line => <strong key={line.text} className={line.yours ? 'stop-sign-tag-yours' : undefined}>{line.route}</strong>)}</div>
           <span>{signDestination}</span>
         </div>
         <figcaption>{s.illustration}</figcaption>

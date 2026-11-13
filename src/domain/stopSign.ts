@@ -57,8 +57,9 @@ export function signRowBand(row: number): Array<[number, number]> {
   return [at(r, left, 2), at(r, right, 2), at(r + 1, right, -.5), at(r + 1, left, -.5)];
 }
 
-/** One printed line of the sign's route list; `yours` marks the bus for this saved trip. */
-export interface SignLine { text: string; yours: boolean }
+/** One printed line of the sign's route list; `yours` marks the bus for this saved trip.
+ *  `route` is the route's short name alone (e.g. "165"), or "" for the "+N more" summary row. */
+export interface SignLine { route: string; text: string; yours: boolean }
 
 /**
  * Every route in the loaded schedule that picks up at this stop, lettered the way the real sign
@@ -69,7 +70,7 @@ export interface SignLine { text: string; yours: boolean }
 export function stopSignLines(ds: Dataset, fromId: string, toId: string, routeIds: string[]): SignLine[] {
   const routeName = new Map(ds.routes.map(r => [r.id, r.shortName]));
   const stops = new Map(ds.stops.map(s => [s.id, s]));
-  const lines = new Map<string, SignLine & { route: string }>();
+  const lines = new Map<string, SignLine>();
   for (const p of ds.patterns) {
     const from = p.stopIds.indexOf(fromId), lastId = p.stopIds.at(-1);
     if (from < 0 || from >= p.stopIds.length - 1 || p.noPickup?.includes(from) || !lastId) continue;
@@ -78,13 +79,13 @@ export function stopSignLines(ds: Dataset, fromId: string, toId: string, routeId
     const text = `${route} To ${last.terminal === 'PABT' ? 'New York' : last.name}`;
     const to = p.stopIds.indexOf(toId, from + 1);
     const yours = to > from && !p.noDropOff?.includes(to) && (!routeIds.length || routeIds.includes(p.routeId));
-    const line = lines.get(text) ?? { text, route, yours: false };
+    const line = lines.get(text) ?? { route, text, yours: false };
     line.yours ||= yours;
     lines.set(text, line);
   }
   const all = [...lines.values()].sort((a, b) => a.route.localeCompare(b.route, 'en', { numeric: true }) || a.text.localeCompare(b.text));
-  if (all.length <= SIGN_ROWS) return all.map(({ text, yours }) => ({ text, yours }));
+  if (all.length <= SIGN_ROWS) return all;
   const kept = new Set(all.filter(l => l.yours).slice(0, SIGN_ROWS - 1));
   for (const l of all) if (kept.size < SIGN_ROWS - 1) kept.add(l);
-  return [...all.filter(l => kept.has(l)).map(({ text, yours }) => ({ text, yours })), { text: `+${all.length - kept.size} more`, yours: false }];
+  return [...all.filter(l => kept.has(l)), { route: '', text: `+${all.length - kept.size} more`, yours: false }];
 }
