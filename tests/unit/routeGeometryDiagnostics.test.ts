@@ -109,6 +109,8 @@ const far: [string, (f: Record<string, string | undefined>, ds: Dataset) => void
     { tripStopDistance: 2, farFirstAtFirstStop: 2, farFirst100To250m: 2, farTripOnlyFirstStop: 2, farFirstOffShapeLine100To250m: 2, farFirstNearShapeLine: 0 }],
   ['first and last stops beside the shape ends', (_, ds) => { ds.stops[0]!.lat = A.lat + 0.00135; ds.stops[2]!.lon = C.lon + 0.0018; },
     { tripStopDistance: 2, farFirstAtFirstStop: 2, farTripOnlyFirstAndLastStops: 2, farFirstOffShapeLine100To250m: 2 }],
+  ['a far first stop in a trip whose last measure is off the shape', (f, ds) => { ds.stops[0]!.lat = A.lat + 0.00135; f['stop_times.txt'] = f['stop_times.txt']!.replace('PRIVTRIP_A,PRIVSTOP_C,3,35', 'PRIVTRIP_A,PRIVSTOP_C,3,99'); },
+    { tripStopDistance: 2, farFirstAtFirstStop: 2, farTripIncomplete: 1, farTripOnlyFirstStop: 1 }],
   ['a last stop beyond the end of the shape', (_, ds) => { ds.stops[2]!.lat = C.lat + 0.01; },
     { tripStopDistance: 2, farFirstAtLastStop: 2, farFirst1To5km: 2, farTripOnlyLastStop: 2, farFirstOffShapeLineOver250m: 2 }],
   ['shape measures in meters and stop measures in miles', f => measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]),

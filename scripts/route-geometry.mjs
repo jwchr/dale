@@ -63,7 +63,7 @@ function stopDistanceEvidence(points, calls, stops, failed, bump) {
     if (i === failed) bump(distance <= 250 ? 'farFirst100To250m' : distance <= 1000 ? 'farFirst250mTo1km' : distance <= 5000 ? 'farFirst1To5km' : 'farFirstOver5km');
   }
   const last = calls.length - 1, only = list => far.length === list.length && list.every(i => far.includes(i));
-  bump(only([0]) ? 'farTripOnlyFirstStop' : only([last]) ? 'farTripOnlyLastStop' : only([0, last]) ? 'farTripOnlyFirstAndLastStops'
+  bump(checked.length !== calls.length ? 'farTripIncomplete' : only([0]) ? 'farTripOnlyFirstStop' : only([last]) ? 'farTripOnlyLastStop' : only([0, last]) ? 'farTripOnlyFirstAndLastStops'
     : far.length * 2 > checked.length ? 'farTripMostStops' : 'farTripSomeStops');
   const stop = stops.get(calls[failed].stop_id), nearest = nearestOnShape(points, stop);
   if (nearest.distance > 100) { bump(nearest.distance <= 250 ? 'farFirstOffShapeLine100To250m' : 'farFirstOffShapeLineOver250m'); return; }
@@ -99,7 +99,8 @@ export const GEOMETRY_COUNT_KEYS = Object.freeze([
   'farFirstAtFirstStop', 'farFirstAtLastStop', 'farFirstAtMiddleStop',
   'farFirst100To250m', 'farFirst250mTo1km', 'farFirst1To5km', 'farFirstOver5km',
   // Same trips: which of their stops are far from their mapped points (every call checked, output unaffected).
-  'farTripOnlyFirstStop', 'farTripOnlyLastStop', 'farTripOnlyFirstAndLastStops', 'farTripMostStops', 'farTripSomeStops',
+  // farTripIncomplete: some call has no mapped point or stop coordinates, so no pattern is claimed.
+  'farTripOnlyFirstStop', 'farTripOnlyLastStop', 'farTripOnlyFirstAndLastStops', 'farTripMostStops', 'farTripSomeStops', 'farTripIncomplete',
   // Same trips: the first far stop's distance to the nearest point anywhere on the shape line.
   'farFirstNearShapeLine', 'farFirstOffShapeLine100To250m', 'farFirstOffShapeLineOver250m',
   // Near the line only: its stop_times measure divided by the shape measure at that nearest point, within 10%.
