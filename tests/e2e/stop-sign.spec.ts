@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { strings } from '../../src/ui/i18n';
-import { STOP_SCENES } from '../../src/domain/stopSign';
+import { signRowPlacement, STOP_SCENES } from '../../src/domain/stopSign';
 
 test.use({ serviceWorkers: 'block', viewport: { width: 305, height: 780 } });
 const API = 'https://dale-live.test.workers.dev';
@@ -30,6 +30,12 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
   await expect(page.getByRole('button', { name: t.stopSign.open, exact: true })).toHaveAttribute('aria-expanded', 'true');
   await expect(sign.locator('img')).toHaveJSProperty('complete', true);
   await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
+  const rows = sign.locator('.stop-sign-row');
+  // Every route that boards here is lettered; the rider's own bus is highlighted.
+  expect(await rows.count()).toBeGreaterThanOrEqual(await sign.locator('.stop-sign-route-tags strong').count());
+  await expect(sign.locator('.stop-sign-row-yours').first()).toHaveText(/^\S+ To New York$/);
+  await expect(sign.locator('.stop-sign-mark')).toHaveCount(await sign.locator('.stop-sign-row-yours').count());
+  await expect(sign.locator('.stop-sign-callout')).toHaveText(`◀ ${t.stopSign.yourBus}`);
   await expect(sign).not.toContainText('13583');
   await expect(sign).not.toContainText('707');
   await expect(sign.locator('figcaption')).toHaveText(t.stopSign.illustration);
@@ -40,11 +46,11 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
       await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption(scene);
       await expect(sign.locator('img')).toHaveAttribute('src', new RegExp(scene));
       await expect(sign.locator('img')).toHaveJSProperty('complete', true);
-      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(941);
-      // No source-sign pixels (x>400) or baked bottom caption can enter the crop.
-      expect(await sign.locator('img').evaluate(node => {
-        const image = node.getBoundingClientRect(), frame = node.parentElement!.getBoundingClientRect();
-        return frame.width / image.width <= .4 && getComputedStyle(node).clipPath.includes('10%');
+      expect(await sign.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(530);
+      // The lettering layer covers exactly the photo, so every line lands on the sign's ruled rows.
+      expect(await sign.locator('.stop-sign-art').evaluate(node => {
+        const image = node.querySelector('img')!.getBoundingClientRect(), svg = node.querySelector('svg')!.getBoundingClientRect();
+        return [image.x - svg.x, image.y - svg.y, image.width - svg.width, image.height - svg.height].every(d => Math.abs(d) < 1);
       })).toBe(true);
       await sign.screenshot({ path: `test-results/stop-sign-${scene}.png` });
     }
@@ -59,7 +65,8 @@ for (const lang of ['en', 'es'] as const) test(`illustrative seasonal sign loads
     await sign.getByRole('combobox', { name: t.stopSign.artwork }).selectOption('winter-snow');
     await expect(sign.getByRole('status')).toHaveText(t.stopSign.failed);
     await expect(sign.locator('img')).toHaveCount(0);
-    await expect(sign.locator('.stop-sign-number')).toHaveText('00123');
+    await expect(sign.locator('.stop-sign-face')).toBeVisible();
+    await expect(sign.locator('.stop-sign-face-number')).toHaveText('00123');
   }
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(favorites);
   await page.getByRole('button', { name: t.stopSign.open, exact: true }).click();
@@ -96,13 +103,76 @@ test('physical sign wording stays printed when surrounding UI changes language',
   await page.route(API + '/v1/departures?**', r => r.abort('failed'));
   await page.goto('/?live=1');
   await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
-  const physical = await page.locator('.stop-sign-face').innerText();
-  await expect(page.locator('.stop-sign-face')).toContainText('Bus Stop');
-  await expect(page.locator('.stop-sign-face')).toContainText('New York · Port Authority');
+  const lettering = page.locator('.stop-sign-art svg');
+  await expect(lettering).toContainText('To New York');
+  // Printed lettering only: the "Your bus" tag is app wording and translates.
+  const printed = () => lettering.evaluate(svg => [...svg.querySelectorAll('.stop-sign-row, .stop-sign-number')].map(n => n.textContent).join('|'));
+  const physical = await printed();
+  await expect(page.locator('.stop-sign-face')).toBeHidden();
   await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   await page.getByRole('button', { name: strings.es.back, exact: true }).click();
   await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();
   await expect(page.locator('.stop-sign h3')).toHaveText(strings.es.stopSign.title);
-  expect(await page.locator('.stop-sign-face').innerText()).toBe(physical);
+  expect(await printed()).toBe(physical);
+  await expect(page.locator('.stop-sign-callout')).toHaveText(`◀ ${strings.es.stopSign.yourBus}`);
+});
+
+test('a long sign line stays squeezed onto its ruled row when fonts load again', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  const to = ds.stops.find(s => s.id === '3')!;
+  delete to.terminal;
+  to.name = 'Hackensack Bus Terminal Lane 12 Platform B at River Street';
+  await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
+  });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', r => r.abort('failed'));
+  await page.goto('/?live=1');
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
+  const row = page.locator('.stop-sign-row').first();
+  await expect(row).toHaveAttribute('textLength', String(signRowPlacement(0).maxWidth));
+  // Measuring an already-squeezed line again must keep the squeeze.
+  for (let i = 0; i < 2; i++) await page.evaluate(() => document.fonts.dispatchEvent(new Event('loadingdone')));
+  await expect(row).toHaveAttribute('textLength', String(signRowPlacement(0).maxWidth));
+  const fits = await page.locator('.stop-sign-art').evaluate((art, at) => {
+    const svg = art.querySelector('svg')!, text = art.querySelector('.stop-sign-row') as SVGTextElement;
+    const scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    // Ends before the right end of its ruled line (plus a little for the photo's slant).
+    return text.getBoundingClientRect().right <= svg.getBoundingClientRect().left + (at.x + at.maxWidth + 3) * scale;
+  }, signRowPlacement(0));
+  expect(fits).toBe(true);
+});
+
+test('accessible text lists every route on the sign, including ones that do not reach the destination', async ({ page }) => {
+  const ds = structuredClone(liveDataset);
+  const base = ds.patterns.find(p => p.stopIds.includes('2') && p.stopIds.indexOf('3') > p.stopIds.indexOf('2'))!;
+  // Route 199 picks up here but ends at a garage, so it is on the sign without being the rider's bus.
+  ds.routes.push({ ...ds.routes.find(r => r.id === base.routeId)!, id: 'x199', shortName: '199' });
+  const garage = { ...ds.stops.find(s => s.id === '2')!, id: 'zgarage', name: 'Paterson Garage', code: '99999' };
+  delete garage.terminal;
+  ds.stops.push(garage);
+  const p199 = { ...base, id: 'p199', routeId: 'x199', stopIds: ['2', 'zgarage'], headsign: 'Paterson Garage' };
+  // Per-stop lists must match the two stops; leave the optional ones out.
+  delete p199.stopSequences; delete p199.noPickup; delete p199.noDropOff;
+  ds.patterns.push(p199);
+  await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean' }));
+    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'home', fromStopId: '2', toStopId: '3', routeIds: [], label: 'My trip' }]));
+  });
+  await page.clock.install({ time: NOW });
+  await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
+  await page.route(API + '/v1/schedule', r => r.fulfill({ json: ds }));
+  await page.route(API + '/v1/departures?**', r => r.abort('failed'));
+  await page.goto('/?live=1');
+  await page.getByRole('button', { name: strings.en.stopSign.open, exact: true }).click();
+  await expect(page.locator('.stop-sign-row', { hasText: '199 To Paterson Garage' })).toHaveCount(1);
+  const routesLine = page.locator('.stop-sign p', { hasText: strings.en.stopSign.routes });
+  await expect(routesLine).toContainText('199');
+  await expect(routesLine).toContainText(`(${strings.en.stopSign.yourBus})`);
+  // Route 199 is listed but not marked as the rider's bus.
+  await expect(routesLine).not.toContainText(`199 (${strings.en.stopSign.yourBus})`);
 });

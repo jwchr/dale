@@ -9,7 +9,7 @@ Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stan
 - Exact-bus lock never switches buses silently (`src/domain/lock.ts`). Favorites keep the rider's order. A gate is never inferred from a route number.
 - English and Spanish for every string (`src/ui/i18n.ts`); 12-hour times in both.
 - Demo data must show the DEMO banner (`meta.demo`). Real data comes only from NJ Transit feeds via `scripts/build-gtfs.mjs` and, from M3, the Worker; until M2 the printed-data exceptions are the owner-supplied route 165 timetable (D42, `scripts/build-timetable.mjs`) and the bounded supplied bus/rail documents authorized in D49 (#80; not yet published), which must keep printed-source attribution (D50 moves the persistent top notice into Settings → Data source).
-- Independent app: never use NJ Transit or Port Authority logos, or imply endorsement.
+- Independent app: never use NJ Transit or Port Authority logos as Dale's branding, or imply endorsement. Only exception (D69): the photographed real stop sign in "See bus stop sign" keeps its printed logos so riders can recognize it.
 
 ## Data and privacy
 - D51/D52: bus credentials are verified (#87) and the owner requests the bounded live bus pilot (#89) on the existing Free Cloudflare plan. Require verified exact trip/date matching, source age and explicit scheduled fallback; no paid upgrade, archive, rail or shared-report access follows from this pilot. See docs/LIVE_BUS_PILOT.md.

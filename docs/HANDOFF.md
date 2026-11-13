@@ -3,7 +3,7 @@
 Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
 
 ## Built and live
-- Public app v0.3.294 (main after #145, Pages deploy succeeded 2026-11-12 3:05 PM ET; the builder's sandbox cannot open github.io, so the live page itself was not viewed). #145 changes only the Worker, so the app looks the same; the owner confirmed #141's look on his phone.
+- Public app: main after #150, Pages deploy succeeded 2026-11-13 3:19 AM ET (the builder's sandbox cannot open github.io, so the live page itself was not viewed). #150 replaced the small caret on each city sign with a CHANGE / CAMBIAR tag; the owner approved its screenshots.
 - Schedule (#143, owner decision 2026-11-12): the app opens on NJ Transit's official bus schedule served by Dale's private Worker (`/v1/schedule`, NJ Transit data stays server-side). The printed route 165/165T timetable (owner-supplied PDF, typed in; `data/t0165/transcription.json`, rebuilt by `npm run timetable`) stays one tap away; choosing it is remembered. Printed and official stops use different IDs, so commutes saved with the printed timetable are never mapped silently: a one-time card, then a small reminder until the rider taps Done, offers Find my stop. Printed limits: 20 timepoints per direction, no stop coordinates, no holiday times.
 - Home: saved commutes in the rider's order with paired From/To city signs (city-first stop chooser; both city names share one size and each stays on one line, centered in the sign's green space), icon Reverse, Leave by / Get me home / See bus stop sign, compact departure cards with route badge and countdown, Port Authority gate labelled posted / usual / printed rule / not confirmed. Five skins (Turnpike, Parkway, NYC night, Garden State, Clean). English and Spanish everywhere; 12-hour times.
 - Top bar: bigger DALE! wordmark, the slogan "When you ride NJ Transit, you need all the help you can get!" with a small version and update time ("am"/"pm") under it, and settings. At large text the slogan block takes its own row (#139, #141). Bus/Train and Find a stop share the row half and half; the September sunset photo shows the skyline at the bottom.
@@ -21,13 +21,14 @@ Updated 2026-11-13. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Optional: protect `main` on GitHub (require a pull request and the `test` check, no force pushes or deletions). Only the owner can change it; not required for the rules.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority; no official source found.
 
-## Next (order chosen by the owner; full list in #144)
-1. Run the weekly rollover again before 2026-11-23 (the deployed schedule ends then): tell the owner, `qualify-enabled`, then `rollover-enabled` with the pins above.
-2. Route distance: add a read-only, aggregate geometry diagnostic (which stop position fails and how far, units of the two measures) to tell the two causes apart, then fix it in its own pull request.
-3. Stop sign photo: Jeff's own stop photo with the real stop number and routes (`docs/STOP_SIGN.md`); screenshots before merging.
-4. Find my stop: town list first.
-5. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
-6. Later: big-text name banner, rest of #106, #113, #103, stop alerts, gate cards, train timetables (#80, last).
+## Next (order chosen by the owner 2026-11-13; also recorded in #144)
+1. Stop sign photo (D69, this pull request): the real NJ Transit sign, sharp and as photographed, listing every Dale route that boards there with the rider's bus highlighted and the real stop number (`docs/STOP_SIGN.md`). Owner sees screenshots before merging.
+2. Run the weekly rollover again before 2026-11-23 (the deployed schedule ends then): tell the owner, `qualify-enabled`, then `rollover-enabled` with the pins above.
+3. Route distance: add a read-only, aggregate geometry diagnostic (which stop position fails and how far, units of the two measures) to tell the two causes apart, then fix it in its own pull request.
+4. Schedule-change alerts (#151, owner-approved 2026-11-13): tell riders when NJ Transit changes the times on their saved commutes.
+5. Find my stop: town list first.
+6. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
+7. Later: big-text name banner, rest of #106, #113, #103, stop alerts, gate cards, train timetables (#80, last).
 
 ## Known problems
 - At 200% text in wide fonts, the saved-commute LED sign (the dark name banner) can split "HACKENSACK" leaving one letter alone on a line; not covered by tests yet.
