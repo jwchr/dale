@@ -171,6 +171,58 @@ describe('notice lifetime and atomic persistence', () => {
     expect((await tabA.advance(old(), [favorite], NOW))!.state.baseline.meta.feedVersion).toBe('fixture-v2');
   });
 
+  it('uses the saved favorites under the lock rather than pruning another tab from a stale snapshot', async () => {
+    let raw: unknown;
+    let current = [favorite];
+    const persistence = { read: async () => structuredClone(raw), write: async (state: unknown) => { raw = structuredClone(state); } };
+    const make = () => createCommuteChangeStore(persistence, job => job(), () => current);
+    const tabA = make(), tabB = make();
+    await tabA.advance(old(), [favorite], NOW);
+    const added = { ...favorite, id: 'added-in-other-tab' };
+    current = [favorite, added];
+    await tabB.advance(old(), current, NOW);
+    const ds = newer(); ds.meta.builtAt = '2026-11-04T11:00:00Z'; retime(ds);
+    expect((await tabB.advance(ds, current, NOW))!.state.notices).toHaveLength(2);
+    expect((await tabA.advance(old(), [favorite], NOW, false))!.state.notices).toHaveLength(2);
+    expect((await tabA.advance(ds, [favorite], NOW))!.state.notices).toHaveLength(2);
+    expect(parseCommuteChangeState(raw)?.favoriteKeys).toContain(favoriteKey(added));
+    current = [favorite];
+    expect((await tabA.advance(ds, [favorite, added], NOW, false))!.state.notices).toHaveLength(1);
+  });
+
+  for (const failure of ['read', 'write'] as const) it(`stays session-only after a ${failure} failure instead of overwriting another tab on recovery`, async () => {
+    let raw: unknown, blocked = false, writes = 0;
+    const persistence = { read: async () => structuredClone(raw), write: async (state: unknown) => { raw = structuredClone(state); } };
+    const tabA = createCommuteChangeStore({
+      read: async () => { if (blocked && failure === 'read') throw Error('temporary read failure'); return persistence.read(); },
+      write: async state => { writes++; if (blocked && failure === 'write') throw Error('temporary write failure'); await persistence.write(state); },
+    });
+    const tabB = createCommuteChangeStore(persistence);
+    await tabA.advance(old(), [favorite], NOW);
+    blocked = true;
+    expect((await tabA.advance(old(), [favorite], NOW))?.durable).toBe(false);
+    const ds = newer(); ds.meta.builtAt = '2026-11-04T11:00:00Z'; retime(ds);
+    const updated = (await tabB.advance(ds, [favorite], NOW))!;
+    await tabB.dismiss(updated.state.notices[0]!.id);
+    const before = structuredClone(raw), attempts = writes;
+    blocked = false;
+    expect((await tabA.advance(old(), [favorite], NOW))?.durable).toBe(false);
+    expect(writes).toBe(attempts);
+    expect(raw).toEqual(before);
+    expect(parseCommuteChangeState(raw)?.baseline.meta.feedVersion).toBe('fixture-v2');
+    expect(parseCommuteChangeState(raw)?.notices).toEqual([]);
+    expect((await createCommuteChangeStore(persistence).advance(ds, [favorite], NOW))?.durable).toBe(true);
+  });
+
+  it('never prunes durable notices if the saved favorites cannot be read', async () => {
+    const ds = newer(); retime(ds);
+    let raw: unknown = advanceCommuteChanges(advanceCommuteChanges(undefined, old(), [favorite], NOW), ds, [favorite], NOW);
+    const before = structuredClone(raw);
+    const store = createCommuteChangeStore({ read: async () => structuredClone(raw), write: async state => { raw = structuredClone(state); } }, job => job(), () => undefined);
+    expect((await store.advance(ds, [], NOW))?.durable).toBe(false);
+    expect(raw).toEqual(before);
+  });
+
   it('recovers if Web Lock acquisition rejects before entry, without replaying an entered callback', async () => {
     const denied = createCommuteChangeStore({ read: async () => { throw Error('storage blocked'); }, write: async () => { throw Error('storage blocked'); } }, async () => { throw Error('lock denied'); });
     expect((await denied.advance(old(), [favorite], NOW))?.durable).toBe(false);

@@ -4,8 +4,8 @@ import { favoriteKey, officialSchedule } from '../domain/commuteChanges';
 import type { Favorite } from '../domain/favorites';
 import type { Dataset } from '../domain/types';
 
-export function useCommuteChanges(api: string | undefined, ds: Dataset, favorites: Favorite[], now: number, fromCache = false) {
-  const store = useMemo(() => api && officialSchedule(ds) ? commuteChangeStore(api) : undefined, [api, ds]);
+export function useCommuteChanges(api: string | undefined, ds: Dataset, favorites: Favorite[], now: number, fromCache = false, favoriteStorage?: Pick<Storage, 'getItem'>) {
+  const store = useMemo(() => api && officialSchedule(ds) ? commuteChangeStore(api, favoriteStorage) : undefined, [api, ds, favoriteStorage]);
   const [saved, setSaved] = useState<SavedCommuteChanges>();
   const identities = JSON.stringify(favorites.map(favoriteKey).sort());
   const observed = useRef<Dataset | undefined>(undefined);

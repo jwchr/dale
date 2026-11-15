@@ -267,7 +267,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const lockNow = now + (ds.meta.demo ? demoAdvanceMs : 0);
   const [settings, setSettings] = useSettings();
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(store));
-  const commuteChanges = useCommuteChanges(LIVE_API, ds, favorites, now, fromCache);
+  const commuteChanges = useCommuteChanges(LIVE_API, ds, favorites, now, fromCache, store);
   // Commutes saved with the printed timetable live under the unsuffixed key; read them only to offer the update.
   const [printedCommutes] = useState<string[]>(() => liveMode ? loadFavorites(rawStore).map(f => f.label) : []);
   // Dale cannot tell which printed commutes were re-added (different stop IDs), so the rider says when they are done.
