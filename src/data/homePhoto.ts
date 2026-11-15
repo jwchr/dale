@@ -3,7 +3,8 @@ export const PHOTO_DB = 'dale-home-photo-v1';
 const TABLE = 'photo', KEY = 'home';
 export const MAX_PHOTO_INPUT = 12 * 1024 * 1024;
 export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
-export interface HomePhoto { version: string; blob: Blob }
+// A removal keeps only a fresh revision and null, so an old empty-state token cannot be reused.
+export interface HomePhoto { version: string; blob: Blob | null }
 export type PhotoProblem = 'format' | 'large' | 'decode' | 'storage' | 'conflict';
 export class PhotoError extends Error {
   constructor(public readonly problem: PhotoProblem) { super(problem); }
@@ -42,8 +43,8 @@ export async function prepareHomePhoto(file: Blob): Promise<Blob> {
 function validPhoto(value: unknown): value is HomePhoto {
   if (!value || typeof value !== 'object') return false;
   const p = value as Partial<HomePhoto>;
-  return Object.keys(p).length === 2 && typeof p.version === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p.version) && p.blob instanceof Blob &&
-    p.blob.type === 'image/jpeg' && p.blob.size > 0 && p.blob.size <= MAX_PHOTO_BYTES;
+  return Object.keys(p).length === 2 && typeof p.version === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p.version) &&
+    (p.blob === null || (p.blob instanceof Blob && p.blob.type === 'image/jpeg' && p.blob.size > 0 && p.blob.size <= MAX_PHOTO_BYTES));
 }
 
 function openPhotoDb(): Promise<IDBDatabase> {
@@ -79,11 +80,9 @@ export async function homePhotoRecord(change?: { expected: string | null; blob: 
           result = request.result ?? null;
           if (!change) return;
           if ((result?.version ?? null) !== change.expected) { problem = 'conflict'; tx.abort(); return; }
-          if (change.blob) {
-            result = { version: crypto.randomUUID(), blob: change.blob };
-            if (!validPhoto(result)) { tx.abort(); return; }
-            table.put(result, KEY);
-          } else { table.delete(KEY); result = null; }
+          result = { version: crypto.randomUUID(), blob: change.blob };
+          if (!validPhoto(result)) { tx.abort(); return; }
+          table.put(result, KEY);
         } catch { tx.abort(); }
       };
       tx.oncomplete = () => resolve(result);

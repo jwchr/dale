@@ -33,6 +33,7 @@ async function stored(page: Page) {
     const value = await new Promise<any>((resolve, reject) => { const r = db.transaction('photo').objectStore('photo').get('home'); r.onsuccess = () => resolve(r.result); r.onerror = reject; });
     db.close();
     if (!value) return null;
+    if (value.blob === null) return { keys: Object.keys(value).sort(), version: value.version, removed: true };
     const bytes = new Uint8Array(await value.blob.arrayBuffer());
     const image = await createImageBitmap(value.blob); const dimensions = [image.width, image.height]; image.close();
     return { keys: Object.keys(value).sort(), version: value.version, type: value.blob.type, size: value.blob.size, dimensions, text: new TextDecoder('latin1').decode(bytes) };
@@ -61,7 +62,7 @@ for (const lang of ['en', 'es'] as const) test(`local photo persists, replaces a
   await panel.getByRole('button', { name: s.remove, exact: true }).focus(); await page.keyboard.press('Enter');
   await expect(panel.getByRole('status')).toHaveText(s.removed);
   await expect(panel.getByRole('button', { name: s.choose, exact: true })).toBeFocused();
-  await expect.poll(() => stored(page)).toBeNull();
+  await expect.poll(async () => (await stored(page))?.removed).toBe(true);
   await expect(page.locator('.photo-backdrop')).not.toHaveAttribute('data-photo', 'personal');
   await page.reload(); await expect(page.locator('.photo-backdrop')).not.toHaveAttribute('data-photo', 'personal');
   expect(await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'))).toBe(before);
@@ -205,7 +206,7 @@ test('large raster is resized and every personal object URL is released on remov
   expect((await stored(page))!.dimensions).toEqual([2048, 1024]);
   await panel.getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.removed);
-  expect(await page.evaluate(() => (window as any).syntheticUrls.size)).toBe(0);
+  await expect.poll(() => page.evaluate(() => (window as any).syntheticUrls.size)).toBe(0);
 });
 
 test('request success followed by transaction abort never claims a saved replacement', async ({ page }) => {
@@ -279,4 +280,44 @@ test('malformed stored records fail closed without deleting them or blocking tri
   }, DB)).toEqual({ version: 'invalid', filename: 'synthetic-only' });
   await page.getByRole('button', { name: strings.en.back, exact: true }).click();
   await expect(page.locator('.dep').first()).toBeVisible();
+});
+
+test('a newer removal supersedes an older pending first photo selection', async ({ page, context }) => {
+  await start(page); const panel = page.locator('.home-photo-settings');
+  const candidate = await fixture(page);
+  await page.evaluate(() => {
+    const encode = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) { (window as any).releaseFirstPhoto = () => encode.call(this, callback, type, quality); };
+  });
+  await panel.locator('input').setInputFiles({ name: 'older-first.png', mimeType: 'image/png', buffer: candidate });
+  await expect.poll(() => page.evaluate(() => typeof (window as any).releaseFirstPhoto)).toBe('function');
+  const other = await context.newPage(); await start(other);
+  const otherPanel = other.locator('.home-photo-settings');
+  await otherPanel.locator('input').setInputFiles({ name: 'newer.png', mimeType: 'image/png', buffer: await fixture(other, '#ff3300') });
+  await expect(otherPanel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await otherPanel.getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).click();
+  await expect(otherPanel.getByRole('status')).toHaveText(strings.en.homePhoto.removed);
+  await page.evaluate(() => (window as any).releaseFirstPhoto());
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.conflict);
+  await expect(panel.getByRole('img')).toHaveCount(0);
+  await expect(page.locator('.photo-backdrop')).not.toHaveAttribute('data-photo', 'personal');
+  await other.close();
+});
+
+test('a cross-tab removal during failed decoding clears the old preview and keeps the failure message', async ({ page, context }) => {
+  await start(page); const panel = page.locator('.home-photo-settings');
+  await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  const other = await context.newPage(); await start(other);
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await page.evaluate(() => { window.createImageBitmap = () => new Promise((_resolve, reject) => { (window as any).rejectPhotoDecode = () => reject(new DOMException('synthetic bad raster', 'InvalidStateError')); }); });
+  await panel.locator('input').setInputFiles({ name: 'corrupt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]) });
+  await expect.poll(() => page.evaluate(() => typeof (window as any).rejectPhotoDecode)).toBe('function');
+  await other.locator('.home-photo-settings').getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).click();
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.removed);
+  await page.evaluate(() => (window as any).rejectPhotoDecode());
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.decode);
+  await expect(panel.getByRole('img')).toHaveCount(0);
+  await expect(page.locator('.photo-backdrop')).not.toHaveAttribute('data-photo', 'personal');
+  await other.close();
 });

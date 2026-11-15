@@ -18,17 +18,18 @@ export function HomePhotoProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<Message>();
   const [image, setImage] = useState<{ blob: Blob; url: string }>();
   const current = useRef(photo), active = useRef(true), working = useRef(false), generation = useRef(0);
+  const pendingRefresh = useRef(false);
   const channel = useRef<BroadcastChannel | undefined>(undefined);
   const accept = (value: HomePhoto | null) => {
     if ((current.current?.version ?? null) !== (value?.version ?? null)) { current.current = value; setPhoto(value); }
     setLoaded(true);
   };
-  const refresh = async () => {
-    if (working.current) return;
+  const refresh = async (preserveMessage = false) => {
+    if (working.current) { pendingRefresh.current = true; return; }
     const request = ++generation.current;
     try {
       const value = await homePhotoRecord();
-      if (active.current && request === generation.current) { accept(value); setMessage(undefined); }
+      if (active.current && request === generation.current) { accept(value); if (!preserveMessage) setMessage(undefined); }
     } catch { if (active.current && request === generation.current) setMessage('storage'); }
   };
   useEffect(() => {
@@ -42,7 +43,7 @@ export function HomePhotoProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   useEffect(() => {
-    if (!photo) { setImage(undefined); return; }
+    if (!photo?.blob) { setImage(undefined); return; }
     const url = URL.createObjectURL(photo.blob); setImage({ blob: photo.blob, url });
     return () => URL.revokeObjectURL(url);
   }, [photo]);
@@ -61,7 +62,11 @@ export function HomePhotoProvider({ children }: { children: ReactNode }) {
         try { const value = await homePhotoRecord(); if (active.current) accept(value); } catch { problem = 'storage'; }
       }
       if (active.current) setMessage(problem);
-    } finally { working.current = false; if (active.current) setBusy(false); }
+    } finally {
+      working.current = false;
+      if (active.current && pendingRefresh.current) { pendingRefresh.current = false; await refresh(true); }
+      if (active.current) setBusy(false);
+    }
   };
   const url = image?.blob === photo?.blob ? image?.url : undefined;
   return <Context.Provider value={{ photo, url, loaded, busy, message, change, refresh }}>{children}</Context.Provider>;
@@ -82,16 +87,16 @@ export function HomePhotoSettings({ t }: { t: Strings }) {
     {model.url && <img className="home-photo-preview" src={model.url} alt={s.preview} />}
     <div className="home-photo-picker">
       <button ref={chooser} type="button" disabled={!model.loaded || model.busy} aria-describedby={`${id}-note ${id}-formats`}
-        onClick={() => input.current?.click()}>{model.photo ? s.replace : s.choose}</button>
-      <input ref={input} hidden type="file" aria-label={model.photo ? s.replace : s.choose} accept="image/jpeg,image/png,image/webp" disabled={!model.loaded || model.busy}
+        onClick={() => input.current?.click()}>{model.photo?.blob ? s.replace : s.choose}</button>
+      <input ref={input} hidden type="file" aria-label={model.photo?.blob ? s.replace : s.choose} accept="image/jpeg,image/png,image/webp" disabled={!model.loaded || model.busy}
         aria-describedby={`${id}-note ${id}-formats`} onChange={event => {
           const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
           if (file) { restoreFocus.current = true; void model.change(file); }
         }} />
     </div>
     <p id={`${id}-formats`} className="small muted">{s.formats}</p>
-    {model.photo && <button type="button" disabled={model.busy} onClick={() => { restoreFocus.current = true; void model.change(null); }}>{s.remove}</button>}
+    {model.photo?.blob && <button type="button" disabled={model.busy} onClick={() => { restoreFocus.current = true; void model.change(null); }}>{s.remove}</button>}
     {!model.loaded && model.message === 'storage' && <button type="button" onClick={() => { void model.refresh(); }}>{t.retry}</button>}
-    <p role="status" aria-live="polite">{model.busy ? s.busy : model.message ? s[model.message] : model.photo ? s.saved : s.empty}</p>
+    <p role="status" aria-live="polite">{model.busy ? s.busy : model.message ? s[model.message] : model.photo?.blob ? s.saved : s.empty}</p>
   </section>;
 }
