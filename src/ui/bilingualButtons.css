@@ -1,0 +1,9 @@
+.bilingual-button-label { display: inline-flex; flex-direction: column; align-items: center; gap: .15em; min-inline-size: 0; max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; }
+.bilingual-button-label > small { font-size: max(.75em, .75rem); font-weight: 500; line-height: 1.25; }
+/* The opt-in adds a line, so these controls may grow/wrap instead of clipping either language. */
+.bilingual-buttons .commute-controls > button { min-block-size: 44px; flex: 1 1 8rem; min-inline-size: 0; }
+.bilingual-buttons .home-toolbar > .travel-mode { flex: 1 1 12rem; min-inline-size: 0; max-inline-size: 100%; }
+.bilingual-buttons .home-toolbar .travel-mode button { min-inline-size: 0; flex: 1 1 0; }
+.bilingual-buttons .home-toolbar > .find-stop { flex: 1 1 8rem; min-inline-size: 0; }
+.bilingual-buttons .travel-mode { flex-wrap: wrap; }
+.bilingual-buttons .travel-mode button { min-inline-size: 0; flex: 1 1 6rem; }

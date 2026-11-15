@@ -1,3 +1,4 @@
+import { ButtonLabel } from './BilingualButtons';
 import { RouteDistance } from './RouteDistance';
 import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { DestinationArrival } from './DestinationArrival';
@@ -141,7 +142,7 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
 
       <div className="row-between ride-top">
         <h3 id={`ride-title-${session.id}`} tabIndex={-1} ref={heading}>{r.title(dest)}</h3>
-        <button className="ghost" onClick={() => setFull(!showFull)}>{showFull ? r.exitFull : r.fullScreen}</button>
+        <button className="ghost" onClick={() => setFull(!showFull)}><ButtonLabel translate={other => showFull ? other.ride.exitFull : other.ride.fullScreen}>{showFull ? r.exitFull : r.fullScreen}</ButtonLabel></button>
       </div>
       <RouteDistance value={routeDistance} lang={lang} now={now} onboard />
       <DestinationArrival ds={ds} session={session} index={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} />
