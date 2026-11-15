@@ -3,6 +3,7 @@ import { strings, type Lang, type Strings } from './i18n';
 import './bilingualButtons.css';
 
 const ButtonLanguage = createContext<{ enabled: boolean; lang: Lang }>({ enabled: false, lang: 'en' });
+export const useBilingualButtons = () => useContext(ButtonLanguage);
 
 /** Presentation only; the existing settings and native controls keep all state/actions. */
 export function BilingualButtons({ enabled, lang, children }: { enabled: boolean; lang: Lang; children: ReactNode }) {

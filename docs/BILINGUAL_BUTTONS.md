@@ -17,7 +17,7 @@ Other buttons, field labels, status explanations, place/route identifiers and sa
 
 `BilingualButtons` supplies presentation context from the existing settings in both the main and load-error shells. `ButtonLabel` opts individual controls in; when disabled it returns the original string without a label wrapper. It has no event handler, network, favorite, bus-session or persistence interface. Native controls retain their original handlers, pressed/disabled states and focus. Existing End ride semantics still remove the resumable lock; the helper does not own that operation.
 
-The scoped CSS lets paired lines and their controls grow and wrap. Enabled saved-trip controls retain at least 44 px height. No fixed label height, ellipsis or hidden overflow is used. Existing backgrounds, source labeling, exact-bus logic and five skins remain the basis.
+The scoped CSS lets paired lines and their controls grow and wrap. The full-screen ride view carries its own presentation attribute because its portal sits outside the app wrapper; its heading and exit control wrap without overlap there too. Enabled saved-trip controls retain at least 44 px height. No fixed label height, ellipsis or hidden overflow is used. Existing backgrounds, source labeling, exact-bus logic and five skins remain the basis.
 
 ## Verification and limits
 

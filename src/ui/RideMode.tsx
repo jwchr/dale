@@ -1,4 +1,4 @@
-import { ButtonLabel } from './BilingualButtons';
+import { ButtonLabel, useBilingualButtons } from './BilingualButtons';
 import { RouteDistance } from './RouteDistance';
 import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { DestinationArrival } from './DestinationArrival';
@@ -52,6 +52,7 @@ const alerted = new Map<string, number>();
 const URGENT: RideStage[] = ['one', 'request', 'last_next', 'arrived', 'passed'];
 
 export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang, onEvent, onAdvanceDemo, gateText, badge, onOpenTrip }: Props) {
+  const bilingual = useBilingualButtons().enabled;
   const r = t.ride;
   const dep = session.departure;
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
@@ -135,7 +136,7 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
   }
 
   const view = (
-    <div className={showFull ? 'ride-mode ride-full' : 'ride-mode'} data-large={prefs.large ? 'true' : undefined} data-stage={stage ?? guide.basis}
+    <div className={showFull ? 'ride-mode ride-full' : 'ride-mode'} data-bilingual={bilingual ? 'true' : undefined} data-large={prefs.large ? 'true' : undefined} data-stage={stage ?? guide.basis}
       {...(showFull ? { role: 'dialog', 'aria-modal': true, 'aria-labelledby': `ride-title-${session.id}` } : {})}>
       {/* The page's DEMO notice is covered in full screen, so it repeats here. */}
       {showFull && ds.meta.demo && <div className="demo-banner" role="note">{t.demoBanner}</div>}

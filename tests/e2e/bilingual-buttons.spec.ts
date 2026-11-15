@@ -77,6 +77,20 @@ for (const lang of ['en', 'es'] as const) {
     const state = await read(); expect(state.dep.tripInstanceId).toBe('T1@20261104');
     expect(state.session.reports.filter((r: { kind: string }) => r.kind === 'arrived')).toHaveLength(1);
     expect(state.session.reports.filter((r: { kind: string }) => r.kind === 'boarded')).toHaveLength(1);
+    const ride = page.getByRole('dialog');
+    // Use a wide system font as well: Mac and Linux fallback metrics differ.
+    await page.addStyleTag({ content: '.ride-top { font-family: monospace; }' });
+    for (const width of [305, 320]) {
+      await page.setViewportSize({ width, height: 850 });
+      expect(await ride.locator('.ride-top').evaluate(row => {
+        const title = row.querySelector('h3')!.getBoundingClientRect();
+        const exit = row.querySelector('button')!.getBoundingClientRect();
+        const bounds = row.getBoundingClientRect();
+        const separate = title.bottom <= exit.top + 1 || exit.bottom <= title.top + 1 || title.right <= exit.left + 1 || exit.right <= title.left + 1;
+        return separate && bounds.right <= innerWidth + 1 && exit.left >= bounds.left - 1 && exit.right <= bounds.right + 1 && row.scrollWidth <= row.clientWidth + 1;
+      })).toBe(true);
+    }
+    await ride.locator('.ride-top').screenshot({ path: `test-results/bilingual-full-screen-header-${lang}.png` });
     await page.getByRole('button', { name: `${t.ride.exitFull} ${other.ride.exitFull}`, exact: true }).click();
     await page.getByRole('button', { name: `${t.busLock.stopRide} ${other.busLock.stopRide}`, exact: true }).click();
     // Existing terminal-session contract removes the resumable lock instead of persisting "ended".
