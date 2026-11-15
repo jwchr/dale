@@ -86,6 +86,14 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const
       for (const button of await page.locator('.find-stop-towns .city-choice').all()) {
         expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(48);
       }
+      await page.locator('.find-stop-towns').getByRole('button', { name: /^Hackensack/ }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      expect(await page.locator('.find-stop-towns h1').evaluate(heading => {
+        const range = document.createRange(); range.selectNodeContents(heading);
+        const box = heading.getBoundingClientRect();
+        return [...range.getClientRects()].every(rect => rect.left >= box.left - 1 && rect.right <= box.right + 1);
+      })).toBe(true);
+      await page.getByRole('button', { name: strings[lang].cityPicker.changeCity, exact: true }).click();
     }
   });
 }

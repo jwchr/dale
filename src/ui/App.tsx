@@ -911,7 +911,7 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
   const pick = (s: Stop) => { setStop(s); setSaveError(false); };
   if (!stop) return <section className="find-stop-towns">
-    <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : `${t.findStop}: ${cityLabel(city)}`}</h1>
+    <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : <>{t.findStop}: <SignText text={cityLabel(city)} /></>}</h1>
     {city !== undefined && <button type="button" className="link" onClick={() => { setCity(undefined); setQ(''); }}>{t.cityPicker.changeCity}</button>}
     <search aria-label={t.findStop}>
       <label htmlFor="stop-search">{city === undefined ? t.findStop : t.cityPicker.searchStop}</label>
