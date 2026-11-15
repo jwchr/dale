@@ -743,7 +743,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             </label>
           </div>
         ) : <>
-          {customName ? <div className="commute-sign"><h2 className="commute-led">{fav.label}</h2></div>
+          {customName ? <div className="commute-sign"><h2 className="commute-led"><SignText text={fav.label} /></h2></div>
             : <h2 className="sr-only">{fullLeg}</h2>}
           <div className="commute-places" ref={places}>
             <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
