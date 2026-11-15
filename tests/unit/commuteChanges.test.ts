@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { advanceCommuteChanges, compareCommute, favoriteKey } from '../../src/domain/commuteChanges';
-import { createCommuteChangeStore, parseCommuteChangeState } from '../../src/data/commuteChangeStore';
+import { commuteChangeStore, createCommuteChangeStore, parseCommuteChangeState } from '../../src/data/commuteChangeStore';
 import type { Favorite } from '../../src/domain/favorites';
 import type { Dataset } from '../../src/domain/types';
 import { liveDataset, NOW } from '../helpers/liveBus';
@@ -221,6 +221,36 @@ describe('notice lifetime and atomic persistence', () => {
     const store = createCommuteChangeStore({ read: async () => structuredClone(raw), write: async state => { raw = structuredClone(state); } }, job => job(), () => undefined);
     expect((await store.advance(ds, [], NOW))?.durable).toBe(false);
     expect(raw).toEqual(before);
+  });
+
+  for (const payload of ['{broken', '{}', '[{}]', '[null]', '']) it(`preserves notice history when the favorites payload is damaged: ${JSON.stringify(payload)}`, async () => {
+    const ds = newer(); retime(ds);
+    let raw = advanceCommuteChanges(advanceCommuteChanges(undefined, old(), [favorite], NOW), ds, [favorite], NOW);
+    const before = structuredClone(raw);
+    vi.stubGlobal('caches', { open: async () => ({ match: async () => new Response(JSON.stringify(raw)), put: async (_key: string, response: Response) => { raw = await response.json(); } }) });
+    vi.stubGlobal('navigator', { locks: { request: (_key: string, job: () => Promise<unknown>) => job() } });
+    try {
+      const store = commuteChangeStore('https://fixture.test/corrupt/' + encodeURIComponent(payload), { getItem: () => payload });
+      const result = await store.advance(ds, [], NOW);
+      expect(raw).toEqual(before);
+      expect(result?.durable).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  for (const mode of ['missing', 'rejected'] as const) it(`never durably replaces notice history when cross-tab locking is ${mode}`, async () => {
+    const ds = newer(); retime(ds);
+    let raw = advanceCommuteChanges(advanceCommuteChanges(undefined, old(), [favorite], NOW), ds, [favorite], NOW);
+    const before = structuredClone(raw);
+    let writes = 0;
+    vi.stubGlobal('caches', { open: async () => ({ match: async () => new Response(JSON.stringify(raw)), put: async (_key: string, response: Response) => { writes++; raw = await response.json(); } }) });
+    vi.stubGlobal('navigator', { locks: mode === 'missing' ? undefined : { request: async () => { throw Error('lock refused'); } } });
+    try {
+      const store = commuteChangeStore('https://fixture.test/locks/' + mode, { getItem: () => JSON.stringify([favorite]) });
+      expect((await store.advance(ds, [favorite], NOW))?.durable).toBe(false);
+      expect((await store.dismiss(before.notices[0]!.id))?.state.notices).toEqual([]);
+      expect(writes).toBe(0);
+      expect(raw).toEqual(before);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('recovers if Web Lock acquisition rejects before entry, without replaying an entered callback', async () => {

@@ -15,7 +15,7 @@ export const commuteChangeStrings = {
     out: 'Outbound', back: 'Return', arrival: 'arrives', unknownArrival: 'arrival time unavailable',
     estimate: 'Dale estimate', dismiss: 'Dismiss',
     dismissNamed: (name: string) => `Dismiss schedule update for ${name}`,
-    storage: 'Dale cannot keep schedule notices after closing this page because storage is unavailable.',
+    storage: 'Dale cannot safely save schedule notices in this browser. Changes on this page will be lost when you close it.',
   },
   es: {
     heading: 'Cambios de horario',
@@ -33,6 +33,6 @@ export const commuteChangeStrings = {
     out: 'Ida', back: 'Regreso', arrival: 'llega', unknownArrival: 'hora de llegada no disponible',
     estimate: 'Estimación de Dale', dismiss: 'Descartar',
     dismissNamed: (name: string) => `Descartar actualización de horario de ${name}`,
-    storage: 'Dale no puede conservar los avisos de horario al cerrar esta página porque el almacenamiento no está disponible.',
+    storage: 'Dale no puede guardar de forma segura los avisos de horario en este navegador. Los cambios de esta página se perderán al cerrarla.',
   },
 };

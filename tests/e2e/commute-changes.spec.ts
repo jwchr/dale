@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from '@playwright/test';
 import { liveDataset } from '../helpers/liveBus';
 import type { Dataset } from '../../src/domain/types';
+import { advanceCommuteChanges } from '../../src/domain/commuteChanges';
 
 const API = 'https://dale-live.test.workers.dev';
 const favorite = { id: 'schedule-test', label: 'Fictional commute', fromStopId: '1', toStopId: '3', routeIds: [] };
@@ -12,7 +13,7 @@ const next = (version = 'fixture-v2') => {
   t.times = t.times.map(x => x + 180); t.arrivals = t.arrivals?.map(x => x === null ? null : x + 180);
   return ds;
 };
-async function setup(page: Page, dataset: () => Dataset, lang = 'en', skin = 'clean') {
+async function setup(page: Page, dataset: () => Dataset, lang = 'en', skin = 'clean', waitForSavedBaseline = true) {
   await page.addInitScript(({ favorite, lang, skin }) => {
     if (!localStorage.getItem('notice-fixture')) {
       localStorage.setItem('notice-fixture', '1');
@@ -25,10 +26,32 @@ async function setup(page: Page, dataset: () => Dataset, lang = 'en', skin = 'cl
     else await route.abort();
   });
   await page.goto('/?live=1&now=2026-11-04T06:50');
-  await expect.poll(() => baseline(page)).toBe(dataset().meta.feedVersion);
+  if (waitForSavedBaseline) await expect.poll(() => baseline(page)).toBe(dataset().meta.feedVersion);
 }
 const baseline = (page: Page) => page.evaluate(async api => (await (await caches.open('dale-commute-changes-v1')).match(api + '/v1/local-commute-changes'))?.json().then(x => x.baseline.meta.feedVersion), API);
 const notices = (page: Page) => page.locator('.commute-change');
+for (const lang of ['en', 'es']) for (const mode of ['missing', 'rejected']) {
+  test(`${lang}: ${mode} Web Locks keep notices session-only without overwriting saved history`, async ({ page }) => {
+    const original = advanceCommuteChanges(undefined, structuredClone(liveDataset), [favorite], Date.parse('2026-11-04T11:50:00Z'));
+    await page.goto('/licenses.txt');
+    await page.evaluate(async ({ api, original }) => {
+      await (await caches.open('dale-commute-changes-v1')).put(api + '/v1/local-commute-changes', new Response(JSON.stringify(original)));
+    }, { api: API, original });
+    await page.addInitScript(mode => Object.defineProperty(navigator, 'locks', { configurable: true,
+      value: mode === 'missing' ? undefined : { request: () => Promise.reject(Error('fixture lock refused')) },
+    }), mode);
+    await setup(page, () => next(), lang, 'clean', false);
+    const warning = page.locator('.commute-changes .warn');
+    await expect(warning).toContainText(lang === 'en' ? 'cannot safely save' : 'no puede guardar de forma segura');
+    await expect(notices(page)).toHaveCount(1);
+    await notices(page).getByRole('button', { name: /Dismiss schedule update|Descartar actualización/ }).click();
+    await expect(notices(page)).toHaveCount(0);
+    await page.reload();
+    await expect(warning).toBeVisible();
+    await expect(notices(page)).toHaveCount(1); // Session-only dismissal was explicitly warned, never written.
+    expect(await page.evaluate(async api => (await (await caches.open('dale-commute-changes-v1')).match(api + '/v1/local-commute-changes'))?.json(), API)).toEqual(original);
+  });
+}
 for (const lang of ['en','es']) {
   test(`${lang}: compare actual saved schedule copies, preserve notice on reload and dismiss permanently`, async ({ page }) => {
     let ds = structuredClone(liveDataset);

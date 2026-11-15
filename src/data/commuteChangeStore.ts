@@ -53,8 +53,10 @@ export function createCommuteChangeStore(persistence: Persistence, exclusive: <T
       try {
         return await exclusive(() => { entered = true; return body(); });
       } catch (error) {
-        // Some private/embedded contexts expose Web Locks but refuse acquisition. Keep the in-tab queue.
+        // Without a cross-tab lock, a whole-state write could lose another tab's
+        // update. Keep the in-tab queue and readable baseline, but write nothing.
         if (entered) throw error; // Never replay a body that may already have written.
+        durable = false;
         return body();
       }
     });
@@ -85,15 +87,15 @@ export function commuteChangeStore(api: string, favoriteStorage: Pick<Storage, '
     store = createCommuteChangeStore({
       read: async () => (await (await caches.open('dale-commute-changes-v1')).match(key))?.json(),
       write: async state => { await (await caches.open('dale-commute-changes-v1')).put(key, new Response(JSON.stringify(state), { headers: { 'content-type': 'application/json' } })); },
-    }, job => navigator.locks ? navigator.locks.request(key, job) : job(), () => {
-      let readable = false;
-      const favorites = loadFavorites({ getItem: key => {
-        if (!favoriteStorage) throw Error('Saved trips unavailable');
-        const value = favoriteStorage.getItem(key);
-        readable = true;
-        return value;
-      } });
-      return readable ? favorites : undefined;
+    }, job => navigator.locks ? navigator.locks.request(key, job) : Promise.reject(Error('Cross-tab locking unavailable')), () => {
+      if (!favoriteStorage) return undefined;
+      const raw = favoriteStorage.getItem('arriba.favorites.v1');
+      const entries: unknown = raw === null ? [] : JSON.parse(raw);
+      if (!Array.isArray(entries)) return undefined;
+      const favorites = loadFavorites({ getItem: () => raw });
+      // The existing permissive loader can drop damaged records. That is useful
+      // for displaying recoverable favorites, but is not authority to erase notices.
+      return favorites.length === entries.length ? favorites : undefined;
     });
     stores.set(api, store);
   }
