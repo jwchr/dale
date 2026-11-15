@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { myBusStrings } from '../../src/ui/myBusStrings';
+import { LIVE_SOURCE } from '../../src/domain/liveBus';
 import type { Lang } from '../../src/ui/i18n';
 import type { Skin } from '../../src/ui/SkinBackdrop';
 const skins: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
@@ -38,6 +39,26 @@ async function setup(page: Page, { lang = 'en', skin = 'clean', code = '00302', 
 }
 const copies = (page: Page) => page.evaluate(() => (window as unknown as { copies: string[] }).copies);
 const lock = (page: Page) => page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'));
+
+test('an open lookup and focused control survive missing → fresh → missing GPS', async ({ page }) => {
+  const panel = await setup(page);
+  const copy = panel.getByRole('button', { name: myBusStrings.en.copy });
+  await copy.focus();
+  await page.route(API + '/v1/live?**', route => route.fulfill({ json: {
+    v: 1, source: LIVE_SOURCE, feedVersion: liveDataset.meta.feedVersion, tripInstanceId: 'T1@20261104', receivedAt: NOW + 31_000,
+    vehicles: { state: 'ok', timestamp: NOW + 30_000 }, updates: { state: 'ok', timestamp: NOW + 30_000 },
+    observations: [{ tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: NOW + 30_000, lat: 40.89, lon: -74.04 }],
+    predictions: [], skippedStops: [],
+  } }));
+  await page.clock.fastForward(31_000);
+  await expect(page.getByTestId('live-bus-status')).toContainText('LIVE REPORT');
+  await expect(panel).toHaveAttribute('open', ''); await expect(copy).toBeFocused();
+  await page.route(API + '/v1/live?**', route => route.abort('failed'));
+  await page.clock.fastForward(31_000);
+  await expect(page.getByTestId('live-bus-status')).toContainText('GPS data unavailable');
+  await expect(panel).toHaveAttribute('open', ''); await expect(copy).toBeFocused();
+  expect(await copies(page)).toEqual([]);
+});
 
 for (const lang of ['en', 'es'] as Lang[]) {
   test(`Android handoff copies once, opens only on action, and preserves the bus (${lang})`, async ({ page }) => {

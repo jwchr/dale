@@ -18,7 +18,7 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
   if (shown === 'missing' && !skipped && !hasStopChanges) return <aside className="card live-bus-status warn" data-testid="live-bus-status">
     <span className="sr-only" role="status">{compactPrediction ? l.gpsMissing : l.missing}</span><strong>{compactPrediction ? l.gpsMissing : l.missing}</strong>
     {compactPrediction && <p><strong>{l.prediction(predictionTime)}</strong><br />{l.predictionAge(Math.max(0, Math.floor((now - prediction.observedAt) / 1000)))}</p>}
-    <MyBusFallback ds={ds} dep={dep} lang={lang} />
+    <MyBusFallback key="mybus-fallback" ds={ds} dep={dep} lang={lang} />
   </aside>;
   return <aside className={`card live-bus-status ${['missing', 'ambiguous', 'confirmation', 'cancelled'].includes(shown) ? 'warn' : ''}`} data-testid="live-bus-status">
     <span className="sr-only" role="status">{l[shown]}</span>
@@ -30,6 +30,6 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
       : <p>{l.predictionMissing}</p>}
     {hasStopChanges && !skipped && <p className="warn">{t.ride.uncertain.service_change}</p>}
     <p className="small">{l.source}</p>
-    <MyBusFallback ds={ds} dep={dep} lang={lang} />
+    <MyBusFallback key="mybus-fallback" ds={ds} dep={dep} lang={lang} />
   </aside>;
 }
