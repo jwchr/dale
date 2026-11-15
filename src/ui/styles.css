@@ -208,6 +208,8 @@ main { flex: 1; padding-bottom: 24px; }
 .lock-history li { padding: 9px 0; border-bottom: 1px solid var(--line); }
 .lock-history li > span { display: block; color: var(--muted); font-size: 0.85rem; }
 .lock-return { margin-bottom: 10px; }
+.lock-return > .row-between { flex-wrap: wrap; }
+.lock-return button { max-inline-size: 100%; }
 @media (max-width: 360px) {
   .lock-actions, .lock-facts { grid-template-columns: 1fr; }
 }
