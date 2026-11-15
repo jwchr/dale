@@ -584,3 +584,11 @@ main { flex: 1; padding-bottom: 24px; }
 
 .route-distance { display: block; font-size: .78rem; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-block: .2rem; }
 .route-distance[data-stale="true"] { font-style: italic; }
+
+/* Optional official lookup stays folded until the rider asks for it. */
+.mybus-fallback { margin-block-start: .75rem; color: var(--text); }
+.mybus-fallback > summary { cursor: pointer; font-weight: 700; min-block-size: 44px; padding-block: .6rem; }
+.mybus-code { user-select: all; font-variant-numeric: tabular-nums; }
+.mybus-actions > a { display: inline-flex; align-items: center; min-block-size: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--brand-text); text-decoration: underline; overflow-wrap: anywhere; }
+.mybus-actions > * { max-inline-size: 100%; }
+.mybus-feedback:empty { margin: 0; }

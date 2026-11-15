@@ -1,10 +1,11 @@
 import { LiveIndicator } from './LiveIndicator';
 import { LIVE_MAX_AGE_MS, type LiveBusSnapshot } from '../domain/liveBus';
-import type { Departure } from '../domain/types';
+import { MyBusFallback } from './MyBusFallback';
+import type { Dataset, Departure } from '../domain/types';
 import type { Strings, Lang } from './i18n';
 import { localYmd, formatTime12 } from '../domain/time';
 import type { LiveRequestState } from './useLiveBus';
-export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStatus, skippedKnown, hasStopChanges }: { state: LiveRequestState; snapshot?: LiveBusSnapshot; dep: Departure; now: number; t: Strings; lang: Lang; tz: string; lockStatus: string; skippedKnown?: boolean; hasStopChanges?: boolean }) {
+export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStatus, skippedKnown, hasStopChanges, ds }: { ds?: Dataset; state: LiveRequestState; snapshot?: LiveBusSnapshot; dep: Departure; now: number; t: Strings; lang: Lang; tz: string; lockStatus: string; skippedKnown?: boolean; hasStopChanges?: boolean }) {
   const l = t.live;
   const newest = snapshot?.observations.filter((o) => o.tripInstanceId === dep.tripInstanceId).sort((a, b) => b.observedAt - a.observedAt)[0];
   const fresh = state === 'available' && newest && now - newest.observedAt <= LIVE_MAX_AGE_MS;
@@ -17,6 +18,7 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
   if (shown === 'missing' && !skipped && !hasStopChanges) return <aside className="card live-bus-status warn" data-testid="live-bus-status">
     <span className="sr-only" role="status">{compactPrediction ? l.gpsMissing : l.missing}</span><strong>{compactPrediction ? l.gpsMissing : l.missing}</strong>
     {compactPrediction && <p><strong>{l.prediction(predictionTime)}</strong><br />{l.predictionAge(Math.max(0, Math.floor((now - prediction.observedAt) / 1000)))}</p>}
+    <MyBusFallback ds={ds} dep={dep} lang={lang} />
   </aside>;
   return <aside className={`card live-bus-status ${['missing', 'ambiguous', 'confirmation', 'cancelled'].includes(shown) ? 'warn' : ''}`} data-testid="live-bus-status">
     <span className="sr-only" role="status">{l[shown]}</span>
@@ -28,5 +30,6 @@ export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStat
       : <p>{l.predictionMissing}</p>}
     {hasStopChanges && !skipped && <p className="warn">{t.ride.uncertain.service_change}</p>}
     <p className="small">{l.source}</p>
+    <MyBusFallback ds={ds} dep={dep} lang={lang} />
   </aside>;
 }
