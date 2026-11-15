@@ -140,7 +140,8 @@ export function compareCommute(old: Dataset, next: Dataset, favorite: Favorite, 
       return { kind: 'timetable', date, before: removed, after: added };
     }
   }
-  if (stops.some(id => stopFacts(old, id) !== stopFacts(next, id))) return { kind: 'stops', before: [], after: [] };
+  const endpoints = new Set([...before.legs, ...after.legs].flatMap(leg => [leg.fromStopId, leg.toStopId]));
+  if ([...endpoints].some(id => stopFacts(old, id) !== stopFacts(next, id))) return { kind: 'stops', before: [], after: [] };
   if ((before.ds.trips.length || after.ds.trips.length) && lastDepartureDay > addDays(from, 366)) return { kind: 'uncomparable', before: [], after: [] };
   return undefined;
 }

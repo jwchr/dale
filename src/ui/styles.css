@@ -360,7 +360,8 @@ main { flex: 1; padding-bottom: 24px; }
 .home-toolbar .travel-mode { margin: 0; gap: 2px; padding: 2px; }
 /* Owner request 2026-11-11: Bus/Train and Find a stop share the row half and half. The toggle takes half, or
    a little more when its labels need it (Spanish, enlarged text); Find a stop takes the rest. */
-.home-toolbar > .travel-mode { flex: 0 0 calc(50% - 3px); min-width: min-content; }
+/* Keep at least half the row when it fits; wider labels can take a row and wrap between buttons. */
+.home-toolbar > .travel-mode { flex: 0 1 auto; inline-size: fit-content; min-inline-size: calc(50% - 3px); max-inline-size: 100%; flex-wrap: wrap; flex-wrap: balance; }
 .home-toolbar > .find-stop { flex: 1 1 0; }
 /* Buttons never shrink below their label; if Spanish or large text needs more room, the toggle takes it. */
 .home-toolbar .travel-mode button { flex: 1 1 0; min-width: max-content; gap: 4px; padding: 6px 4px; font-size: .875rem; }

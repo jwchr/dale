@@ -96,12 +96,15 @@ describe('saved-commute schedule comparison', () => {
   it('compares the saved trip’s actual paired return stops', () => {
     const a = old(), b = newer();
     for (const ds of [a, b]) {
-      ds.stops.push({ id: 'home-back', name: 'Fictional return stop', twin: '1' });
+      ds.stops.push({ id: 'home-back', name: 'Fictional return stop', twin: '1', lat: 40.8, lon: -74 });
       ds.patterns.push({ id: 'return', routeId: ds.routes[0]!.id, directionId: 1, headsign: 'Fictional home', stopIds: ['3','home-back'] });
       ds.trips.push({ id: 'return', patternId: 'return', serviceId: 'WK', times: [61200,63600], arrivals: [61200,63600] });
     }
     retime(b, 'return');
     expect(compareCommute(a, b, favorite, '20261104')?.after[0]!.direction).toBe('back');
+    const moved = structuredClone(a); moved.meta.feedVersion = 'moved-return';
+    moved.stops.find(s => s.id === 'home-back')!.lat! += .001;
+    expect(compareCommute(a, moved, favorite, '20261104')?.kind).toBe('stops');
   });
   it('does not invent changes when overlapping weekly files contain a thousand unchanged trips', () => {
     const a = old(), b = newer();
@@ -166,6 +169,20 @@ describe('notice lifetime and atomic persistence', () => {
     const stale = (await tabA.advance(old(), [favorite], NOW, false))!;
     expect(stale.state.baseline.meta.feedVersion).toBe('fixture-v2'); expect(stale.state.notices).toEqual([]);
     expect((await tabA.advance(old(), [favorite], NOW))!.state.baseline.meta.feedVersion).toBe('fixture-v2');
+  });
+
+  it('recovers if Web Lock acquisition rejects before entry, without replaying an entered callback', async () => {
+    const denied = createCommuteChangeStore({ read: async () => { throw Error('storage blocked'); }, write: async () => { throw Error('storage blocked'); } }, async () => { throw Error('lock denied'); });
+    expect((await denied.advance(old(), [favorite], NOW))?.durable).toBe(false);
+    const ds = newer(); retime(ds);
+    const result = (await denied.advance(ds, [favorite], NOW))!;
+    expect(result.state.notices).toHaveLength(1);
+    await denied.dismiss(result.state.notices[0]!.id);
+    expect((await denied.advance(ds, [favorite], NOW))?.state.notices).toEqual([]);
+    let writes = 0;
+    const entered = createCommuteChangeStore({ read: async () => undefined, write: async () => { writes++; } }, async job => { await job(); throw Error('failed after entry'); });
+    await expect(entered.advance(old(), [favorite], NOW)).rejects.toThrow('failed after entry');
+    expect(writes).toBe(1);
   });
 
   it('serializes updates and dismissal, rejects corrupt cached state, and degrades truthfully to session memory', async () => {

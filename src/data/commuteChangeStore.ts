@@ -35,7 +35,7 @@ export function createCommuteChangeStore(persistence: Persistence, exclusive: <T
   let state: CommuteChangeState | undefined, loaded = false, durable = true;
   let tail: Promise<unknown> = Promise.resolve();
   const run = (transform: (previous: CommuteChangeState | undefined) => CommuteChangeState | undefined) => {
-    const job = tail.then(() => exclusive(async () => {
+    const body = async (): Promise<SavedCommuteChanges | undefined> => {
       if (!loaded || durable) {
         try { state = parseCommuteChangeState(await persistence.read()) ?? state; } catch { durable = false; }
         loaded = true;
@@ -45,7 +45,17 @@ export function createCommuteChangeStore(persistence: Persistence, exclusive: <T
       state = next;
       try { await persistence.write(next); durable = true; } catch { durable = false; }
       return { state: next, durable };
-    }));
+    };
+    const job = tail.then(async () => {
+      let entered = false;
+      try {
+        return await exclusive(() => { entered = true; return body(); });
+      } catch (error) {
+        // Some private/embedded contexts expose Web Locks but refuse acquisition. Keep the in-tab queue.
+        if (entered) throw error; // Never replay a body that may already have written.
+        return body();
+      }
+    });
     tail = job.catch(() => undefined);
     return job;
   };

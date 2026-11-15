@@ -85,7 +85,7 @@ for (const lang of ['en','es']) for (const skin of ['turnpike','parkway','nyc','
     let ds = structuredClone(liveDataset); await setup(page, () => ds, lang, skin);
     ds = next(); await page.reload(); await expect(notices(page)).toHaveCount(1);
     await page.setViewportSize({ width: 305, height: 900 });
-    await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; } body { font-family: Verdana, sans-serif !important; }' });
     const disclosure = notices(page).locator('summary'); await disclosure.focus(); await page.keyboard.press('Enter');
     await expect(notices(page).locator('details')).toHaveAttribute('open','');
     expect(await notices(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
