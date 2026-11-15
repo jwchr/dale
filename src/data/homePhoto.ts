@@ -12,7 +12,8 @@ export class PhotoError extends Error {
 
 /** Decode raster files and encode fresh pixels: source GPS/EXIF/XMP and names never persist. */
 export async function prepareHomePhoto(file: Blob): Promise<Blob> {
-  if (!file.size || file.size > MAX_PHOTO_INPUT) throw new PhotoError('large');
+  if (!file.size) throw new PhotoError('decode');
+  if (file.size > MAX_PHOTO_INPUT) throw new PhotoError('large');
   let b: Uint8Array;
   try { b = new Uint8Array(await file.slice(0, 16).arrayBuffer()); } catch { throw new PhotoError('decode'); }
   const jpeg = file.type === 'image/jpeg' && b[0] === 255 && b[1] === 216 && b[2] === 255;

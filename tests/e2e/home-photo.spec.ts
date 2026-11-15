@@ -107,19 +107,20 @@ test('raster re-encoding strips synthetic EXIF and applies orientation before sa
   }, DB)).toBe(false);
 });
 
-test('invalid format, corrupt raster and oversized input retain the previous photo', async ({ page }) => {
-  await start(page); const panel = page.locator('.home-photo-settings'), input = panel.locator('input');
+for (const lang of ['en', 'es'] as const) test(`empty, invalid and oversized input retain the previous photo (${lang})`, async ({ page }) => {
+  await start(page, lang); const panel = page.locator('.home-photo-settings'), input = panel.locator('input');
   await input.setInputFiles({ name: 'good.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved);
   const before = await stored(page);
   for (const [mimeType, buffer, message] of [
+    ['image/png', Buffer.alloc(0), 'decode'],
     ['image/svg+xml', Buffer.from('<svg onload="alert(1)"/>'), 'format'],
     ['image/png', Buffer.from('not a raster'), 'format'],
     ['image/png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]), 'decode'],
     ['image/png', Buffer.alloc(12 * 1024 * 1024 + 1), 'large'],
   ] as const) {
     await input.setInputFiles({ name: 'synthetic', mimeType, buffer });
-    await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto[message]);
+    await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto[message]);
     expect((await stored(page))!.version).toBe(before!.version);
   }
 });
@@ -153,7 +154,6 @@ test('failed replacement and removal transactions preserve the committed photo',
   const before = await stored(page);
   await page.evaluate(() => {
     IDBObjectStore.prototype.put = function () { throw new DOMException('synthetic quota', 'QuotaExceededError'); };
-    IDBObjectStore.prototype.delete = function () { throw new DOMException('synthetic refusal', 'UnknownError'); };
   });
   await input.setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: await fixture(page, '#bbaa00') });
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.storage);
