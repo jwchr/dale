@@ -21,6 +21,6 @@ The scoped CSS lets paired lines and their controls grow and wrap. Enabled saved
 
 ## Verification and limits
 
-Browser checks cover both primary languages, opt-in/off and remembered preference, reversed language order and language tags, keyboard focus, unchanged fictional favorites/exact trip, one arrived/boarded report per native click, normal full-screen exit and terminal-lock clearing, load-error controls, blocked preference storage, all five skins at 305/320 px with both 200% root text and 32 px body text, and scoped axe checks. The rest of the existing suite verifies the default single-language modes. No real rider data or actual agency feed is needed.
+Browser checks cover both primary languages, opt-in/off and remembered preference, reversed language order and language tags, keyboard focus, unchanged fictional favorites/exact trip, one arrived/boarded report per native click, normal full-screen exit and terminal-lock clearing, load-error controls, blocked preference storage, all five skins at 305/320 px with both 200% root text and 32 px body text, whole-word wrapping without overlapping controls, enlarged waiting controls, and scoped axe checks. The rest of the existing suite verifies the default single-language modes. No real rider data or actual agency feed is needed.
 
 No physical screen reader, actual phone or deployed acceptance is claimed. Optional translations do not replace the normal release and hands-on usability checks. This change authorizes no merge, deployment, new permission or private-data access.

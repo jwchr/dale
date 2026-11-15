@@ -66,6 +66,10 @@ for (const lang of ['en', 'es'] as const) {
     await expect.poll(async () => (await read())?.dep?.tripInstanceId).toBe('T1@20261104');
     await page.getByRole('button', { name: `${t.busLock.begin} ${other.busLock.begin}`, exact: true }).click();
     await expect.poll(async () => (await read()).session.phase).toBe('waiting');
+    await page.setViewportSize({ width: 320, height: 850 });
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; } body { font-size: 32px !important; }' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).include('.bus-lock').withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
     await page.getByRole('button', { name: `${t.busLock.arrived} ${other.busLock.arrived}`, exact: true }).click();
     await expect.poll(async () => (await read()).session.phase).toBe('arrived');
     await page.getByRole('button', { name: `${t.busLock.boarded} ${other.busLock.boarded}`, exact: true }).click();
@@ -94,11 +98,30 @@ for (const lang of ['en', 'es'] as const) {
         const button = label.locator('xpath=ancestor::button[1]'); await button.focus(); await expect(button).toBeFocused();
         const bounds = await button.boundingBox(); expect(bounds!.height).toBeGreaterThanOrEqual(44);
         expect(await label.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
+        // A word that fits the phone must not be split into an orphan letter by a narrow button.
+        const split = await label.evaluate(element => {
+          const words: string[] = [], walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) for (const word of node.textContent!.matchAll(/\S+/g)) {
+            const range = document.createRange(); range.setStart(node, word.index!); range.setEnd(node, word.index! + word[0].length);
+            if ([...range.getClientRects()].filter(rect => rect.width > 0).length > 1) words.push(word[0]);
+          }
+          return words;
+        });
+        expect(split).toEqual([]);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const overlaps = await page.locator('.home-toolbar button, .home-toolbar > .find-stop, .commute-controls button').evaluateAll(buttons => {
+        const boxes = buttons.map(button => button.getBoundingClientRect());
+        return boxes.some((a, i) => boxes.some((b, j) => j > i && a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1));
+      });
+      expect(overlaps).toBe(false);
     }
     expect((await new AxeBuilder({ page }).include('.home-toolbar').include('.commute-controls').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-    if (skin === 'garden') await page.screenshot({ path: `test-results/bilingual-buttons-${lang}-320px-200percent.png`, fullPage: true });
+    if (skin === 'garden') {
+      await page.screenshot({ path: `test-results/bilingual-buttons-${lang}-320px-200percent.png`, fullPage: true });
+      await page.locator('.home-toolbar').screenshot({ path: `test-results/bilingual-toolbar-${lang}.png` });
+      await page.locator('.commute-controls').screenshot({ path: `test-results/bilingual-trip-buttons-${lang}.png` });
+    }
   });
 }
 
