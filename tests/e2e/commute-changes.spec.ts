@@ -30,6 +30,23 @@ async function setup(page: Page, dataset: () => Dataset, lang = 'en', skin = 'cl
 }
 const baseline = (page: Page) => page.evaluate(async api => (await (await caches.open('dale-commute-changes-v1')).match(api + '/v1/local-commute-changes'))?.json().then(x => x.baseline.meta.feedVersion), API);
 const notices = (page: Page) => page.locator('.commute-change');
+for (const lang of ['en', 'es']) {
+  test(`${lang}: damaged saved favorites at startup never erase separate notice history`, async ({ page }) => {
+    const now = Date.parse('2026-11-04T11:50:00Z');
+    const original = advanceCommuteChanges(advanceCommuteChanges(undefined, structuredClone(liveDataset), [favorite], now), next(), [favorite], now);
+    expect(original.notices).toHaveLength(1);
+    await page.goto('/licenses.txt');
+    await page.evaluate(async ({ api, original, lang }) => {
+      await (await caches.open('dale-commute-changes-v1')).put(api + '/v1/local-commute-changes', new Response(JSON.stringify(original)));
+      localStorage.setItem('notice-fixture', '1');
+      localStorage.setItem('arriba.favorites.v1.g2', '{broken');
+      localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light' }));
+    }, { api: API, original, lang });
+    await setup(page, () => next(), lang, 'clean', false);
+    await expect(page.locator('.commute-changes .warn')).toContainText(lang === 'en' ? 'cannot safely save' : 'no puede guardar de forma segura');
+    expect(await page.evaluate(async api => (await (await caches.open('dale-commute-changes-v1')).match(api + '/v1/local-commute-changes'))?.json(), API)).toEqual(original);
+  });
+}
 for (const lang of ['en', 'es']) for (const mode of ['missing', 'rejected']) {
   test(`${lang}: ${mode} Web Locks keep notices session-only without overwriting saved history`, async ({ page }) => {
     const original = advanceCommuteChanges(undefined, structuredClone(liveDataset), [favorite], Date.parse('2026-11-04T11:50:00Z'));

@@ -12,4 +12,6 @@ Operations are serialized within a tab and with Web Locks across tabs where supp
 
 Native details keep longer before/after lists closed initially; native buttons dismiss notices and return keyboard focus nearby. Notices sit after the existing commute cards, with no blocking popup, forced navigation or automatic expiry. English/Spanish, 12-hour clocks, five skins and enlarged narrow-phone text use existing app conventions.
 
+Startup favorites are checked synchronously before the existing app's save effect can normalize a damaged value to an empty list. If that first snapshot is invalid, the notice store remains session-only even if the display loader subsequently saves its empty fallback. The separate durable notice history is preserved; this feature does not change how the pre-existing favorites loader or writer recovers favorites.
+
 Verification uses fictional GTFS fixtures and intercepted API responses only. No Worker deployment, new backend access, live feed fetch, credentials, rider data or installed app is used. Independent Argon review is required because this feature persists local saved-trip identities. Actual iPhone/Safari, screen-reader and on-phone acceptance remain separate checks.

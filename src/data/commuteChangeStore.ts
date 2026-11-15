@@ -31,8 +31,8 @@ export function parseCommuteChangeState(raw: unknown): CommuteChangeState | unde
 interface Persistence { read(): Promise<unknown>; write(state: CommuteChangeState): Promise<void> }
 export interface SavedCommuteChanges { state: CommuteChangeState; durable: boolean }
 /** Serialize read/compare/dismiss/write in this tab; one cache entry atomically holds the baseline and its notices. */
-export function createCommuteChangeStore(persistence: Persistence, exclusive: <T>(job: () => Promise<T>) => Promise<T> = job => job(), currentFavorites?: () => Favorite[] | undefined) {
-  let state: CommuteChangeState | undefined, loaded = false, durable = true;
+export function createCommuteChangeStore(persistence: Persistence, exclusive: <T>(job: () => Promise<T>) => Promise<T> = job => job(), currentFavorites?: () => Favorite[] | undefined, initiallyDurable = true) {
+  let state: CommuteChangeState | undefined, loaded = false, durable = initiallyDurable;
   let tail: Promise<unknown> = Promise.resolve();
   const run = (transform: (previous: CommuteChangeState | undefined) => CommuteChangeState | undefined) => {
     const body = async (): Promise<SavedCommuteChanges | undefined> => {
@@ -82,21 +82,25 @@ const stores = new Map<string, ReturnType<typeof createCommuteChangeStore>>();
 export function commuteChangeStore(api: string, favoriteStorage: Pick<Storage, 'getItem'> | undefined) {
   let store = stores.get(api);
   if (!store) {
-    // This is only a Cache API key. It is never fetched, sent to the Worker or shared with another service.
-    const key = api + '/v1/local-commute-changes';
-    store = createCommuteChangeStore({
-      read: async () => (await (await caches.open('dale-commute-changes-v1')).match(key))?.json(),
-      write: async state => { await (await caches.open('dale-commute-changes-v1')).put(key, new Response(JSON.stringify(state), { headers: { 'content-type': 'application/json' } })); },
-    }, job => navigator.locks ? navigator.locks.request(key, job) : Promise.reject(Error('Cross-tab locking unavailable')), () => {
+    const readFavorites = () => {
       if (!favoriteStorage) return undefined;
       const raw = favoriteStorage.getItem('arriba.favorites.v1');
       const entries: unknown = raw === null ? [] : JSON.parse(raw);
       if (!Array.isArray(entries)) return undefined;
       const favorites = loadFavorites({ getItem: () => raw });
-      // The existing permissive loader can drop damaged records. That is useful
-      // for displaying recoverable favorites, but is not authority to erase notices.
+      // A permissive display loader dropping damaged records is not deletion authority.
       return favorites.length === entries.length ? favorites : undefined;
-    });
+    };
+    // Check during render, before the existing favorites-saving effect can
+    // normalize damaged startup data to an apparently intentional empty list.
+    let initiallyDurable = false;
+    try { initiallyDurable = readFavorites() !== undefined; } catch { /* Session-only. */ }
+    // This is only a Cache API key. It is never fetched, sent to the Worker or shared with another service.
+    const key = api + '/v1/local-commute-changes';
+    store = createCommuteChangeStore({
+      read: async () => (await (await caches.open('dale-commute-changes-v1')).match(key))?.json(),
+      write: async state => { await (await caches.open('dale-commute-changes-v1')).put(key, new Response(JSON.stringify(state), { headers: { 'content-type': 'application/json' } })); },
+    }, job => navigator.locks ? navigator.locks.request(key, job) : Promise.reject(Error('Cross-tab locking unavailable')), readFavorites, initiallyDurable);
     stores.set(api, store);
   }
   return store;
