@@ -185,20 +185,20 @@ function useSettings() {
   const [settings, setSettings] = useState<Settings>(readSettings);
   // Settings adopted from another tab are shown but never written back: that tab already
   // saved them, and it may have saved something newer since. Only this tab's own changes persist.
-  const adopted = useRef<Settings | undefined>(undefined);
+  const adopted = useRef(new WeakSet<Settings>());
   useEffect(() => {
     // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
     const sync = (event: StorageEvent) => {
       if (event.key !== 'arriba.settings.v1') return;
       const next = readSettings();
-      adopted.current = next;
+      adopted.current.add(next);
       setSettings(next);
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
-    if (settings !== adopted.current) try {
+    if (!adopted.current.has(settings)) try {
       const value = JSON.stringify(settings);
       if (store?.getItem('arriba.settings.v1') !== value) store?.setItem('arriba.settings.v1', value);
     } catch { /* ignore */ }

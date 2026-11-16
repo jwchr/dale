@@ -128,22 +128,22 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
     const m = map.current;
     if (!m || !m.isStyleLoaded()) return;
     const stopKey = JSON.stringify(stops), busKey = JSON.stringify(bus) ?? '';
-    if (drawn.current.stops !== stopKey) {
+    const stopsChanged = drawn.current.stops !== stopKey, busChanged = drawn.current.bus !== busKey;
+    if (stopsChanged) {
       (m.getSource('stops') as GeoJSONSource | undefined)?.setData(stopData(stops));
       (m.getSource('route') as GeoJSONSource | undefined)?.setData(routeData(stops));
       drawn.current.stops = stopKey;
     }
-    if (drawn.current.bus !== busKey) {
-      (m.getSource('bus') as GeoJSONSource | undefined)?.setData(busData(bus)); drawn.current.bus = busKey;
-      if (following.current && bus) { followBus(m, bus, stops, Math.max(13.5, m.getZoom())); setView('bus'); }
-    }
+    if (busChanged) { (m.getSource('bus') as GeoJSONSource | undefined)?.setData(busData(bus)); drawn.current.bus = busKey; }
+    // Passing a stop changes which stops lie ahead, so re-aim the lead even if the bus has not moved.
+    if ((stopsChanged || busChanged) && following.current && bus) { followBus(m, bus, stops, Math.max(13.5, m.getZoom())); setView('bus'); }
   }, [stops, bus]);
 
   // A labelled region, not an image: it holds the zoom buttons and the attribution link.
   if (failed) return <p className="warn small" role="note">{failedText}</p>;
   return <><div className="choice-list map-camera-controls">
     <button type="button" className="chip" disabled={!bus} aria-pressed={view === 'bus'} onClick={() => { if (!map.current || !bus) return; following.current = true; setView('bus'); followBus(map.current, bus, stops, 13.5); }}>{text.close}</button>
-    <button type="button" className="chip" aria-pressed={view === 'route'} onClick={() => { if (!map.current || !stops.length) return; following.current = false; setView('route'); map.current.fitBounds([[Math.min(...stops.map(s => s.lon)), Math.min(...stops.map(s => s.lat))], [Math.max(...stops.map(s => s.lon)), Math.max(...stops.map(s => s.lat))]], { padding: 36, maxZoom: 14, duration: 0 }); }}>{text.route}</button>
+    <button type="button" className="chip" aria-pressed={view === 'route'} onClick={() => { if (!map.current || !stops.length) return; following.current = false; setView('route'); map.current.fitBounds([[Math.min(...stops.map(s => s.lon)), Math.min(...stops.map(s => s.lat))], [Math.max(...stops.map(s => s.lon)), Math.max(...stops.map(s => s.lat))]], { padding: 36, maxZoom: 14, duration: 0, absolutePadding: true }); }}>{text.route}</button>
   </div><section className="route-map" ref={el} aria-label={label} data-camera={view} data-presentation={presentation} /></>;
 }
 

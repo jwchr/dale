@@ -25,6 +25,17 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   // One Save trip, pinned in view at the bottom while destinations scroll (owner, #155).
   const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(1);
   await expect(saves).toBeInViewport();
+  // Pinned, not merely visible: on a short screen the destinations run past the bottom edge.
+  // Save would normally sit below the screen there, but stays at the bottom edge instead.
+  const full = page.viewportSize()!;
+  await page.setViewportSize({ width: full.width, height: 360 });
+  await page.evaluate(() => scrollTo(0, 0));
+  const natural = await saves.evaluate(button => (button.parentElement!.getBoundingClientRect().bottom));
+  expect(natural).toBeGreaterThan(360);
+  const pinned = (await saves.boundingBox())!;
+  expect(pinned.y + pinned.height).toBeLessThanOrEqual(360 + 1);
+  expect(pinned.y + pinned.height).toBeGreaterThan(360 - 96);
+  await page.setViewportSize(full);
   await saves.first().click(); await expect(page.getByRole('alert')).toContainText('Choose a destination');
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeFocused();
   await page.getByRole('button', { name: 'PORT AUTHORITY BUS TERMINAL', exact: true }).click();
