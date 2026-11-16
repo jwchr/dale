@@ -1,3 +1,4 @@
+import { chooseOpeningSlogan } from '../domain/openingSlogan';
 import { useCommuteChanges } from './useCommuteChanges';
 import { CommuteChanges } from './CommuteChanges';
 import { useDepartureDistances } from './useDepartureDistances';
@@ -54,7 +55,7 @@ import { LastReturnCard } from './LastReturnCard';
 import { PastReports } from './PastReports';
 
 type Theme = 'system' | 'light' | 'dark';
-interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean }
+interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean; rotateSlogans: boolean }
 interface Leg { fromStopId: string; toStopId: string; routeIds: string[] }
 interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
@@ -99,9 +100,13 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true }; }
+    return { rotateSlogans: s.rotateSlogans === true, lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true, rotateSlogans: false }; }
 };
+
+// One choice per page lifetime, shared by loading/retry/navigation mounts. No timers or visibility handlers.
+const openingSettings = readSettings();
+const openingSloganIndex = openingSettings.rotateSlogans ? chooseOpeningSlogan(store, strings.en.slogans.candidates.length + 1) : 0;
 
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
 function useNow(tz: string, intervalMs = 30_000): number {
@@ -374,7 +379,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         {screen.name !== 'home' && screen.name !== 'penn' && <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>}
         {(screen.name === 'home' || screen.name === 'penn') && <span className="wordmark" role="img" aria-label="Dale!">DALE<span className="bang" aria-hidden="true">!</span></span>}
         {/* Owner request 2026-11-11: the slogan fills the space beside the wordmark; the build stamp stays up top, small. */}
-        <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="top-slogan">{t.appTagline}</span><span className="top-stamp"><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span></span>
+        <span className="top-version" title={versionLine(t, settings.lang, tz)}><span className="top-slogan">{openingSloganIndex === 0 ? t.appTagline : t.slogans.candidates[openingSloganIndex - 1] ?? t.appTagline}</span><span className="top-stamp"><span className="sr-only">{t.versionLabel} </span>{(() => { const [v, when] = versionShort(settings.lang, tz); return <><span className="nowrap">{v}</span>{when && <> <span className="nowrap">· {when}</span></>}</>; })()}</span></span>
         {/* Trailing controls wrap as one group, so settings never ends up alone on a row. */}
         <span className="top-actions">
           {screen.name === 'penn' ? (
@@ -1168,6 +1173,9 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="small muted">{t.live.motionNote}</p>
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
+      <h2>{t.slogans.title}</h2>
+      <div className="choice-list" role="group" aria-label={t.slogans.title}>{opt('rotateSlogans', false, t.slogans.fixed)}{opt('rotateSlogans', true, t.slogans.rotate)}</div>
+      <p className="small muted">{t.slogans.note}</p>
       <h2>{t.skin}</h2>
       <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
       <p className="muted small">{t.skinNote}</p>
