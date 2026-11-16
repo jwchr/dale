@@ -33,4 +33,4 @@ Reuse the existing Worker, one global upstream snapshot/pacing and current cache
 
 ## Remaining acceptance
 
-Full local verification, exact-head green CI, independent review, separate non-author merge, backend/site publication and actual normal-flow verification remain separate gates. Synthetic browser fixtures prove rendering/state handling, not current NJ Transit timing accuracy. Physical phones, outdoor contrast, real transfers and real rides require owner acceptance.
+Review and merge roles follow [CLAUDE.md → How we work](../CLAUDE.md#how-we-work-owner-approved-2026-11-11-same-text-in-every-app) and [the current review policy](REVIEW_POLICY.md) (D66), which supersede the separate non-author merger described when this audit was written. Full local verification, exact-head green CI, independent review, backend/site publication and actual normal-flow verification remain separate gates. This historical audit grants no deployment or live-service authorization. Synthetic browser fixtures prove rendering/state handling, not current NJ Transit timing accuracy. Physical phones, outdoor contrast, real transfers and real rides require owner acceptance.

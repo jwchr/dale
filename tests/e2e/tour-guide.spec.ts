@@ -28,25 +28,36 @@ for (const lang of ['en', 'es'] as const) test(`manual Tour guide has sourced lo
   await guide.locator('summary').focus(); await page.keyboard.press('Enter');
   await expect(guide).toHaveAttribute('open', '');
   await expect(guide.getByRole('heading', { name: t.tour.title, exact: true })).toBeVisible();
-  await expect(guide.getByRole('article')).toHaveCount(3);
+  await expect(guide.getByRole('article')).toHaveCount(5);
   const catalog = guide.getByRole('list');
   await expect(catalog).toHaveAttribute('role', 'list'); // Explicit Safari fallback for markerless grid lists.
-  await expect(catalog.getByRole('listitem')).toHaveCount(3);
+  await expect(catalog.getByRole('listitem')).toHaveCount(5);
   const first = guide.getByRole('article').first();
   await expect(first).toContainText(lang === 'en' ? 'militia training' : 'entrenamiento de milicias');
   await expect(guide).toContainText('42 Court Street');
   await expect(guide).toContainText('10 Main Street');
   await expect(guide).toContainText('Richard Varick');
+  const library = guide.getByRole('article').filter({ has: page.getByRole('heading', { name: lang === 'en' ? 'Johnson Public Library' : 'Biblioteca Pública Johnson', exact: true }) });
+  await expect(library).toContainText('274 Main Street');
+  await expect(library).toContainText('1901');
+  await expect(library).toContainText(lang === 'en' ? 'parchment-and-quill' : 'pergamino y una pluma');
+  await expect(library.getByRole('link')).toHaveAttribute('href', 'https://www.johnsonlib.org/history');
+  const arts = guide.getByRole('article').filter({ has: page.getByRole('heading', { name: lang === 'en' ? 'Hackensack Performing Arts Center' : 'Centro de Artes Escénicas de Hackensack', exact: true }) });
+  await expect(arts).toContainText('102 State Street');
+  await expect(arts).toContainText(lang === 'en' ? 'Masonic' : 'masónico');
+  await expect(arts.getByRole('link')).toHaveAttribute('href', 'https://www.dmrarchitects.com/projects/public/hackensack-pac/');
+  await expect(library).toContainText(lang === 'en' ? 'Nov 15, 2026' : '15 nov 2026');
+  await expect(arts).toContainText(lang === 'en' ? 'Nov 15, 2026' : '15 nov 2026');
   const links = guide.getByRole('link');
-  await expect(links).toHaveCount(3);
+  await expect(links).toHaveCount(5);
   for (const link of await links.all()) {
-    expect(await link.getAttribute('href')).toMatch(/^https:\/\/(bergencountynj\.gov|npgallery\.nps\.gov)\//);
+    expect(await link.getAttribute('href')).toMatch(/^https:\/\/(bergencountynj\.gov|npgallery\.nps\.gov|www\.johnsonlib\.org|www\.dmrarchitects\.com)\//);
     await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     await expect(link).toHaveAttribute('target', '_blank');
   }
   await links.first().focus(); await expect(links.first()).toBeFocused();
   expect((await new AxeBuilder({ page }).include('.tour-guide').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-  await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `test-results/tour-guide-${lang}.png`, fullPage: true });
   await guide.locator('summary').focus(); await page.keyboard.press('Space');
@@ -67,5 +78,5 @@ test('manual history is available before saving a favorite', async ({ page }) =>
   await page.goto('/?live=1');
   await page.locator('.tour-guide summary').click();
   await expect(page.getByRole('heading', { name: strings.en.tour.title, exact: true })).toBeVisible();
-  await expect(page.locator('.tour-card')).toHaveCount(3);
+  await expect(page.locator('.tour-card')).toHaveCount(5);
 });
