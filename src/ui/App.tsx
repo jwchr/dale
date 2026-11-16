@@ -46,6 +46,7 @@ import { liveApiUrl } from '../domain/liveBus';
 import { loadLiveSchedule } from '../data/liveSchedule';
 import { useLiveBus } from './useLiveBus';
 import { LiveBusStatus } from './LiveBusStatus';
+import { MyBusFallback } from './MyBusFallback';
 import { useLiveDepartures } from './useLiveDepartures';
 import { departureEvidence, departureKey, requestFor, type DepartureEvidence } from '../domain/liveDepartures';
 import { upcomingCandidates, selectUpcoming, type UpcomingSet } from '../domain/upcoming';
@@ -240,7 +241,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
         {liveMode && <p><a className="link" href={sourceHref(false)}>{t.live.backup}</a></p>}
         <div className="warn">
           <p role={status === 'error' ? 'alert' : 'status'}>{status === 'error' ? t.loadFailed : status === 'ready' ? t.scheduleReady : t.loading}</p>
-          {status === 'error' && <button className="primary" onClick={onRetry}>{t.retry}</button>}
+          {status === 'error' && <><button className="primary" onClick={onRetry}>{t.retry}</button><MyBusFallback lang={settings.lang} /></>}
           {status === 'ready' && <button className="primary" onClick={onBack}>{t.returnToSchedule}</button>}
         </div>
         {!guide && <section className="card"><h1>{t.offlineHelp}</h1><p>{t.offlineHelpNote}</p>
@@ -403,7 +404,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             {t.busLock.resume} · {activeLock.dep.route.shortName} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
           </button>
         </aside>}
-        {liveBus && activeLock && lockOnScreen && <LiveBusStatus state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
+        {liveBus && activeLock && lockOnScreen && <LiveBusStatus ds={ds} state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
