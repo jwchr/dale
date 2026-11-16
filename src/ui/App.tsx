@@ -184,7 +184,16 @@ function useDataset(): [DatasetState, () => void] {
 function useSettings() {
   const [settings, setSettings] = useState<Settings>(readSettings);
   useEffect(() => {
-    try { store?.setItem('arriba.settings.v1', JSON.stringify(settings)); } catch { /* ignore */ }
+    // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
+    const sync = (event: StorageEvent) => { if (event.key === 'arriba.settings.v1') setSettings(readSettings()); };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+  useEffect(() => {
+    try {
+      const value = JSON.stringify(settings);
+      if (store?.getItem('arriba.settings.v1') !== value) store?.setItem('arriba.settings.v1', value);
+    } catch { /* ignore */ }
     document.documentElement.lang = settings.lang;
     if (settings.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = settings.theme;
