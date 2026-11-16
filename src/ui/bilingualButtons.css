@@ -1,0 +1,16 @@
+.bilingual-button-label { display: inline-flex; flex-direction: column; align-items: center; gap: .15em; min-inline-size: 0; max-inline-size: 100%; white-space: normal; overflow-wrap: normal; }
+.bilingual-button-label > small { font-size: max(.75em, .75rem); font-weight: 500; line-height: 1.25; }
+.bilingual-buttons .commute-controls { display: flex; flex-wrap: wrap; }
+.bilingual-buttons .lock-heading, .bilingual-buttons .ride-top { flex-wrap: wrap; }
+.bilingual-buttons .lock-heading > button, .bilingual-buttons .ride-top > button { max-inline-size: 100%; }
+/* Full-screen ride content is portaled to body, outside the app's class. */
+.ride-mode[data-bilingual='true'] .ride-top { flex-wrap: wrap; }
+.ride-mode[data-bilingual='true'] .ride-top > button { max-inline-size: 100%; }
+.ride-mode[data-bilingual='true'] .ride-top > h3 { min-inline-size: 0; max-inline-size: 100%; overflow-wrap: anywhere; }
+/* Opt-in labels keep whole words; the buttons wrap to another row when they need room. */
+.bilingual-buttons .commute-controls > button.chip { min-block-size: 44px; flex: 1 1 8rem; min-inline-size: min-content; max-inline-size: 100%; }
+.bilingual-buttons .home-toolbar > .travel-mode { flex: 1 1 12rem; min-inline-size: 0; max-inline-size: 100%; }
+.bilingual-buttons .home-toolbar .travel-mode button { min-inline-size: min-content; flex: 1 1 6rem; }
+.bilingual-buttons .home-toolbar > .find-stop { flex: 1 1 8rem; min-inline-size: min-content; }
+.bilingual-buttons .travel-mode { flex-wrap: wrap; }
+.bilingual-buttons .travel-mode button { min-inline-size: min-content; flex: 1 1 6rem; }

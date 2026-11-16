@@ -1,3 +1,4 @@
+import { bilingualButtonStrings } from './bilingualButtonStrings';
 import { openingSloganStrings } from './openingSloganStrings';
 import { commuteChangeStrings } from './commuteChangeStrings';
 import { routeDistanceStrings } from './routeDistanceStrings';
@@ -23,6 +24,7 @@ const stop_ = (name: string) => (name.endsWith('.') ? name : `${name}.`);
 const tidy = (text: string) => text.replace(/\.\.(?=\s|$)/g, '.');
 
 const en = {
+  bilingualButtons: bilingualButtonStrings.en,
   homePhoto: homePhotoStrings.en,
   slogans: openingSloganStrings.en,
   commuteChanges: commuteChangeStrings.en,
@@ -624,6 +626,7 @@ const en = {
 export type Strings = typeof en;
 
 const es: Strings = {
+  bilingualButtons: bilingualButtonStrings.es,
   homePhoto: homePhotoStrings.es,
   slogans: openingSloganStrings.es,
   commuteChanges: commuteChangeStrings.es,

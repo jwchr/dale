@@ -1,3 +1,4 @@
+import { BilingualButtons, ButtonLabel } from './BilingualButtons';
 import { HomePhotoProvider, HomePhotoSettings } from './HomePhoto';
 import { chooseOpeningSlogan } from '../domain/openingSlogan';
 import { useCommuteChanges } from './useCommuteChanges';
@@ -56,7 +57,7 @@ import { LastReturnCard } from './LastReturnCard';
 import { PastReports } from './PastReports';
 
 type Theme = 'system' | 'light' | 'dark';
-interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean; rotateSlogans: boolean }
+interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean; bilingualButtons: boolean; rotateSlogans: boolean }
 interface Leg { fromStopId: string; toStopId: string; routeIds: string[] }
 interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
@@ -101,8 +102,8 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { rotateSlogans: s.rotateSlogans === true, lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true, rotateSlogans: false }; }
+    return { bilingualButtons: s.bilingualButtons === true, rotateSlogans: s.rotateSlogans === true, lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true, bilingualButtons: false, rotateSlogans: false }; }
 };
 
 // One choice per page lifetime, shared by loading/retry/navigation mounts. No timers or visibility handlers.
@@ -183,7 +184,16 @@ function useDataset(): [DatasetState, () => void] {
 function useSettings() {
   const [settings, setSettings] = useState<Settings>(readSettings);
   useEffect(() => {
-    try { store?.setItem('arriba.settings.v1', JSON.stringify(settings)); } catch { /* ignore */ }
+    // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
+    const sync = (event: StorageEvent) => { if (event.key === 'arriba.settings.v1') setSettings(readSettings()); };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+  useEffect(() => {
+    try {
+      const value = JSON.stringify(settings);
+      if (store?.getItem('arriba.settings.v1') !== value) store?.setItem('arriba.settings.v1', value);
+    } catch { /* ignore */ }
     document.documentElement.lang = settings.lang;
     if (settings.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = settings.theme;
@@ -234,7 +244,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
     lastGuide.current = guide;
   }, [guide]);
   return (
-    <div className="app">
+    <BilingualButtons enabled={settings.bilingualButtons} lang={settings.lang}><div className={`app${settings.bilingualButtons ? ' bilingual-buttons' : ''}`}>
       <SkinBackdrop skin={settings.skin} />
       <AppHeader rail={guide === 'penn'}>
         {guide && guide !== 'penn' && <button className="icon-btn" aria-label={t.back} onClick={onBack}>‹</button>}
@@ -251,8 +261,8 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
         {liveMode && <p><a className="link" href={sourceHref(false)}>{t.live.backup}</a></p>}
         <div className="warn">
           <p role={status === 'error' ? 'alert' : 'status'}>{status === 'error' ? t.loadFailed : status === 'ready' ? t.scheduleReady : t.loading}</p>
-          {status === 'error' && <><button className="primary" onClick={onRetry}>{t.retry}</button><MyBusFallback lang={settings.lang} /></>}
-          {status === 'ready' && <button className="primary" onClick={onBack}>{t.returnToSchedule}</button>}
+          {status === 'error' && <><button className="primary" onClick={onRetry}><ButtonLabel translate={other => other.retry}>{t.retry}</ButtonLabel></button><MyBusFallback lang={settings.lang} /></>}
+          {status === 'ready' && <button className="primary" onClick={onBack}><ButtonLabel translate={other => other.returnToSchedule}>{t.returnToSchedule}</ButtonLabel></button>}
         </div>
         {!guide && <section className="card"><h1>{t.offlineHelp}</h1><p>{t.offlineHelpNote}</p>
           <div className="choice-list">
@@ -262,7 +272,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
         {guide === 'guide' && <RiderGuide t={t} />}
         {guide === 'penn' && <PennGuide t={t} model={journey} railOnly />}
       </main>
-    </div>
+    </div></BilingualButtons>
   );
 }
 
@@ -378,7 +388,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const ctx: Ctx = { ds, tz, now, t, lang: settings.lang, stopName, fromCache, savedAt };
 
   return (
-    <div className="app">
+    <BilingualButtons enabled={settings.bilingualButtons} lang={settings.lang}><div className={`app${settings.bilingualButtons ? ' bilingual-buttons' : ''}`}>
       <SkinBackdrop skin={settings.skin} />
       <AppHeader rail={screen.name === 'penn'}>
         {screen.name !== 'home' && screen.name !== 'penn' && <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>}
@@ -401,7 +411,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
           mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
             if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
             else if (screen.name === 'penn') back();
-          }} /><button className="find-stop" onClick={() => setScreen({ name: 'search' })}>{t.findStop}</button></div>}
+          }} /><button className="find-stop" onClick={() => setScreen({ name: 'search' })}><ButtonLabel translate={other => other.findStop}>{t.findStop}</ButtonLabel></button></div>}
         {resumable && !activeLock && <aside className="lock-return" role="note">
           <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
@@ -486,7 +496,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         <p>{dataNotice(ds, t)}</p>
         <p className="version-line">{versionLine(t, settings.lang, tz)}</p>
       </footer>
-    </div>
+    </div></BilingualButtons>
   );
 }
 
@@ -773,8 +783,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
         {/* One compact row of actions, so the next buses sit right under the signs. */}
         {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
           actions={trigger => <div className="commute-controls">
-            {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span>{t.leave.set}</button>}
-            <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</button>
+            {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span><ButtonLabel translate={other => other.leave.set}>{t.leave.set}</ButtonLabel></button>}
+            <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></button>
             {trigger}
           </div>} /> : null}
       </div>
@@ -1103,7 +1113,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
       </div>
 
       {!busSession && <div className="card">
-        {anotherLock ? <p className="small">{t.busLock.anotherLock}</p> : <button className="primary wide" onClick={onLock}>{t.lockBus}</button>}
+        {anotherLock ? <p className="small">{t.busLock.anotherLock}</p> : <button className="primary wide" onClick={onLock}><ButtonLabel translate={other => other.lockBus}>{t.lockBus}</ButtonLabel></button>}
       </div>}
 
       <LastReturnCard ds={ds} outbound={dep} toStopId={leg.toStopId} t={t} lang={ctx.lang} now={ctx.now} onOpen={onReturn} />
@@ -1178,6 +1188,9 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <p className="small muted">{t.live.motionNote}</p>
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
+      <h2>{t.bilingualButtons.title}</h2>
+      <div className="choice-list" role="group" aria-label={t.bilingualButtons.title}>{opt('bilingualButtons', false, t.bilingualButtons.off)}{opt('bilingualButtons', true, t.bilingualButtons.on)}</div>
+      <p className="small muted">{t.bilingualButtons.note}</p>
       <h2>{t.slogans.title}</h2>
       <div className="choice-list" role="group" aria-label={t.slogans.title}>{opt('rotateSlogans', false, t.slogans.fixed)}{opt('rotateSlogans', true, t.slogans.rotate)}</div>
       <p className="small muted">{t.slogans.note}</p>
