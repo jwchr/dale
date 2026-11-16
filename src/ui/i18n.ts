@@ -1,5 +1,8 @@
 import { bilingualButtonStrings } from './bilingualButtonStrings';
+import { openingSloganStrings } from './openingSloganStrings';
+import { commuteChangeStrings } from './commuteChangeStrings';
 import { routeDistanceStrings } from './routeDistanceStrings';
+import { homePhotoStrings } from './homePhotoStrings';
 import { cityPickerStrings } from './cityPickerStrings';
 import { mapStrings } from './mapStrings';
 import { arrivalStrings } from './arrivalStrings';
@@ -22,6 +25,9 @@ const tidy = (text: string) => text.replace(/\.\.(?=\s|$)/g, '.');
 
 const en = {
   bilingualButtons: bilingualButtonStrings.en,
+  homePhoto: homePhotoStrings.en,
+  slogans: openingSloganStrings.en,
+  commuteChanges: commuteChangeStrings.en,
   distance: routeDistanceStrings.en,
   cityPicker: cityPickerStrings.en,
   live: liveStrings.en,
@@ -621,6 +627,9 @@ export type Strings = typeof en;
 
 const es: Strings = {
   bilingualButtons: bilingualButtonStrings.es,
+  homePhoto: homePhotoStrings.es,
+  slogans: openingSloganStrings.es,
+  commuteChanges: commuteChangeStrings.es,
   distance: routeDistanceStrings.es,
   cityPicker: cityPickerStrings.es,
   live: liveStrings.es,
