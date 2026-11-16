@@ -1,3 +1,4 @@
+import { ButtonLabel } from './BilingualButtons';
 import { useRouteGeometry } from './useRouteGeometry';
 import { RouteDistance } from './RouteDistance';
 import { reportedRouteDistance } from '../domain/routeDistance';
@@ -108,7 +109,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
     <section className="card bus-lock" aria-labelledby="bus-lock-heading">
       <div className="row-between lock-heading">
         <h2 id="bus-lock-heading" tabIndex={-1} ref={heading}>{b.title}</h2>
-        <button className="ghost" onClick={onUnlock}>{t.unlockBus}</button>
+        <button className="ghost" onClick={onUnlock}><ButtonLabel translate={other => other.unlockBus}>{t.unlockBus}</ButtonLabel></button>
       </div>
       <p className="lock-route">{dep.pattern.headsign}</p>
       <p className="small">{b.schedule(dateText, `${dep.estimated ? '~' : ''}${clock(dep.departs)}`, stopName(dep.pattern.stopIds[dep.stopIndex]!))}</p>
@@ -129,13 +130,13 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
         {session.waitingSince !== undefined && <p className="small">{b.waitSince(clock(session.waitingSince))}</p>}
         {waiting && !passed && now >= dep.departs && <p className="warn small">{b.due(minutesPast)}</p>}
         {waiting && session.waitingSince !== undefined && session.waitingSince > dep.departs && <p className="small">{b.lateStart}</p>}
-        {session.phase === 'viewing' && lock.status !== 'cancelled' && <button className="primary wide" onClick={() => record('start_waiting')}>{b.begin}</button>}
+        {session.phase === 'viewing' && lock.status !== 'cancelled' && <button className="primary wide" onClick={() => record('start_waiting')}><ButtonLabel translate={other => other.busLock.begin}>{b.begin}</ButtonLabel></button>}
         {waiting && <>
           <div className="lock-actions">
-            <button className="primary" disabled={passed || now < dep.departs} onClick={() => record('no_bus')}>{b.noBus}</button>
-            <button onClick={() => record('arrived')}>{b.arrived}</button>
-            <button onClick={() => record('passed_without_stopping')}>{b.passed}</button>
-            <button onClick={() => record('left')}>{b.left}</button>
+            <button className="primary" disabled={passed || now < dep.departs} onClick={() => record('no_bus')}><ButtonLabel translate={other => other.busLock.noBus}>{b.noBus}</ButtonLabel></button>
+            <button onClick={() => record('arrived')}><ButtonLabel translate={other => other.busLock.arrived}>{b.arrived}</ButtonLabel></button>
+            <button onClick={() => record('passed_without_stopping')}><ButtonLabel translate={other => other.busLock.passed}>{b.passed}</ButtonLabel></button>
+            <button onClick={() => record('left')}><ButtonLabel translate={other => other.busLock.left}>{b.left}</ButtonLabel></button>
           </div>
           {passed && <p className="warn small">{b.passedHelp}</p>}
           <BackupDeadlines ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} gateText={gateText} badge={badge} onOpen={onOpenBackup} />
@@ -147,8 +148,8 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
         </>}
         {/* After NJ Transit cancels the trip the waiting controls go, but the backups are what matter. */}
         {session.phase === 'waiting' && lock.status === 'cancelled' && <BackupDeadlines ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} gateText={gateText} badge={badge} onOpen={onOpenBackup} />}
-        {session.phase === 'arrived' && <div className="lock-actions"><button className="primary" onClick={() => record('boarded')}>{b.boarded}</button><button onClick={() => record('left')}>{b.left}</button></div>}
-        {session.phase === 'onboard' && <><RideMode routeDistance={routeDistance} ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} onAdvanceDemo={onAdvanceDemo} gateText={gateText} badge={badge} onOpenTrip={onOpenBackup} /><p className="small">{b.ridePrivacy}</p><button onClick={() => record('end')}>{b.stopRide}</button></>}
+        {session.phase === 'arrived' && <div className="lock-actions"><button className="primary" onClick={() => record('boarded')}><ButtonLabel translate={other => other.busLock.boarded}>{b.boarded}</ButtonLabel></button><button onClick={() => record('left')}><ButtonLabel translate={other => other.busLock.left}>{b.left}</ButtonLabel></button></div>}
+        {session.phase === 'onboard' && <><RideMode routeDistance={routeDistance} ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} onEvent={onEvent} onAdvanceDemo={onAdvanceDemo} gateText={gateText} badge={badge} onOpenTrip={onOpenBackup} /><p className="small">{b.ridePrivacy}</p><button onClick={() => record('end')}><ButtonLabel translate={other => other.busLock.stopRide}>{b.stopRide}</ButtonLabel></button></>}
         {/* On board, ride mode carries its own share button (it may fill the screen). */}
         {session.phase !== 'onboard' && <ShareUpdate ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} />}
         {canReportCapacity && <div className="lock-capacity">

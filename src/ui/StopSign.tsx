@@ -1,3 +1,4 @@
+import { ButtonLabel } from './BilingualButtons';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
 import {
@@ -51,7 +52,7 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
   const photo = scene && !failed;
   return <>
-    {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}>{s.open}</button>)}
+    {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}><ButtonLabel translate={other => other.stopSign.open}>{s.open}</ButtonLabel></button>)}
     <section id={`${id}-panel`} className="stop-sign" hidden={!open} aria-label={s.title}>
     {open && <div className="stop-sign-content">
       <h3>{s.title}</h3>

@@ -1,0 +1,11 @@
+# Optional opening slogans (#106)
+
+Settings → Opening slogan offers the current slogan (default) or a new choice at each fresh start. This is only the slogan slice of #106; learning assistance and personal photos remain separate.
+
+The eight English candidates from the owner are preserved verbatim, with Spanish equivalents. The existing canonical slogan is also in the optional pool. Dale's name, exclamation, branding, layout, version and update time keep their existing presentation. No generated/editorial replacement is introduced.
+
+A fresh start means a new page load: browser reload, or reopening the installed app when its page was discarded. Returning from another app, navigating screens, retrying schedule loading, clock updates and changing language retain the same choice. The selected phrase translates to the same candidate when switching languages. Preference changes take effect on the next fresh start, including switching back to the canonical slogan. There is no timer, animation, visibility-triggered rotation or added delay before departures. Keeping the current slogan is the no-rotation choice; reduced-motion users get the same static behavior.
+
+Only an opted-in fresh start reads/writes `arriba.openingSlogan.v1`, an integer for the last public slogan. A readable valid last choice is excluded from the next draw. Missing/corrupt/refused storage does not prevent opening Dale; the choice lasts for that page even if it cannot be remembered. The existing settings key holds only the new boolean alongside current preferences. Saved commutes, bus locks, history and schedule data are not read or modified by this feature.
+
+Verification uses synthetic local preferences and printed-fixture commutes. Unit tests cover every previous choice, malformed indexes, refused storage/randomness and the exact owner texts. Browser tests cover opt-in/default/off persistence, next-load activation, one choice across navigation/language/background-return, non-repetition, unchanged favorites, English/Spanish, all five styles, 305 px / 200% text, keyboard, reduced-motion mode and axe checks. Local/CI tests do not establish physical phone or public-release acceptance. Nothing in this change authorizes a merge or deployment.

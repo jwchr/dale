@@ -49,4 +49,30 @@ export const tourPlaces: readonly TourPlace[] = [
       url: 'https://npgallery.nps.gov/GetAsset/0c05460d-9030-4c0d-9dd2-2ff0643ad6d5#page=10', checkedAt: '2026-11-07',
     },
   },
+  {
+    id: 'johnson-public-library', town: 'Hackensack',
+    name: { en: 'Johnson Public Library', es: 'Biblioteca Pública Johnson' },
+    location: { en: '274 Main Street', es: '274 Main Street' },
+    fact: {
+      en: 'The library opened in 1901. Its original building was made from brown Belleville stone, and a custom parchment-and-quill weather vane was designed for it.',
+      es: 'La biblioteca abrió en 1901. Su edificio original se construyó con piedra marrón de Belleville y se diseñó para él una veleta con un pergamino y una pluma de escribir.',
+    },
+    source: {
+      title: { en: 'Johnson Public Library · History', es: 'Biblioteca Pública Johnson · Historia' },
+      url: 'https://www.johnsonlib.org/history', checkedAt: '2026-11-15',
+    },
+  },
+  {
+    id: 'hackensack-performing-arts', town: 'Hackensack',
+    name: { en: 'Hackensack Performing Arts Center', es: 'Centro de Artes Escénicas de Hackensack' },
+    location: { en: '102 State Street', es: '102 State Street' },
+    fact: {
+      en: 'This arts center occupies a former Masonic meeting place. Its renovation created a theater upstairs and gallery space downstairs while keeping the character of the old building.',
+      es: 'Este centro de artes fue antes un lugar de reunión masónico. La renovación creó un teatro en la planta superior y una galería abajo, conservando el carácter del edificio antiguo.',
+    },
+    source: {
+      title: { en: 'DMR Architects · Performing Arts Center project', es: 'DMR Architects · Proyecto del centro de artes escénicas' },
+      url: 'https://www.dmrarchitects.com/projects/public/hackensack-pac/', checkedAt: '2026-11-15',
+    },
+  },
 ];
