@@ -109,7 +109,7 @@ describe('photographed stop sign (D69)', () => {
     expect(lines.filter(l => l.yours).map(l => l.text)).toEqual(['109 To New York']);
     expect(lines.at(-1)).toEqual({ route: '', text: '+4 more', yours: false });
   });
-  it('highlights inside the ruled row', () => {
+  it('highlights the ruled row with room around the lettering', () => {
     const band = signRowBand(2), row = signRowPlacement(2);
     expect(band).toHaveLength(4);
     expect(band[0]![1]).toBeLessThan(row.y);

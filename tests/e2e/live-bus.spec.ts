@@ -273,6 +273,9 @@ test('onboard fresh GPS stays observed, highlights current not upcoming stop, an
  await expect(ride.locator('.progress-source')).toContainText("From the bus's GPS");
  await expect(ride.getByTestId('signal-warning')).toHaveCount(0);
  await strip.screenshot({path:'test-results/observed-gps-current-stop.png'});
+ // Street map, Transit map and Line diagram share one row (owner, #155).
+ const tops = await ride.locator('.map-views [role="group"] .chip').evaluateAll(nodes => nodes.map(n => Math.round(n.getBoundingClientRect().top)));
+ expect(tops).toHaveLength(3); expect(new Set(tops).size).toBe(1);
  await ride.getByRole('button',{name:'Line diagram',exact:true}).click();
  await expect(ride.locator('.line-bus-between')).toHaveCount(1);
  await expect(ride.locator('.line-stations [data-current="true"]')).toHaveCount(0);

@@ -183,14 +183,22 @@ function useDataset(): [DatasetState, () => void] {
 /** Shared appearance/language preferences also apply before schedule data is available. */
 function useSettings() {
   const [settings, setSettings] = useState<Settings>(readSettings);
+  // Settings adopted from another tab are shown but never written back: that tab already
+  // saved them, and it may have saved something newer since. Only this tab's own changes persist.
+  const adopted = useRef(new WeakSet<Settings>());
   useEffect(() => {
     // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
-    const sync = (event: StorageEvent) => { if (event.key === 'arriba.settings.v1') setSettings(readSettings()); };
+    const sync = (event: StorageEvent) => {
+      if (event.key !== 'arriba.settings.v1') return;
+      const next = readSettings();
+      adopted.current.add(next);
+      setSettings(next);
+    };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
-    try {
+    if (!adopted.current.has(settings)) try {
       const value = JSON.stringify(settings);
       if (store?.getItem('arriba.settings.v1') !== value) store?.setItem('arriba.settings.v1', value);
     } catch { /* ignore */ }
@@ -808,7 +816,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
                 const reason = live && homeArrivalReason(ctx, d, live);
                 const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
                 return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
-                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
+                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''} ${i % 2 === 0 ? 'dep-alt' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
                     <span className="dep-route"><RouteBadge ds={ds} routeId={d.route.id} />
                       <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
                     </span>
@@ -961,12 +969,13 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
     if (submitted.current) return; submitted.current = true;
     onSave({ id: `${stop.id}>${dest}`, label: `${stopName(stop.id)} → ${stopName(dest)}`, fromStopId: stop.id, toStopId: dest, routeIds: [] });
   }}>
-    <h1>{stop.name}</h1><p>{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}</p>
-    <button type="button" className="link" onClick={() => { setStop(undefined); setDest(undefined); }}>{t.selection.change}</button>
+    <h1>{stop.name}</h1>
+    {/* Stop number and the change link share one line, wrapping only when there is no room (owner, #155). */}
+    <div className="stop-number-row"><p>{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}</p>
+      <button type="button" className="link" onClick={() => { setStop(undefined); setDest(undefined); }}>{t.selection.change}</button></div>
     {info && info.headsigns.length > 0 && <><p>{t.busesHereGoTo}:</p><ul className="route-descriptions">{info.headsigns.map(text => <li key={text}>{text}</li>)}</ul></>}
     <h2 ref={destinationHeading} tabIndex={-1}>{t.whereTo}</h2>
     {dest && <p className="selected-destination"><strong>{t.selection.selected}:</strong> {stopName(dest)}</p>}
-    {saveButton()}
     {saveError && <p className="warn" role="alert">{check && !check.ok ? t.notServed : t.selection.choose}</p>}
     {groups.terminal.length > 0 && <div className="pinned-destinations"><h3>{t.commutePabt}</h3><div className="choice-list">{groups.terminal.map(destination)}</div></div>}
     {groups.cities.length > 0 && <fieldset className="destination-cities"><legend>{t.selection.cities}</legend>{groups.cities.map(group => <details key={group.city || 'unknown'}>
@@ -975,6 +984,7 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
     {!stop.terminal && !destinations.some(s => s.terminal) && <p className="warn small" role="note">{t.noTerminalFromHere}</p>}
     {check && !check.ok && check.reason === 'wrong-side' && <div className="warn" role="alert"><p>{check.distanceM === undefined ? t.wrongSideNoDistance(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`) : t.wrongSide(`${check.useStop.name}${check.useStop.code ? ' · ' + t.selection.stopNumber(check.useStop.code) : ''}`, check.distanceM)}</p><button type="button" className="primary" onClick={() => pick(check.useStop)}>{t.useThatStop}</button></div>}
     {check && !check.ok && check.reason === 'not-served' && <div className="warn" role="alert">{t.notServed}</div>}
+    {/* One Save trip, pinned to the bottom of the screen while the destinations scroll (owner, #155). */}
     {saveButton()}
   </form>;
 }
