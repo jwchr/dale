@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import rambleNightUrl from '../assets/ramble-night.webp';
+import { useHomePhoto } from './HomePhoto';
 // Background scenes for Dale's styles (owner request 2026-11-04, D46). Owner-authorized photos
 // and original fallback artwork only: no
 // official shields, logos or sign designs of the NJ Turnpike Authority, the Garden State Parkway,
@@ -10,10 +11,11 @@ export const SKINS: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', '
 const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-september-sunset';
 
 export function SkinBackdrop({ skin }: { skin: Skin }) {
+  const personal = useHomePhoto()?.url;
   // NYC uses the owner-supplied night photo; other skins retain their one choice per opening.
   // Only the selected asset is requested; no remote image service or photo rotation.
-  const photo = skin === 'nyc' ? 'ramble-night' : OPENING_PHOTO;
-  const url = skin === 'nyc' ? rambleNightUrl : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`;
+  const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : OPENING_PHOTO;
+  const url = personal ?? (skin === 'nyc' ? rambleNightUrl : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`);
   const [readyUrl, setReadyUrl] = useState<string>();
   // Readiness belongs to this URL: a late prior-style load must never paint the wrong photo.
   const ready = readyUrl === url;

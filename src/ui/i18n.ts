@@ -1,6 +1,7 @@
 import { openingSloganStrings } from './openingSloganStrings';
 import { commuteChangeStrings } from './commuteChangeStrings';
 import { routeDistanceStrings } from './routeDistanceStrings';
+import { homePhotoStrings } from './homePhotoStrings';
 import { cityPickerStrings } from './cityPickerStrings';
 import { mapStrings } from './mapStrings';
 import { arrivalStrings } from './arrivalStrings';
@@ -22,6 +23,7 @@ const stop_ = (name: string) => (name.endsWith('.') ? name : `${name}.`);
 const tidy = (text: string) => text.replace(/\.\.(?=\s|$)/g, '.');
 
 const en = {
+  homePhoto: homePhotoStrings.en,
   slogans: openingSloganStrings.en,
   commuteChanges: commuteChangeStrings.en,
   distance: routeDistanceStrings.en,
@@ -622,6 +624,7 @@ const en = {
 export type Strings = typeof en;
 
 const es: Strings = {
+  homePhoto: homePhotoStrings.es,
   slogans: openingSloganStrings.es,
   commuteChanges: commuteChangeStrings.es,
   distance: routeDistanceStrings.es,

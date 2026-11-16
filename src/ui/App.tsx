@@ -1,3 +1,4 @@
+import { HomePhotoProvider, HomePhotoSettings } from './HomePhoto';
 import { chooseOpeningSlogan } from '../domain/openingSlogan';
 import { useCommuteChanges } from './useCommuteChanges';
 import { CommuteChanges } from './CommuteChanges';
@@ -194,6 +195,10 @@ function useSettings() {
 
 type AvailableGuide = 'guide' | 'penn';
 export function App() {
+  return <HomePhotoProvider><AppContent /></HomePhotoProvider>;
+}
+
+function AppContent() {
   const [data, retry] = useDataset();
   const [guide, setGuide] = useState<AvailableGuide | undefined>();
   const journey = useJourneyChecklist(sourceParams.has('demo') || (data.status === 'ready' && !!data.ds.meta.demo));
@@ -1179,6 +1184,7 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <h2>{t.skin}</h2>
       <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
       <p className="muted small">{t.skinNote}</p>
+      <HomePhotoSettings t={t} />
       <h2>{t.theme}</h2>
       <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
       {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
