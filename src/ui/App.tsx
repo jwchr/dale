@@ -975,7 +975,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
       .format(new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8))));
   return (
     <section>
-      <h1>{t.timetableTitle}</h1>
+      <h1><SignText text={t.timetableTitle} /></h1>
       <p className="leg">{title}</p>
       <div className="choice-list" role="tablist">
         {days.map((d, i) => (
@@ -985,8 +985,9 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
       </div>
       {ds.meta.transcribed && isNjtHoliday(date) && <p className="warn small" role="note">{t.holidayOn}</p>}
       {dayClockChange && <p className="warn small" role="note">{dayClockChange === 'back' ? t.clockBackDay : t.clockAheadDay}</p>}
+      <div className="timetable-scroll" role="region" aria-label={t.timetableTitle} tabIndex={0}>
       <table className="timetable">
-        <thead><tr><th>{t.departs}</th><th>{t.route}</th><th>{t.arrives}</th></tr></thead>
+        <thead><tr><th scope="col">{t.departs}</th><th scope="col">{t.route}</th><th scope="col">{t.arrives}</th></tr></thead>
         <tbody>
           {rows.map(({ d, arr }) => (
             <tr key={d.tripInstanceId} className={d.departs < now ? 'past' : ''}>
@@ -997,6 +998,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
           ))}
         </tbody>
       </table>
+      </div>
       {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
       {!list.length && <p className="muted">{t.noBusesThisDay}</p>}
     </section>
