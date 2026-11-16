@@ -30,6 +30,10 @@ async function setup(page: Page, lang: 'en' | 'es', skin = 'clean', from = '2', 
   return { ds, favorites, t: strings[lang] };
 }
 const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!));
+async function auditPicker(page: Page, screen: string) {
+  const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  expect(violations.map(v => `${screen}: ${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(' | ')}`)).toEqual([]);
+}
 for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
   test(`city then stop, explicit save/cancel and readable controls (${skin}, ${lang})`, async ({ page }) => {
     const { favorites, t } = await setup(page, lang, skin), s = t.cityPicker;
@@ -39,6 +43,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const
     await expect(page.getByRole('heading', { name: `${t.commuteFrom}: ${s.city}`, exact: true })).toBeFocused();
     await expect(page.locator('.city-choice strong')).toHaveText(['Fort Lee', 'Hackensack', t.commuteNewYork]);
     await expect(page.locator('.stop-choice')).toHaveCount(0);
+    await auditPicker(page, `${skin}/${lang}/cities`);
     await page.keyboard.press('Tab');
     await expect(page.locator('.city-choice').first()).toBeFocused();
     await expect(page.getByRole('searchbox')).toHaveCount(0);
@@ -47,6 +52,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const
     await page.getByRole('button', { name: /^Hackensack/ }).tap();
     await expect(page.getByRole('searchbox')).toHaveCount(0);
     await expect(page.locator('.stop-choice')).toHaveCount(2);
+    await auditPicker(page, `${skin}/${lang}/stops`);
     await page.locator('.commute-picker').screenshot({ path: `test-results/city-stops-${skin}-${lang}.png` });
     const chosenStop = page.locator('.stop-choice').filter({ hasText: t.selection.stopNumber('30002') });
     await expect(chosenStop).toContainText('State Street at Lawrence Street');
@@ -77,7 +83,7 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const
       expect(geometry.saveHeight).toBeGreaterThanOrEqual(48);
       if (scale === 100 || scale === 200) await page.locator('.commute-picker').screenshot({ path: `test-results/city-review-${skin}-${lang}-${width}-${scale}.png` });
     }
-    if (skin === 'clean') expect((await new AxeBuilder({ page }).include('.commute-picker').withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([]);
+    await auditPicker(page, `${skin}/${lang}/review at 200%`);
     await page.getByRole('button', { name: t.selection.save, exact: true }).click();
     await expect(home.locator('[data-end="from"] .highway-name')).toHaveText('Fort Lee');
     expect(await stored(page)).toEqual([{ ...favorites[0], fromStopId: '1' }, favorites[1]]);

@@ -1,9 +1,11 @@
 import { chooseOpeningSlogan } from '../domain/openingSlogan';
+import { useCommuteChanges } from './useCommuteChanges';
+import { CommuteChanges } from './CommuteChanges';
 import { useDepartureDistances } from './useDepartureDistances';
 import { RouteDistance } from './RouteDistance';
 import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { AppHeader } from './AppHeader';
-import { changeFavoriteStops } from '../domain/cityStops';
+import { changeFavoriteStops, cityBoardingStops, cityStopGroups } from '../domain/cityStops';
 import { CommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
 import { useFitWords } from './useFitWords';
@@ -270,6 +272,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const lockNow = now + (ds.meta.demo ? demoAdvanceMs : 0);
   const [settings, setSettings] = useSettings();
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(store));
+  const commuteChanges = useCommuteChanges(LIVE_API, ds, favorites, now, fromCache, store);
   // Commutes saved with the printed timetable live under the unsuffixed key; read them only to offer the update.
   const [printedCommutes] = useState<string[]>(() => liveMode ? loadFavorites(rawStore).map(f => f.label) : []);
   // Dale cannot tell which printed commutes were re-added (different stop IDs), so the rider says when they are done.
@@ -416,6 +419,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
         )}
+        {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'home' && lastArrival && <details className="card last-arrival">
           <summary>{t.arrival.last}</summary><ArrivalResult value={lastArrival} t={t} lang={settings.lang} tz={tz} />
           <button type="button" onClick={() => { saveLastArrival(store, undefined); setLastArrival(undefined); }}>{t.arrival.dismiss}</button>
@@ -748,7 +752,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             </label>
           </div>
         ) : <>
-          {customName ? <div className="commute-sign"><h2 className="commute-led">{fav.label}</h2></div>
+          {customName ? <div className="commute-sign"><h2 className="commute-led"><SignText text={fav.label} /></h2></div>
             : <h2 className="sr-only">{fullLeg}</h2>}
           <div className="commute-places" ref={places}>
             <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
@@ -896,20 +900,40 @@ function LeavePlanForm({ ctx, plan, onDone }: { ctx: Ctx; plan?: LeavePlan; onDo
 }
 
 function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
-  const { ds, t, stopName } = ctx;
+  const { ds, t, lang, stopName } = ctx;
   const [q, setQ] = useState(''), [stop, setStop] = useState<Stop>(), [dest, setDest] = useState<string>();
+  const [city, setCity] = useState<string>();
+  const heading = useRef<HTMLHeadingElement>(null);
   const [saveError, setSaveError] = useState(false), submitted = useRef(false), destinationHeading = useRef<HTMLHeadingElement>(null);
-  const results = useMemo(() => searchStops(ds, q), [ds, q]);
+  const towns = useMemo(() => cityStopGroups(ds, cityBoardingStops(ds, []), lang), [ds, lang]);
+  const cityLabel = (name: string) => name === 'New York' ? t.commuteNewYork : name || t.selection.unknownCity;
+  const fold = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+  const visibleTowns = city === undefined ? towns.filter(town => fold(cityLabel(town.city)).includes(fold(q.trim()))) : [];
+  const results = useMemo(() => {
+    if (city === undefined) return searchStops(ds, q); // Keep direct stop-name/code search across all loaded stops.
+    const stops = towns.find(town => town.city === city)?.stops ?? [];
+    return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
+  }, [ds, q, city, towns]);
+  useEffect(() => { if (!stop) heading.current?.focus(); }, [city, stop]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
   const pick = (s: Stop) => { setStop(s); setSaveError(false); };
-  if (!stop) return <section>
-    <h1>{t.findStop}</h1>
-    <label className="sr-only" htmlFor="stop-search">{t.findStop}</label>
-    <input id="stop-search" name="stop-search" className="search" autoFocus type="search" value={q} placeholder={t.searchPlaceholder} autoCapitalize="off" spellCheck={false} onChange={e => setQ(e.currentTarget.value)} />
-    <ul className="results">{results.map(s => <li key={s.id}><StopChoice ds={ds} stop={s} t={t} onPick={pick} /></li>)}{q && !results.length && <li className="muted">{t.noResults}</li>}</ul>
-    {!q && <NearMe ds={ds} t={t} onPick={pick} />}
+  if (!stop) return <section className="find-stop-towns">
+    <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : <>{t.findStop}: <SignText text={cityLabel(city)} /></>}</h1>
+    {city !== undefined && <button type="button" className="link" onClick={() => { setCity(undefined); setQ(''); }}>{t.cityPicker.changeCity}</button>}
+    <search aria-label={t.findStop}>
+      <label htmlFor="stop-search">{city === undefined ? t.findStop : t.cityPicker.searchStop}</label>
+      <input id="stop-search" name="stop-search" className="search" type="search" value={q} placeholder={t.searchPlaceholder} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={e => setQ(e.currentTarget.value)} />
+      {visibleTowns.length > 0 && <><h2>{t.cityPicker.city}</h2><ul className="results city-stop-results">
+        {visibleTowns.map(town => <li key={town.city}><button type="button" className="city-choice" onClick={() => { setCity(town.city); setQ(''); }}><strong>{cityLabel(town.city)}</strong><span className="muted small">{town.stops.length}</span></button></li>)}
+      </ul></>}
+      {results.length > 0 && <>{city === undefined && <h2>{t.cityPicker.stop}</h2>}<ul className="results city-stop-results">
+        {results.map(s => <li key={s.id}><StopChoice ds={ds} stop={s} t={t} onPick={pick} /></li>)}
+      </ul></>}
+      {q && !results.length && !visibleTowns.length && <p className="muted" role="status">{t.noResults}</p>}
+    </search>
+    {!q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} />}
   </section>;
   const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
     <span>{s.name}</span>{s.code && <span className="small">{t.selection.stopNumber(s.code)}</span>}
@@ -960,7 +984,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
       .format(new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8))));
   return (
     <section>
-      <h1>{t.timetableTitle}</h1>
+      <h1><SignText text={t.timetableTitle} /></h1>
       <p className="leg">{title}</p>
       <div className="choice-list" role="tablist">
         {days.map((d, i) => (
@@ -970,8 +994,9 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
       </div>
       {ds.meta.transcribed && isNjtHoliday(date) && <p className="warn small" role="note">{t.holidayOn}</p>}
       {dayClockChange && <p className="warn small" role="note">{dayClockChange === 'back' ? t.clockBackDay : t.clockAheadDay}</p>}
+      <div className="timetable-scroll" role="region" aria-label={t.timetableTitle} tabIndex={0}>
       <table className="timetable">
-        <thead><tr><th>{t.departs}</th><th>{t.route}</th><th>{t.arrives}</th></tr></thead>
+        <thead><tr><th scope="col">{t.departs}</th><th scope="col">{t.route}</th><th scope="col">{t.arrives}</th></tr></thead>
         <tbody>
           {rows.map(({ d, arr }) => (
             <tr key={d.tripInstanceId} className={d.departs < now ? 'past' : ''}>
@@ -982,6 +1007,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
           ))}
         </tbody>
       </table>
+      </div>
       {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
       {!list.length && <p className="muted">{t.noBusesThisDay}</p>}
     </section>
