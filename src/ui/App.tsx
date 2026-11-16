@@ -183,14 +183,22 @@ function useDataset(): [DatasetState, () => void] {
 /** Shared appearance/language preferences also apply before schedule data is available. */
 function useSettings() {
   const [settings, setSettings] = useState<Settings>(readSettings);
+  // Settings adopted from another tab are shown but never written back: that tab already
+  // saved them, and it may have saved something newer since. Only this tab's own changes persist.
+  const adopted = useRef<Settings | undefined>(undefined);
   useEffect(() => {
     // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
-    const sync = (event: StorageEvent) => { if (event.key === 'arriba.settings.v1') setSettings(readSettings()); };
+    const sync = (event: StorageEvent) => {
+      if (event.key !== 'arriba.settings.v1') return;
+      const next = readSettings();
+      adopted.current = next;
+      setSettings(next);
+    };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
-    try {
+    if (settings !== adopted.current) try {
       const value = JSON.stringify(settings);
       if (store?.getItem('arriba.settings.v1') !== value) store?.setItem('arriba.settings.v1', value);
     } catch { /* ignore */ }
