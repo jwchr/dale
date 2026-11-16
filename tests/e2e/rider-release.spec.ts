@@ -19,7 +19,7 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   await expect(choice).toContainText('Stop #32728'); await expect(choice).toContainText('Toward: New York · Port Authority');
   await choice.click();
   // The change link shares the stop-number line (owner, #155).
-  const [number, change] = await Promise.all([page.locator('.stop-number-row p').boundingBox(), page.getByRole('button', { name: 'Choose another boarding stop' }).boundingBox()]);
+  const [number, change] = await Promise.all([page.locator('.stop-number-row p').boundingBox(), page.getByRole('button', { name: 'Change stop', exact: true }).boundingBox()]);
   expect(Math.abs(number!.y + number!.height / 2 - (change!.y + change!.height / 2))).toBeLessThan(8);
   await expect(page.locator('.route-descriptions li')).toHaveCount(1);
   // One Save trip, pinned in view at the bottom while destinations scroll (owner, #155).
