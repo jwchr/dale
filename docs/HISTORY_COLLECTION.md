@@ -56,7 +56,7 @@ Actual live payload/physical/archive-reservation growth and remaining runway mus
 
 ## Enable, stop and acceptance
 
-1. Full `npm run verify`, exact-head CI, established independent non-author HIGH review, separate protected merge and reviewed-main deployment. Authors never self-review/merge/release.
+1. Full `npm run verify`, exact-head CI, one independent HIGH review (Argon or Codex, never the author) and the builder's merge under `CLAUDE.md` "How we work" (D66, which replaced the separate merger role). Deployment of reviewed main stays a separate step that needs the owner's explicit go-ahead.
 2. Recheck actual Workers plan/shared headroom, existing token permissions, finite canonical coverage and data rights. An old secret name or successful job is insufficient.
 3. Existing main-only manual workflow input `history_collection` defaults to `disabled`. Explicit `enabled` prepares the official schedule and deploys reviewed code with `HISTORY_COLLECTION:enabled`. Disabled runs only the authenticated Cloudflare settings stop below, with no installation, NJ Transit authentication or static download. No timer/public request enables it.
 4. Read back enabled state, persisted alarm, accepted official evidence, current verified canonical-context/evidence archives and exact-bus validation. The deployment script uses read-only health while waiting for native alarm archive acknowledgments. A failed deployment/validation may have deployed code: **do not infer inactive from a failed job**.
