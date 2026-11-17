@@ -4,12 +4,14 @@ import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { DestinationArrival } from './DestinationArrival';
 // Ride mode (issue #34): shown after the rider says "I boarded". Big get-off guidance when Dale can
 // honestly count stops (every stop listed, fresh unambiguous bus GPS); otherwise a plain statement of
-// what it cannot know, with scheduled times labeled as timetable. Foreground only: no background alerts.
+// what it cannot know, with scheduled times labeled as timetable. Foreground only: alerts (vibration, sound,
+// speech, notification; #176) fire while Dale is open, never from a schedule guess.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { BusSession, BusSessionEvent } from '../domain/busLock';
 import { distanceM } from '../domain/direction';
-import { rideGuide, STAGE_RANK, type RideStage } from '../domain/rideGuide';
+import { rideGuide, type RideStage } from '../domain/rideGuide';
+import { stageMessage, stopAlertStep } from '../domain/stopAlert';
 import { tripStopTimes } from '../domain/schedule';
 import { formatTime12 } from '../domain/time';
 import type { Dataset } from '../domain/types';
@@ -19,6 +21,7 @@ import { Recovery } from './Recovery';
 import { ShareUpdate } from './ShareUpdate';
 import { StripMap } from './StripMap';
 import { useScreenWakeLock } from './useScreenWakeLock';
+import { canChime, canSpeak, chime, notify, notifyPermission, notifySupport, primeSound, requestNotify, speak } from './stopAlertOutputs';
 
 interface Props {
   routeDistance?: ReportedRouteDistance;
@@ -39,11 +42,12 @@ interface Props {
 
 // Per-viewer conveniences only; the page works the same when storage is unavailable.
 const PREFS = 'arriba.ride.v1';
-const readPrefs = (): { large: boolean; vibrate: boolean; awake: boolean } => {
+type RidePrefs = { large: boolean; vibrate: boolean; awake: boolean; sound: boolean; notify: boolean };
+const readPrefs = (): RidePrefs => {
   try {
-    const p = JSON.parse(window.localStorage.getItem(PREFS) ?? '{}') as { large?: boolean; vibrate?: boolean; awake?: boolean };
-    return { large: p.large !== false, vibrate: p.vibrate === true, awake: p.awake === true };
-  } catch { return { large: true, vibrate: false, awake: false }; }
+    const p = JSON.parse(window.localStorage.getItem(PREFS) ?? '{}') as Partial<RidePrefs>;
+    return { large: p.large !== false, vibrate: p.vibrate === true, awake: p.awake === true, sound: p.sound === true, notify: p.notify === true };
+  } catch { return { large: true, vibrate: false, awake: false, sound: false, notify: false }; }
 };
 /** Whether a ride's guidance fills the screen; it does when first boarding, until the rider exits it. */
 const fullBySession = new Map<string, boolean>();
@@ -64,6 +68,8 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
     return next;
   });
   const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  const canSound = canSpeak() || canChime();
+  const [notifyNote, setNotifyNote] = useState<'blocked' | 'iphone-install' | 'unsupported' | undefined>(undefined);
   const hasDestination = alightIndex > dep.stopIndex;
   const [full, setFullState] = useState(() => fullBySession.get(session.id) ?? true);
   const setFull = (v: boolean) => { fullBySession.set(session.id, v); setFullState(v); };
@@ -94,28 +100,40 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
   const times = tripStopTimes(ds, dep);
   const dest = hasDestination ? stopName(dep.pattern.stopIds[alightIndex]!) : '';
   const stage = guide?.basis === 'gps' ? guide.stage : undefined;
+  const gpsLine = guide?.basis === 'gps' ? stageMessage(r, guide.stage, guide.stopsAway, dest) : undefined;
 
-  // Vibrate only when the countdown moves forward to 3, 2, 1 or "ask now", once each, if turned on.
-  // The stage showing when ride mode first opens is the baseline: opening the view does not buzz.
+  // Alert only when the countdown moves forward to 3, 2, 1 or "ask now", once each, with the outputs
+  // the rider turned on (#176). The stage showing when ride mode first opens is the baseline: opening the
+  // view never alerts. Every output says the same line the screen shows.
   useEffect(() => {
-    const rank = stage ? STAGE_RANK[stage] : -1;
-    const before = alerted.get(session.id);
-    if (before === undefined) { alerted.set(session.id, rank); return; }
-    if (rank <= before) return;
-    alerted.set(session.id, rank);
-    if (prefs.vibrate && canVibrate && rank >= 1 && rank <= 4) navigator.vibrate([200, 100, 200]);
-  }, [stage, session.id, prefs.vibrate, canVibrate]);
+    const step = stopAlertStep(alerted.get(session.id), stage);
+    alerted.set(session.id, step.handled);
+    if (!step.alert || !gpsLine) return;
+    if (prefs.vibrate && canVibrate) navigator.vibrate([200, 100, 200]);
+    if (prefs.sound) { chime(); speak(gpsLine, lang); }
+    if (prefs.notify) void notify(r.notifyTitle, gpsLine, `dale-ride-${session.id}`);
+  }, [stage, session.id, prefs.vibrate, prefs.sound, prefs.notify, canVibrate, gpsLine, lang, r.notifyTitle]);
+
+  // iPhone plays sound only after a tap on the page: any tap while riding keeps sound ready.
+  useEffect(() => {
+    if (!prefs.sound) return;
+    const onTap = () => primeSound();
+    document.addEventListener('pointerdown', onTap);
+    return () => document.removeEventListener('pointerdown', onTap);
+  }, [prefs.sound]);
+
+  async function toggleNotify(on: boolean) {
+    if (!on) { setNotifyNote(undefined); setPref({ notify: false }); return; }
+    const support = notifySupport();
+    if (support !== 'supported') { setNotifyNote(support); setPref({ notify: false }); return; }
+    const ok = notifyPermission() === 'granted' || await requestNotify();
+    setNotifyNote(ok ? undefined : 'blocked');
+    setPref({ notify: ok });
+  }
 
   if (!hasDestination || !guide) return <p className="small">{r.noDestination}</p>;
 
-  const message = guide.basis === 'gps'
-    ? guide.stage === 'arrived' ? r.arrived(dest)
-      : guide.stage === 'passed' ? r.passed(dest)
-        : guide.stage === 'request' ? r.request(dest)
-          : guide.stage === 'last_next' ? r.lastNext(dest)
-            : guide.stage === 'one' ? r.one(dest)
-              : r.stopsTo(guide.stopsAway, dest)
-    : guide.basis === 'timetable_only' ? r.timetableOnly : r.uncertain[guide.reason];
+  const message = guide.basis === 'gps' ? gpsLine! : guide.basis === 'timetable_only' ? r.timetableOnly : r.uncertain[guide.reason];
   const after = guide.basis === 'gps' ? guide.reachedIndex : dep.stopIndex;
   const upcoming = times.map((x, i) => ({ ...x, i })).filter((x) => x.i > after && x.i <= alightIndex);
 
@@ -153,11 +171,21 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
       {guide.basis !== 'gps' && times[alightIndex] && <p className="small">{r.scheduledAt(`${times[alightIndex]!.estimated ? '~' : ''}${clock(times[alightIndex]!.at)}`)}</p>}
       <div className="row-between ride-controls">
         <button className="ghost" onClick={() => setPref({ large: !prefs.large })}>{prefs.large ? r.smaller : r.larger}</button>
-        <label className="lock-toggle"><input type="checkbox" checked={prefs.vibrate} disabled={!canVibrate} onChange={(e) => setPref({ vibrate: e.target.checked })} />{r.vibrate}</label>
         <label className="lock-toggle"><input type="checkbox" checked={prefs.awake} onChange={(e) => setPref({ awake: e.target.checked })} />{r.keepAwake}</label>
       </div>
+      <fieldset className="ride-alerts">
+        <legend>{r.alerts}</legend>
+        <label className="lock-toggle"><input type="checkbox" checked={prefs.vibrate} disabled={!canVibrate} onChange={(e) => setPref({ vibrate: e.target.checked })} />{r.vibrate}</label>
+        <div className="ride-alert-sound">
+          <label className="lock-toggle"><input type="checkbox" checked={prefs.sound} disabled={!canSound} onChange={(e) => { if (e.target.checked) primeSound(); setPref({ sound: e.target.checked }); }} />{r.sound}</label>
+          {prefs.sound && <button className="ghost" onClick={() => { primeSound(); chime(); speak(r.stopsTo(3, dest), lang); }}>{r.soundTest}</button>}
+        </div>
+        <label className="lock-toggle"><input type="checkbox" checked={prefs.notify} onChange={(e) => { void toggleNotify(e.target.checked); }} />{r.notify}</label>
+      </fieldset>
       {prefs.awake && <p className="small" role="status" data-testid="ride-wake">{t.busLock.wake[wake.status]}</p>}
       {!canVibrate && <p className="muted small">{r.vibrateUnsupported}</p>}
+      {!canSound && <p className="muted small">{r.soundUnsupported}</p>}
+      {notifyNote && <p className="small" role="status">{notifyNote === 'blocked' ? r.notifyBlocked : notifyNote === 'iphone-install' ? r.notifyIphone : r.notifyUnsupported}</p>}
       <h4>{guide.basis === 'timetable_only' ? r.upcomingListed : r.upcoming}</h4>
       <ol className="stop-list ride-stops">
         {upcoming.map((x) => (
