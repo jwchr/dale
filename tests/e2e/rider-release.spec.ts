@@ -4,7 +4,7 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 const API = 'https://dale-live.test.workers.dev';
 test.use({ serviceWorkers: 'block' });
 
-test('stop descriptions precede selection; final Port Authority first; city groups and top/bottom Save share one action', async ({ page }) => {
+test('stop descriptions precede selection; final Port Authority first; city groups and one pinned Save', async ({ page }) => {
   const ds = structuredClone(liveDataset);
   Object.assign(ds.stops.find(s => s.id === '2')!, { city: 'Hackensack', code: '32728', name: 'STATE ST AT LAWRENCE ST' });
   await page.clock.install({ time: NOW });
@@ -18,8 +18,24 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   const choice = page.getByRole('button', { name: /^STATE ST AT LAWRENCE ST/ });
   await expect(choice).toContainText('Stop #32728'); await expect(choice).toContainText('Toward: New York · Port Authority');
   await choice.click();
+  // The change link shares the stop-number line (owner, #155).
+  const [number, change] = await Promise.all([page.locator('.stop-number-row p').boundingBox(), page.getByRole('button', { name: 'Change stop', exact: true }).boundingBox()]);
+  expect(Math.abs(number!.y + number!.height / 2 - (change!.y + change!.height / 2))).toBeLessThan(8);
   await expect(page.locator('.route-descriptions li')).toHaveCount(1);
-  const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(2);
+  // One Save trip, pinned in view at the bottom while destinations scroll (owner, #155).
+  const saves = page.getByRole('button', { name: 'Save trip', exact: true }); await expect(saves).toHaveCount(1);
+  await expect(saves).toBeInViewport();
+  // Pinned, not merely visible: on a short screen the destinations run past the bottom edge.
+  // Save would normally sit below the screen there, but stays at the bottom edge instead.
+  const full = page.viewportSize()!;
+  await page.setViewportSize({ width: full.width, height: 360 });
+  await page.evaluate(() => scrollTo(0, 0));
+  const natural = await saves.evaluate(button => (button.parentElement!.getBoundingClientRect().bottom));
+  expect(natural).toBeGreaterThan(360);
+  const pinned = (await saves.boundingBox())!;
+  expect(pinned.y + pinned.height).toBeLessThanOrEqual(360 + 1);
+  expect(pinned.y + pinned.height).toBeGreaterThan(360 - 96);
+  await page.setViewportSize(full);
   await saves.first().click(); await expect(page.getByRole('alert')).toContainText('Choose a destination');
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeFocused();
   await page.getByRole('button', { name: 'PORT AUTHORITY BUS TERMINAL', exact: true }).click();

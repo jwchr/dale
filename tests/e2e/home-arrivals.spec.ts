@@ -232,6 +232,11 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
   for (const lang of ['en', 'es'] as const) test(`compact departure cards retain clocks and controls (${skin}, ${lang})`, async ({ page }) => {
     const state = await setup(page, { lang, skin });
     const row = current(page), button = row.getByRole('button');
+    // Rows alternate, starting with the lighter shade, so cards never blend together (owner, #155).
+    const shades = await page.locator('.deps .dep').evaluateAll(nodes => nodes.map(n => getComputedStyle(n).backgroundColor));
+    // The Turnpike's first row keeps its green next-bus highlight; its later rows still alternate.
+    if (shades.length > 1) expect(shades[0]).not.toBe(shades[1]);
+    if (shades.length > 2 && skin !== 'turnpike') expect(shades[2]).toBe(shades[0]);
     const source = lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s';
     await expect(row.locator('.dep-evidence')).toHaveText(source);
     await expect(row.locator('.dep-route .dep-min')).toHaveText(lang === 'en' ? 'In 5 minutes' : 'En 5 minutos');

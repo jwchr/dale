@@ -116,7 +116,7 @@ test('Spanish live fallback is clear and fits a narrow screen', async ({ page })
   body = null;
   await page.clock.fastForward(31_000);
   await expect(page.getByTestId('live-bus-status')).toContainText('GPS de NJ Transit no disponible');
-  await expect(page.getByTestId('live-bus-status').locator('p')).toHaveCount(0);
+  await expect(page.getByTestId('live-bus-status').locator(':scope > p')).toHaveCount(0);
   await expect(page.getByTestId('live-bus-status')).toContainText('GPS de NJ Transit no disponible — solo estimaciones del horario.');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -273,6 +273,9 @@ test('onboard fresh GPS stays observed, highlights current not upcoming stop, an
  await expect(ride.locator('.progress-source')).toContainText("From the bus's GPS");
  await expect(ride.getByTestId('signal-warning')).toHaveCount(0);
  await strip.screenshot({path:'test-results/observed-gps-current-stop.png'});
+ // Street map, Transit map and Line diagram share one row (owner, #155).
+ const tops = await ride.locator('.map-views [role="group"] .chip').evaluateAll(nodes => nodes.map(n => Math.round(n.getBoundingClientRect().top)));
+ expect(tops).toHaveLength(3); expect(new Set(tops).size).toBe(1);
  await ride.getByRole('button',{name:'Line diagram',exact:true}).click();
  await expect(ride.locator('.line-bus-between')).toHaveCount(1);
  await expect(ride.locator('.line-stations [data-current="true"]')).toHaveCount(0);
@@ -292,7 +295,7 @@ for(const stale of [false,true]) test(`missing GPS retains independently fresh d
  await expect(notice).toContainText('NJ Transit predicts departure at 7:25 AM');
  await expect(notice).not.toContainText('schedule estimates only');
  await expect(notice).not.toContainText('Refreshes about every');
- await expect(notice.locator('p')).toHaveCount(1);
+ await expect(notice.locator(':scope > p')).toHaveCount(1);
 });
 
 test('missing GPS never renders a departure prediction on a cancelled snapshot',async({page})=>{

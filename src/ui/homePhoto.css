@@ -1,0 +1,5 @@
+.home-photo-settings { margin-block: 1.25rem; }
+.home-photo-picker { display: grid; gap: .5rem; }
+.home-photo-picker > button { box-sizing: border-box; max-inline-size: 100%; min-inline-size: 0; min-block-size: 44px; white-space: normal; }
+.home-photo-preview { display: block; inline-size: 100%; max-inline-size: 14rem; max-block-size: 10rem; object-fit: contain; margin-block: .5rem; border-radius: .5rem; }
+.photo-backdrop[data-photo='personal'] { background-size: cover; background-position: center; filter: brightness(.5); }

@@ -1,8 +1,8 @@
+import { ButtonLabel } from './BilingualButtons';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Dataset, Stop } from '../domain/types';
 import {
-  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowBand, signRowPlacement, STOP_SCENES, stopSceneChoice, stopSignLines,
-  type SignPlacement, type StopSceneChoice,
+  resolveStopScene, SIGN_NUMBER, SIGN_VIEW, signRowBand, signRowPlacement, stopSignLines, type SignPlacement,
 } from '../domain/stopSign';
 import type { Strings } from './i18n';
 import './stopSign.css';
@@ -41,9 +41,9 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const s = t.stopSign;
   const id = useId();
   const [open, setOpen] = useState(false);
-  const [choice, setChoice] = useState<StopSceneChoice>('auto');
   const [failed, setFailed] = useState(false);
-  const scene = open ? resolveStopScene(choice, now) : undefined;
+  // Always New Jersey's current season; no picture-style control (owner, #155).
+  const scene = open ? resolveStopScene('auto', now) : undefined;
   const destination = to.terminal === 'PABT' ? `${t.commuteNewYork} · ${t.commutePabt}` : to.name;
   // Physical sign wording stays as printed; surrounding controls/explanations translate.
   const signDestination = to.terminal === 'PABT' ? 'New York · Port Authority' : to.name;
@@ -52,7 +52,7 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
   const number = from.code ? t.selection.stopNumber(from.code) : t.selection.numberUnknown;
   const photo = scene && !failed;
   return <>
-    {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}>{s.open}</button>)}
+    {actions(<button type="button" className="chip stop-sign-toggle" aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(value => !value)}><ButtonLabel translate={other => other.stopSign.open}>{s.open}</ButtonLabel></button>)}
     <section id={`${id}-panel`} className="stop-sign" hidden={!open} aria-label={s.title}>
     {open && <div className="stop-sign-content">
       <h3>{s.title}</h3>
@@ -93,12 +93,6 @@ export function StopSign({ ds, from, to, routeIds, now, t, actions }: {
         <figcaption>{s.illustration}</figcaption>
       </figure>
       {(!scene || failed) && <p role="status">{s.failed}</p>}
-      <label htmlFor={id}>{s.artwork}</label>
-      <select id={id} value={choice} onChange={e => { setChoice(stopSceneChoice(e.target.value)); setFailed(false); }}>
-        <option value="auto">{s.automatic}</option>
-        {STOP_SCENES.map(value => <option key={value} value={value}>{s.scenes[value]}</option>)}
-      </select>
-      <p className="small muted">{s.automaticNote}</p>
       <p className="small">{s.note}</p>
     </div>}
     </section>

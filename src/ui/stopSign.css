@@ -10,6 +10,8 @@
 .stop-sign-art > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Lettering matched to the sign's own printing: navy rows, black stop number. */
 .stop-sign-row { font: 400 18.4px "Helvetica Neue", Helvetica, Arial, "Liberation Sans", Roboto, sans-serif; fill: #1a2768; stroke: #1a2768; stroke-width: .75px; letter-spacing: .5px; opacity: .95; }
+/* The rider's own line is lettered a little smaller so the highlight has room around it (owner, #155). */
+.stop-sign-row.stop-sign-row-yours { font-size: 16.6px; }
 .stop-sign-mark { fill: #ffe600; stroke: #e0001b; stroke-width: 2.5px; stroke-linejoin: round; }
 .stop-sign-callout rect { fill: #0b2f9e; stroke: #fff; stroke-width: 3px; }
 .stop-sign-callout-text { font: 800 19px system-ui, "Helvetica Neue", Arial, sans-serif; fill: #fff; }
