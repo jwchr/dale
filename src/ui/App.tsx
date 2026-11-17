@@ -14,7 +14,7 @@ import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
-import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
@@ -186,17 +186,40 @@ function useSettings() {
   // Settings adopted from another tab are shown but never written back: that tab already
   // saved them, and it may have saved something newer since. Only this tab's own changes persist.
   const adopted = useRef(new WeakSet<Settings>());
+  // Settings this tab changed but could not save yet; they are kept until a save succeeds.
+  const pending = useRef(new Set<keyof Settings>());
+  const withPending = (base: Settings, from: Settings): Settings => {
+    const merged = { ...base };
+    for (const k of pending.current) (merged as Record<keyof Settings, unknown>)[k] = from[k];
+    return merged;
+  };
   useEffect(() => {
     // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
     const sync = (event: StorageEvent) => {
       if (event.key !== 'arriba.settings.v1') return;
-      const next = readSettings();
-      adopted.current.add(next);
-      setSettings(next);
+      setSettings((prev) => {
+        // This tab's changes that this browser refused to save stay on screen.
+        const next = withPending(readSettings(), prev);
+        adopted.current.add(next);
+        return next;
+      });
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
+  // A change here saves only the settings the rider changed, on top of what is stored right now,
+  // so a save from another tab that this tab has not heard about yet is kept (#106, #171 r4593163990).
+  const change = useCallback((next: Settings) => {
+    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => next[k] !== settings[k]);
+    if (changed.length === 0) return;
+    let base = settings;
+    try { const raw = store?.getItem('arriba.settings.v1'); if (raw != null) { JSON.parse(raw); base = readSettings(); } } catch { /* unreadable: keep this tab's values */ }
+    for (const k of changed) pending.current.add(k);
+    const merged = withPending(base, next);
+    try { store?.setItem('arriba.settings.v1', JSON.stringify(merged)); pending.current.clear(); } catch { /* not saved: kept as pending */ }
+    adopted.current.add(merged);
+    setSettings(merged);
+  }, [settings]);
   useEffect(() => {
     if (!adopted.current.has(settings)) try {
       const value = JSON.stringify(settings);
@@ -208,7 +231,7 @@ function useSettings() {
     document.documentElement.dataset.skin = settings.skin;
     document.documentElement.dataset.liveMotion = settings.liveMotion ? 'on' : 'off';
   }, [settings]);
-  return [settings, setSettings] as const;
+  return [settings, change] as const;
 }
 
 type AvailableGuide = 'guide' | 'penn';
