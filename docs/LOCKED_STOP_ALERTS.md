@@ -1,55 +1,73 @@
 # Stop alerts while the phone is locked (#176 step C): design
 
-Status: design for independent review. No code exists. Steps A and B (chime, spoken line and phone notification while Dale is open) are live since #177. This step lets the same 3, 2 and 1 stop alerts reach a rider whose phone is locked or whose browser is in the background. First draft: #176 comment 6936433085.
+Status: design for independent review. No code exists. Steps A and B (chime, spoken line and phone notification while Dale is open) are live since #177. This step lets the same 3, 2 and 1 stop alerts reach a rider whose phone is locked or whose browser is in the background. First draft: #176 comment 6936433085. Revised after Codex and CodeRabbit review on #188.
 
 ## What it never does
 
 - It never sends the rider's location anywhere. Dale watches the locked bus, not the rider.
-- It never alerts from a stale, ambiguous or unmatched bus position. The rules are the same as on screen (`src/domain/rideGuide.ts`, `src/domain/stopAlert.ts`).
+- It never claims the stop is near unless the server checked a fresh position of the locked bus. When it cannot check, it says so (CLAUDE.md: unknown is a valid answer).
+- It never alerts from a stale, ambiguous or unmatched bus position, or while NJ Transit reports skipped stops on the trip. The rules are the same as on screen (`src/domain/rideGuide.ts`, `src/domain/stopAlert.ts`, and the skipped-stop check in `src/ui/RideMode.tsx`).
 - It never switches buses. Alerts follow only the exact trip instance, service date and vehicle the rider locked (`src/domain/lock.ts`).
 - It never keeps a ride after the ride ends, and never archives or logs one.
 
+## Consent
+
+- A new setting, separate from today's "Phone notification": "Alerts when my phone is locked", off by default. Turning it on explains, in English and Spanish, that while a bus is locked Dale's server keeps a short-lived ride record (trip, stops, language and a push address from the browser) and deletes it when the ride ends; then it asks for notification permission and a push subscription.
+- Riders who already turned on "Phone notification" keep today's while-open alerts only. Nothing is sent to the server until they turn on the new setting themselves.
+- It also needs the household code (the same code as `docs/RIDER_GPS.md`, entered or scanned once per phone).
+
 ## Flow
 
-1. **Opt in.** The existing "Phone notification" setting (off by default) gains a line, in English and Spanish, saying that while a bus is locked Dale's server will send the alerts even with the phone locked, and what that stores. Turning it on asks the browser for notification permission and a push subscription.
-2. **Register a ride.** When the rider taps "I boarded" on a locked bus with that setting on, the app sends one `POST /v1/ride-alerts` with: the push subscription, trip instance, service date, locked vehicle, the alighting stop index, and the language. The server answers with a new ride id: 128 random bits from a cryptographic source, which is the only handle to the ride.
-3. **Server checks before storing:**
-   - the trip instance is active today in the schedule and the alighting stop index is on that trip after the current position;
+1. **Register a ride.** When the rider taps "I boarded" on a locked bus with the new setting on, the app sends one `POST /v1/ride-alerts` with: the household code, the push subscription, trip instance, service date, locked vehicle, the boarding stop index, the alighting stop index, and the language. The server answers with a new ride id: 128 random bits from a cryptographic source.
+2. **Admission checks, all in the single `BusFeed` Durable Object** (one instance, so counts live in its SQLite storage and survive restarts):
+   - the household code is valid (constant-time comparison against the hash stored as a Worker secret); without it nothing is stored, so outsiders cannot use up ride slots;
+   - the trip instance is active today in the schedule, and the boarding and alighting indexes are on that trip in that order;
    - the push endpoint is HTTPS on a known browser push service host (Google, Mozilla, Apple, Microsoft), so the Worker can never be pointed at an arbitrary address;
-   - at most 20 active rides in total; a new ride for the same subscription replaces the old one;
-   - at most 10 ride creations per hour per network address (kept in memory only).
-4. **Store.** The `BusFeed` Durable Object keeps one SQLite row per active ride: id, subscription, trip, date, vehicle, alighting index, language, highest stage alerted, last push time and expiry. Expiry is the trip's scheduled arrival at the alighting stop plus 30 minutes, never more than 3 hours after creation.
-5. **Watch.** In its existing alarm loop, after fresh vehicle positions arrive, the Durable Object runs the same `rideGuide` and `stopAlertStep` rules as the app for each active ride. It makes no extra NJ Transit requests.
-6. **Alert.** When the stage moves forward into 3 stops, 2 stops, 1 stop, last-stop-next or "ask now", the Durable Object first records the new stage in the row, then sends a web push. Recording first means a retry or restart never sends the same stage twice.
-7. **Payload-less push.** The push carries no data, so it needs only a VAPID-signed request (RFC 8292), not message encryption. The service worker's `push` handler fetches `GET /v1/ride-alerts/:id/latest` and shows that line, in the ride's language. If the fetch fails, it shows "Your stop is coming up. Open Dale." in that language. `latest` answers only for an active ride id and sends `Cache-Control: no-store`.
-8. **End.** The row is deleted on `DELETE /v1/ride-alerts/:id` (the rider taps "I got off", unlocks, or turns the setting off), at expiry, when the stage reaches arrived or passed, or when the push service answers 404 or 410.
+   - one active ride per push subscription (a new ride for the same subscription replaces the old one) and at most 20 in total. Because only household phones hold the code, the household cannot be crowded out by strangers.
+3. **Store.** One row per active ride: id, subscription, trip, date, vehicle, boarding index, alighting index, language, last stage shown, service-change flag, last push time and expiry. Expiry is the trip's scheduled arrival at the alighting stop plus 30 minutes, never more than 3 hours after creation. The last stage shown starts as "riding" (rank 0) rather than empty: `stopAlertStep` treats an empty previous stage as a silent baseline, so starting at "riding" means a ride registered when the bus is already 3 stops away or closer still gets one alert for the current stage on the next check.
+4. **Watch.** In its existing alarm loop, after fresh vehicle positions and trip updates arrive, the Durable Object checks each active ride with no extra NJ Transit requests:
+   - If NJ Transit's trip update lists skipped stops on that trip, the ride's service-change flag is set and kept (in storage, so it survives restarts) for the rest of the ride. While it is set, no stop countdown is sent, the same as on screen; one push says "Stops on this trip changed. Open Dale." in the ride's language.
+   - Otherwise it runs `rideGuide` with the ride's boarding and alighting indexes and the latest position, then `stopAlertStep` with the last stage shown.
+5. **Send, then record.** When the stage moves forward into 3 stops, 2 stops, 1 stop, last-stop-next or "ask now", the Durable Object sends a web push with a short `TTL` (60 seconds) and a `Topic` set to the ride id, so the push service drops an undelivered push after a minute and replaces an older undelivered push for the same ride with the newer one. Only after the push service answers 201 does it record the stage as shown.
+   - A push that definitely failed (network error, 5xx, 429) leaves the stage unrecorded; the next alarm retries while that stage is still current.
+   - A push that was accepted but whose answer was lost is retried too, so a rider can receive the same stage twice. The service worker removes that duplicate (step 7). The guarantee is at least once per stage while the stage is current, never a stage the bus has moved past.
+6. **Payload-less push.** The push carries no data, so it needs only a VAPID-signed request (RFC 8292), not message encryption.
+7. **Check on arrival.** The service worker's `push` handler fetches `GET /v1/ride-alerts/:id/latest` (`Cache-Control: no-store`). The server recomputes the answer at that moment rather than replaying a stored line:
+   - **active and fresh:** the ride's current stage, the line to show and the age of the bus position it came from (under 2 minutes). The handler shows that line with notification tag = ride id. If the notification already showing for this ride has the same stage, it is replaced silently, so a duplicate push never buzzes twice. Because the line is the current stage, a delayed earlier push shows the newer stage instead of an out-of-date one.
+   - **active but not checkable** (no fresh position, ambiguous, or service change): "Dale can't check your bus right now. Open Dale." Never a claim that the stop is near.
+   - **ended** (the server answers 410 with a reason: unlocked, got off, arrived, passed or expired): browsers require a visible notification for each push, so the handler shows a silent "Your Dale stop alert has ended."
+   - **fetch failed** (offline, timeout, server error): "Dale can't check your bus right now. Open Dale." in the ride's language. Not the stop line, because nothing was checked.
+8. **End.** The row is deleted on `DELETE /v1/ride-alerts/:id` (the rider taps "I got off", unlocks, or turns the setting off), at expiry, when the stage reaches arrived or passed, or when the push service answers 404 or 410. A short tombstone (id and reason, no subscription) is kept until expiry so `latest` can answer "ended" in step 7.
 
 ## Owner step
 
 - VAPID needs a P-256 key pair. The builder generates it outside the repository and never commits or prints the private key.
 - Jeff stores the private key as a Cloudflare secret, `VAPID_PRIVATE_KEY`, with step-by-step help. The public key is not secret and ships in the app.
-- If the secret is missing, the route answers "not available" and the app keeps steps A and B only.
+- The household code's hash is the same Worker secret planned in `docs/RIDER_GPS.md`.
+- If either secret is missing, the route answers "not available" and the app keeps steps A and B only.
 
 ## Privacy and limits
 
 - A push endpoint is a capability URL. It is stored only for the life of one ride, is never logged, archived or shown in health output, and is deleted when the ride ends.
-- Writes per ride: one create, one delete and at most five stage updates, well inside the Free plan's Durable Object limits.
+- The boarding and alighting stop indexes are stored for the life of the ride only, because the server needs them to count stops; they are never archived. This is why the setting has its own consent.
+- Writes per ride: one create, one delete and at most six stage updates, well inside the Free plan's Durable Object limits.
 - No new vendor and nothing paid: browser push services are free and are reached only through the subscription the rider's own browser created.
 
 ## Honest limits, shown in the app
 
-- Alerts depend on live bus GPS reaching the Worker. When the bus stops reporting, nothing is sent, the same as on screen; the app says so beside the setting.
+- Alerts depend on live bus GPS reaching the Worker. When the bus stops reporting, no countdown is sent, the same as on screen; the app says so beside the setting.
+- A push the phone does not receive within 60 seconds is dropped by design, so a rider with no signal may miss a stage rather than get it late.
 - iPhone needs Dale added to the Home Screen (iOS 16.4 or later). The push service, not Dale, decides how fast a notification arrives.
-- Like all of Dale's live data, alerts share the Worker's free daily request allowance (see `docs/RIDER_GPS.md`, "Remaining risk").
+- Like all of Dale's live data, alerts share the Worker's free daily request allowance (see `docs/RIDER_GPS.md`, "Remaining risk Jeff should know about").
 
-## Tests before release
+## Tests before release (planned; none written yet)
 
-- Unit: the server's stage decision matches the app's for the same positions, including stale, ambiguous, skipped-stop and off-route cases; a stage is never pushed twice after a retry; expiry and 404/410 deletion; endpoint host allow list; the caps.
-- Browser: the service worker shows the fetched line, and the generic line when the fetch fails, in English and Spanish.
+- Unit: the server's stage decision matches the app's for the same positions, including stale, ambiguous, off-route and skipped-stop cases, and the service-change flag surviving a restart; a ride registered inside 3 stops alerts once; send-then-record with a failed push, a lost answer (duplicate) and a restart; the household code, endpoint host allow list and caps; expiry, tombstones and 404/410 deletion.
+- Browser: the service worker's four cases in step 7, the silent duplicate replacement, in English and Spanish.
 - Household on-road test on an Android phone and an iPhone before the feature is described as working.
 
 ## Gates
 
 - Risky change (secrets, live server, rider data): Codex review (Argon if Codex is unavailable), plus CodeRabbit.
 - Jeff is told before the Worker deploy; the release uses `preserve-enabled`, keeping history collection unchanged.
-- Jeff stores `VAPID_PRIVATE_KEY` himself; no secret passes through chat or the repository.
+- Jeff stores `VAPID_PRIVATE_KEY` and the household code hash himself; no secret passes through chat or the repository.
