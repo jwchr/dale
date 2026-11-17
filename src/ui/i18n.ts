@@ -215,6 +215,8 @@ const en = {
       behind: 'This bus’s GPS hasn’t reached your boarding stop yet, so Dale won’t count stops. Check that you are on the right bus.',
     } as Record<UncertainReason, string>,
     timetableOnly: 'The printed timetable lists main stops only, and the bus also stops between them, so Dale can’t count stops or tell you when to press the strip. Watch for your stop and listen for announcements.',
+    /** Lines Dale's server sends for a stop alert while the phone is locked (#176 step C). */
+    lockedPush: { serviceChange: 'Stops on this trip changed. Open Dale.', cantCheck: 'Dale can’t check your bus right now. Open Dale.', ended: 'Your Dale stop alert has ended.' },
     scheduledAt: (time: string) => `Scheduled at your stop: ${time} (timetable, not GPS).`,
     upcoming: 'Coming up (scheduled times)',
     upcomingListed: 'Coming up: listed stops only (scheduled times)',
@@ -824,6 +826,7 @@ const es: Strings = {
       behind: 'El GPS de este autobús todavía no llega a tu parada de subida, así que Dale no cuenta paradas. Confirma que estás en el autobús correcto.',
     } as Record<UncertainReason, string>,
     timetableOnly: 'El horario impreso muestra solo las paradas principales y el autobús también para entre ellas, así que Dale no puede contar paradas ni decirte cuándo presionar la franja. Fíjate en tu parada y escucha los anuncios.',
+    lockedPush: { serviceChange: 'Cambiaron las paradas de este viaje. Abre Dale.', cantCheck: 'Dale no puede revisar tu autobús ahora. Abre Dale.', ended: 'Tu alerta de parada de Dale terminó.' },
     scheduledAt: (time: string) => `Hora prevista en tu parada: ${time} (horario, no GPS).`,
     upcoming: 'Próximas paradas (horas previstas)',
     upcomingListed: 'Próximas paradas: solo las del horario (horas previstas)',
