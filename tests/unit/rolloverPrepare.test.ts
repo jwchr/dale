@@ -111,7 +111,7 @@ it('ships the new schedule with route distance off when geometry fails, printing
   const { result: r } = rollover('no-geometry'); expect(r.error).toBeUndefined(); expect(r.status, r.stderr).toBe(0);
   const lines = r.stdout.split('\n');
   const diagnostic = lines.find(l => l.startsWith('Geometry diagnostic (aggregate counts only): '))!;
-  expect(JSON.parse(diagnostic.split('only): ')[1]!)).toMatchObject({ v: 1, reason: 'no-matched-trips', counts: { shapesFile: 0, matchedTrips: 0 } });
+  expect(JSON.parse(diagnostic.split('only): ')[1]!)).toMatchObject({ v: 2, reason: 'no-matched-trips', counts: { shapesFile: 0, matchedTrips: 0 } });
   expect(lines).toContain('Route distance stays off for this schedule; the schedule rollover continues.');
   expect(r.stdout + r.stderr).not.toMatch(SECRET);
 });
