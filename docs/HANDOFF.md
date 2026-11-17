@@ -1,6 +1,6 @@
 # Handoff: current state
 
-Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
+Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). Committed `.claude/settings.json` pre-approves session, schedule and message tools for new local and single-repository cloud sessions (D72); cloud sessions with several repositories and cloud threads inside a Project do not load its permission rules, so start Dale sessions with this repository alone. History lives in git and the GitHub issues, not here.
 
 ## Built and live
 - Public app: main after #174 (ride screen fits narrow phones at large text: the LED board stacks when tight, and the stop list's Get off here tag wraps instead of pushing the page wide; checked with GitHub's wider DejaVu Sans font too). The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
@@ -11,6 +11,7 @@ Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Home, trip tools, Bus Lock, Train preview and offline behavior as before: saved commutes in the rider's order, five skins, English and Spanish, 12-hour times, exact-bus lock that never switches buses silently, service-worker offline copy with its age.
 - Live bus pilot (#89, `docs/LIVE_BUS_PILOT.md`) on the Free plan; private corridor history collection (#91) ON at 30-second pacing.
 - Weekly schedule rollover (#148, D68) last ran 2026-11-13 (Actions run 43333818465): the Worker serves NJ Transit schedule `e84f5ae3b53b` (service dates 2026-11-09 to 2026-11-23). Next rollover pins: `expected_worker_version=1f582daa-b8dc-415e-8a32-3c284189456d`, `canonical_context_key=e84f5ae3b53b:1f4785c84ba5d07fe0bf709273395def8f4cc57627927977a8ab6838a8721559` (run `qualify-enabled` first to confirm them).
+- Rules (#173, D71): CodeRabbit-only review for simple pull requests, Codex or Argon also for risky ones; the history and rail runbooks name the builder, after the owner's go-ahead, in place of the old separate operator.
 - Route distance stays off (geometry-off fallback, D68): the last diagnostic was `no-matched-trips`, `tripStopDistance` 1,044 of 1,044 trips. Diagnostic v2 (#154, `scripts/route-geometry.mjs`, `docs/ROUTE_DISTANCE.md`) adds aggregate counts that separate a units mismatch between `shapes.txt` and `stop_times.txt` from terminal stops sitting away from the shape ends; delivered geometry is unchanged.
 
 ## Waiting on the owner
@@ -26,9 +27,8 @@ Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/
 1. Weekly rollover before 2026-11-23 (plan around Nov 20): tell the owner first, `qualify-enabled`, then `rollover-enabled` with the pins above. The #154 counts print in that run only if geometry fails again (no trip matched).
 2. Route distance part 2: the fix chosen from the #154 counts (never straight-line distance).
 3. Trains from the owner's two Pascack Valley stations (#80): the live rail feed once a token is accepted (Worker adapter, risky-change review, owner told before going live), with printed timetables as the labeled backup.
-4. Docs cleanup and D71 review levels (#173, in review).
-5. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
-6. Later, from the owner's Nov 13 order (#153): stop alerts 3, 2 and 1 stops before getting off; #113 simpler travel screens; #103 easier stop picking; rest of #106 (rider stop photos); rest of #99 (optional on-device GPS tour content and the optional five-second town Welcome cards with an off setting); gate cards; DST check before 2027-03-14 (read-only); remove the gate-card notice when advisory 2176177 ends; weekly read-only server health check (`inspect`), reporting only problems.
+4. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
+5. Later, from the owner's Nov 13 order (#153): stop alerts 3, 2 and 1 stops before getting off; #113 simpler travel screens; #103 easier stop picking; rest of #106 (rider stop photos); rest of #99 (optional on-device GPS tour content and the optional five-second town Welcome cards with an off setting); gate cards; DST check before 2027-03-14 (read-only); remove the gate-card notice when advisory 2176177 ends; weekly read-only server health check (`inspect`), reporting only problems.
 
 ## Known problems
 - Safari/iPhone is not qualified: Codex's WebKit runs hit test-setup limits (offline reload, keyboard scrolling) and existing route-strip overflow at 305 px / 200% text. Needs a real iPhone check.
