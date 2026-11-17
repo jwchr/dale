@@ -287,7 +287,10 @@ main { flex: 1; padding-bottom: 24px; }
 /* Full-screen ride mode (issue #56): fills the phone after boarding; exit is always visible. */
 .ride-full { position: fixed; inset: 0; z-index: 50; margin: 0; border-radius: 0; overflow-y: auto; background: var(--bg);
   padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
-.ride-top { align-items: flex-start; }
+.ride-top { align-items: flex-start; flex-wrap: wrap; }
+/* "Exit full screen" stays on a 305 px phone at 200% text: the title wraps and the button may take its own row. */
+.ride-top > button { max-inline-size: 100%; }
+.ride-top > h3 { min-inline-size: 0; max-inline-size: 100%; overflow-wrap: anywhere; }
 .ride-off { margin-top: 12px; }
 
 
