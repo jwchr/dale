@@ -220,7 +220,9 @@ main { flex: 1; padding-bottom: 24px; }
 }
 
 .stop-list { list-style: none; padding: 0; margin: 0; border-left: 4px solid var(--brand); }
-.stop-list li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0 8px 12px; position: relative; }
+.stop-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 8px 0 8px 12px; position: relative; }
+/* Large text on a narrow phone: the Board here / Get off here tag drops to the next line instead of off the screen. */
+.stop-list .stop-name { min-inline-size: 0; overflow-wrap: anywhere; }
 /* Earlier stops stay readable: dim through the tested muted color, never compounded opacity. */
 .stop-list li[data-role='before'] { color: var(--muted); }
 .stop-list li[data-role='board'], .stop-list li[data-role='alight'] { font-weight: 800; }
@@ -315,7 +317,7 @@ main { flex: 1; padding-bottom: 24px; }
 .recovery-open { margin: 6px 0; }
 
 /* Ride progress (owner request 2026-11-04): LED status bar and strip map, like a subway car's line map. */
-.progress { margin: 8px 0 12px; }
+.progress { margin: 8px 0 12px; container: ride-progress / inline-size; }
 .led-bar { background-color: #050506; background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1.3px); background-size: 4px 4px;
   border-radius: 10px; padding: 10px 14px; box-shadow: inset 0 2px 10px #000, 0 0 0 1px #2a2c31; }
 .led-line { margin: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase;
@@ -323,12 +325,20 @@ main { flex: 1; padding-bottom: 24px; }
 .led-key { color: #ff6a3d; text-shadow: 0 0 6px rgba(255, 90, 50, 0.7); margin-right: 6px; }
 /* Owner, #155: a wrapped stop name stays in one block beside NEXT / AT, and the smaller pace line ("On time") sits
    under NEXT, beside the name's second line, to save a row. */
-.led-bar { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: .45rem; align-items: baseline; }
+.led-bar { display: grid; grid-template-columns: fit-content(45%) minmax(0, 1fr); column-gap: .45rem; align-items: baseline; }
 .led-next { display: contents; }
 .led-next .led-key { grid-area: 1 / 1; margin-right: 0; white-space: nowrap; }
-.led-name { grid-column: 2; grid-row: 1 / span 2; align-self: start; min-inline-size: 0; }
-.led-bar .led-pace { grid-area: 2 / 1; align-self: start; max-inline-size: 7.5rem; font-size: .72rem; line-height: 1.2; margin-top: 3px; }
+.led-name { grid-column: 2; grid-row: 1 / span 2; align-self: start; min-inline-size: 0; overflow-wrap: anywhere; }
+.led-bar .led-pace { grid-area: 2 / 1; align-self: start; max-inline-size: 7.5rem; min-inline-size: 0; overflow-wrap: anywhere; font-size: .72rem; line-height: 1.2; margin-top: 3px; }
 .led-pace { font-size: 1rem; margin-top: 2px; }
+/* Large text on a narrow phone: NEXT alone can fill the board (Spanish PRÓXIMA at 200% on 305 px), so the stop name
+   moves under it at full width and the pace line follows, instead of the name shrinking to nothing. */
+@container ride-progress (max-width: 12rem) {
+  .led-bar { grid-template-columns: minmax(0, 1fr); }
+  .led-next .led-key { grid-area: 1 / 1; white-space: normal; }
+  .led-name { grid-column: 1; grid-row: 2; }
+  .led-bar .led-pace { grid-area: 3 / 1; max-inline-size: none; }
+}
 .led-pace[data-pace='behind'] { color: #ff8a7a; text-shadow: 0 0 6px rgba(255, 110, 90, 0.6); }
 .led-pace[data-pace='ahead'], .led-pace[data-pace='on'] { color: #7dffa8; text-shadow: 0 0 6px rgba(90, 255, 150, 0.5); }
 .progress-source { margin-top: 6px; }
