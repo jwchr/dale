@@ -125,7 +125,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           // A cooldown is not a new endpoint attempt: retain the last failure until that feed retries.
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
-          try { const feed = normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); successes++; return feed; }
+          try { const feed = normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); if (feed.feed.state !== 'invalid') successes++; return feed; }
           catch (error) {
             this.saved.failures![kind] = { code: safeNjtFailure(error), at: now };
             if (error instanceof NjtError && error.code === 'access-denied') denials++;

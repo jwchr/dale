@@ -44,4 +44,20 @@ describe('one refused feed', () => {
     await feed.fetch(new Request('https://x/v1/status'));
     expect(calls.filter(c => c === 'authenticateUser')).toHaveLength(2);
   });
+  it('a garbled 200 does not count as a working feed', async () => {
+    let now = NOW; const saved = new Map<string, unknown>(), calls: string[] = [];
+    const storage = { get: async <T,>(k: string) => structuredClone(saved.get(k)) as T | undefined, put: async (k: string, v: unknown) => { saved.set(k, structuredClone(v)); } };
+    const ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
+    const Feed = createFeedClass(ds, (async (url: RequestInfo | URL) => {
+      const u = String(url); calls.push(u.split('/').pop()!);
+      if (u.endsWith('authenticateUser')) return Response.json({ Authenticated: 'True', UserToken: 'tok' });
+      if (u.endsWith('getTripUpdates')) return new Response('denied', { status: 403 });
+      return new Response(new Uint8Array([0xff, 0xff, 0xff, 0x01]).buffer);
+    }) as typeof fetch, () => now);
+    const feed = new Feed(ctx, { NJT_API_USERNAME: 'u', NJT_API_PASSWORD: 'p', FEED: { idFromName: () => '', get: () => feed } });
+    await feed.fetch(new Request('https://x/v1/status'));
+    now += 61 * 60_000;
+    await feed.fetch(new Request('https://x/v1/status'));
+    expect(calls.filter(c => c === 'authenticateUser')).toHaveLength(2);
+  });
 });
