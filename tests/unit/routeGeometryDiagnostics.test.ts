@@ -178,6 +178,9 @@ describe('geometry failure reasons', () => {
       `PRIVSHAPE${i},${(A.lat + k * 0.00001).toFixed(6)},${(A.lon + (k % 2) * 0.0002).toFixed(6)},${k + 1},${k}\n`).join('')).join('');
     const diagnostic = geometryFailureDiagnostic(failure(() => buildRouteGeometryWithReport(f, dataset(ids), SHA)));
     expect(diagnostic).toMatchObject({ reason: 'point-limit', counts: { requestedShapes: 251, foundShapes: 251, validShapes: 250 } }); expectPrivate(diagnostic);
+    // The shape that trips the limit is not kept, so it is not counted as unit evidence either.
+    const units = Object.entries(diagnostic.counts).filter(([k]) => k.startsWith('shapeUnit')).reduce((n, [, v]) => n + (v as number), 0);
+    expect(units).toBe(250);
   });
   it('wraps an internal exception without its message (which can name columns)', () => {
     const f = files(); f['trips.txt'] = 'route_id,service_id,PRIVTRIP_COLUMN,shape_id\n';

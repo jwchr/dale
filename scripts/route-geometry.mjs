@@ -179,9 +179,10 @@ function derive(files, ds, sourceSHA256, counts, bump) {
     }
     if (rejected) { bump(rejected); continue; }
     if (points.at(-1)?.m <= 0 || points.at(-1)?.m > 250000) { bump('shapeLength'); continue; }
-    shapeUnitEvidence(points, bump);
     const compact = simplify(points.map(p => [p.lat, p.lon, p.m]));
     totalPoints += compact.length; if (totalPoints > 50000) throw new GeometryError('point-limit', 'Geometry size limit', counts);
+    // Unit evidence only for shapes that are kept, so its total always equals validShapes.
+    shapeUnitEvidence(points, bump);
     normalized.set(id, { points, compact }); counts.validShapes = normalized.size;
   }
   const stops = new Map(ds.stops.map(s => [s.id, s])), times = new Map();
