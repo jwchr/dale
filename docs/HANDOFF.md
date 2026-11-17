@@ -1,9 +1,9 @@
 # Handoff: current state
 
-Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
+Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
 
 ## Built and live
-- Public app: main after #171 (#155 owner polish); Pages publish succeeded 2026-11-16 at `446ce6e`. The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
+- Public app: main after #174 (ride screen fits narrow phones at large text: the LED board stacks when tight, and the stop list's Get off here tag wraps instead of pushing the page wide; checked with GitHub's wider DejaVu Sans font too). The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
 - Nov 16 merges (Codex's weekend work, reviewed and merged by the builder): big-text saved-commute name banner never strands one letter (#156); Find a stop starts with towns and still searches stops directly (#157); all-day timetable scrolls inside its own box on narrow phones (#161); Resume/Forget buttons fit at large text (#169); schedule-change notices on saved trips, kept until dismissed (#162, #151); optional "Check NJ Transit directly" MyBus website and text-draft handoff on the locked-bus card and the load-error screen (#164, #96); optional rotating opening slogans, Jeff's eight verbatim (#165); optional bilingual labels under the main buttons (#167); optional personal home photo kept only in the browser, re-encoded so location metadata is dropped (#168); five Hackensack Tour guide cards (#166); tests for picker accessibility, offline use and English/Spanish key completeness (#158, #159, #160); audit doc pointer (#163). Settings saved in one open tab are no longer undone by another tab (#167, race fix in #155).
 - Owner polish (#155): no picture-style menu on the stop sign (always the automatic New Jersey season), change link beside the stop number, capital LED boxes, corner CHANGE tag, alternating home cards (lighter first), black source notes, one Save trip button pinned at the bottom, ON TIME under NEXT, ride map keeps the route ahead in view. Port Authority stops stay separate (owner decision).
 - Stop sign photo (#152, D69): the real NJ Transit sign with this stop's routes and number.
@@ -14,6 +14,9 @@ Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Route distance stays off (geometry-off fallback, D68): the last diagnostic was `no-matched-trips`, `tripStopDistance` 1,044 of 1,044 trips. Diagnostic v2 (#154, `scripts/route-geometry.mjs`, `docs/ROUTE_DISTANCE.md`) adds aggregate counts that separate a units mismatch between `shapes.txt` and `stop_times.txt` from terminal stops sitting away from the shape ends; delivered geometry is unchanged.
 
 ## Waiting on the owner
+- Live train data (#80; owner decision 2026-11-16: NJ Transit's live rail feed first, printed timetables only as the labeled backup). The second one-shot rail check (run 43999082745, owner's go-ahead) got HTTP 500 on both token requests (not 401/403/429); cause unknown. The owner is checking whether his NJ Transit developer account lists Rail Data and Rail GTFS / GTFS-RT access. No further rail run without a new go-ahead.
+- Printed Pascack Valley timetable (effective 2026-11-15) and the Secaucus to New York Penn trains, for the train backup; the owner will supply them later.
+- Before 2026-11-22: which review path applies once CodeRabbit's free usage ends (D71).
 - Phone test on Jeff's and Diego's phones: install, save a commute, reverse it, open a trip from Port Authority, use it offline; also try the new optional settings (slogans, bilingual buttons, home photo) and a MyBus text draft without sending.
 - Whether the app should stay publicly reachable or be limited to the household.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority.
@@ -22,8 +25,8 @@ Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/
 ## Next
 1. Weekly rollover before 2026-11-23 (plan around Nov 20): tell the owner first, `qualify-enabled`, then `rollover-enabled` with the pins above. The #154 counts print in that run only if geometry fails again (no trip matched).
 2. Route distance part 2: the fix chosen from the #154 counts (never straight-line distance).
-3. Train timetables from the owner's two Pascack Valley stations (#80), moved up by the owner on 2026-11-16.
-4. Docs cleanup: `docs/HISTORY_COLLECTION.md` and `docs/RAIL_API_CHECK.md` still describe the old separate merge/operator role; align only that language with `CLAUDE.md` (pull request in progress).
+3. Trains from the owner's two Pascack Valley stations (#80): the live rail feed once a token is accepted (Worker adapter, risky-change review, owner told before going live), with printed timetables as the labeled backup.
+4. Docs cleanup and D71 review levels (#173, in review).
 5. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
 6. Later, from the owner's Nov 13 order (#153): stop alerts 3, 2 and 1 stops before getting off; #113 simpler travel screens; #103 easier stop picking; rest of #106 (rider stop photos); rest of #99 (optional on-device GPS tour content and the optional five-second town Welcome cards with an off setting); gate cards; DST check before 2027-03-14 (read-only); remove the gate-card notice when advisory 2176177 ends; weekly read-only server health check (`inspect`), reporting only problems.
 
