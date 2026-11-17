@@ -314,17 +314,22 @@ export class HistoryJournal {
     this.storage.transactionSync(() => {
       const state = this.read(now);
       let changed = false;
-      const row = this.storage.sql.exec('SELECT attempt,bytes,feed_version,context_key,archive_receipt FROM dale_history_batches WHERE attempt<=? AND archive_receipt IS NOT NULL ORDER BY attempt LIMIT 1', now - HISTORY_HOT_MS).toArray()[0];
+      // Two rows per call let cleanup outpace the one new batch per poll after an archive outage
+      // longer than the hot window; the second row only uses spare catch-up budget.
+      const rows = this.storage.sql.exec('SELECT attempt,bytes,feed_version,context_key,archive_receipt FROM dale_history_batches WHERE attempt<=? AND archive_receipt IS NOT NULL ORDER BY attempt LIMIT 2', now - HISTORY_HOT_MS).toArray();
       if (!state.enabled) return;
       if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
-      if (row && state.reservedWrites + 4 <= DAILY_WRITE_BUDGET) {
+      const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
+      const catchUpReserve = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+      for (const [i, row] of rows.entries()) {
+        if (state.reservedWrites + 4 > DAILY_WRITE_BUDGET) break;
+        if (i > 0 && DAILY_WRITE_BUDGET - state.reservedWrites - 4 < catchUpReserve) break;
         const receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt;
         const context = this.scheduleContext(String(row.context_key ?? row.feed_version)).receipt;
-        if (context && receipt.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(receipt.rawSHA256)) {
-          this.storage.sql.exec('DELETE FROM dale_history_batches WHERE attempt=?', Number(row.attempt));
-          state.bytes -= Number(row.bytes); state.batches--; state.reservedWrites += 4;
-          changed = true;
-        }
+        if (!(context && receipt.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(receipt.rawSHA256))) break;
+        this.storage.sql.exec('DELETE FROM dale_history_batches WHERE attempt=?', Number(row.attempt));
+        state.bytes -= Number(row.bytes); state.batches--; state.reservedWrites += 4;
+        changed = true;
       }
       const oldContext = this.storage.sql.exec("SELECT feed_version,body FROM dale_history_schedules WHERE part=-1 AND feed_version!=? AND json_extract(body,'$.archiveReceipt.manifestKey') IS NOT NULL AND json_extract(body,'$.localRemoved') IS NULL LIMIT 1", this.contextKey).toArray()[0];
       if (oldContext) {
