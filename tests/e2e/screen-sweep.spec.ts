@@ -31,7 +31,12 @@ const screens: Screen[] = [
   { name: 'home', open: start },
   { name: 'find a stop', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: strings[lang].findStop, exact: true }).first().click(); } },
   { name: 'saved trip', open: savedTrip },
-  { name: 'trip and bus lock', open: async (page, lang) => { await savedTrip(page, lang); await page.locator('.dep').first().click(); } },
+  { name: 'trip', open: async (page, lang) => { await savedTrip(page, lang); await page.locator('.dep').first().click(); } },
+  { name: 'bus lock', open: async (page, lang) => {
+    await savedTrip(page, lang); await page.locator('.dep').first().click();
+    await page.getByRole('button', { name: strings[lang].lockBus, exact: true }).click();
+    await expect(page.locator('.bus-lock')).toBeVisible();
+  } },
   { name: 'settings', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: strings[lang].settings, exact: true }).click(); } },
   { name: 'train', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: lang === 'es' ? 'Tren' : 'Train', exact: true }).click(); } },
 ];
