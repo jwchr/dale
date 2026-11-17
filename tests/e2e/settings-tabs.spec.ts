@@ -48,3 +48,38 @@ test('settings adopted from another tab are not written back over a newer save',
   await page.getByRole('button', { name: t.themeSystem, exact: true }).click();
   await expect.poll(() => saved(page)).toMatchObject({ count: 5, theme: 'system' });
 });
+
+// #171 review r4593163990: another tab's save can land before this tab hears about it (or the
+// notice never arrives). This tab's change must then save only the setting the rider changed.
+for (const lang of ['en', 'es'] as const) test(`a change saves only its own setting when another tab's save was not announced (${lang})`, async ({ page }) => {
+  const t = strings[lang];
+  await page.addInitScript(lang => {
+    if (!localStorage.getItem('arriba.settings.v1')) localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
+  }, lang);
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
+  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  // The other tab's save, with no storage notice reaching this tab.
+  await page.evaluate(() => {
+    const key = 'arriba.settings.v1';
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), bilingualButtons: true, count: 5 }));
+  });
+  await page.getByRole('button', { name: t.themeDark, exact: true }).click();
+  await expect.poll(() => saved(page)).toMatchObject({ theme: 'dark', bilingualButtons: true, count: 5, lang, skin: 'clean' });
+  // The screen now shows the stored values it merged with.
+  await expect(page.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: t.themeDark, exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('settings changes still work when this browser refuses to save them', async ({ page }) => {
+  const t = strings.en;
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = function () { throw new DOMException('blocked', 'QuotaExceededError'); };
+  });
+  await page.goto('/?printed=1&now=2026-11-04T07:50');
+  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: '5', exact: true }).click();
+  await page.getByRole('button', { name: t.themeDark, exact: true }).click();
+  // Both in-memory choices hold; the second change did not reset the first.
+  await expect(page.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: t.themeDark, exact: true })).toHaveAttribute('aria-pressed', 'true');
+});

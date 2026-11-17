@@ -14,7 +14,7 @@ import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
-import { useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
 import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
@@ -197,6 +197,19 @@ function useSettings() {
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
+  // A change here saves only the settings the rider changed, on top of what is stored right now,
+  // so a save from another tab that this tab has not heard about yet is kept (#106, #171 r4593163990).
+  const change = useCallback((next: Settings) => {
+    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => next[k] !== settings[k]);
+    if (changed.length === 0) return;
+    let base = settings;
+    try { const raw = store?.getItem('arriba.settings.v1'); if (raw != null) { JSON.parse(raw); base = readSettings(); } } catch { /* unreadable: keep this tab's values */ }
+    const merged = { ...base };
+    for (const k of changed) (merged as Record<keyof Settings, unknown>)[k] = next[k];
+    try { store?.setItem('arriba.settings.v1', JSON.stringify(merged)); } catch { /* not saved */ }
+    adopted.current.add(merged);
+    setSettings(merged);
+  }, [settings]);
   useEffect(() => {
     if (!adopted.current.has(settings)) try {
       const value = JSON.stringify(settings);
@@ -208,7 +221,7 @@ function useSettings() {
     document.documentElement.dataset.skin = settings.skin;
     document.documentElement.dataset.liveMotion = settings.liveMotion ? 'on' : 'off';
   }, [settings]);
-  return [settings, setSettings] as const;
+  return [settings, change] as const;
 }
 
 type AvailableGuide = 'guide' | 'penn';
