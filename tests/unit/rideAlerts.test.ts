@@ -1,11 +1,13 @@
 // Locked-phone stop alerts (#176 step C), Worker half. Design: docs/LOCKED_STOP_ALERTS.md.
 // Synthetic keys and household code are generated here at runtime; nothing secret is committed.
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFeedClass, createRouter } from '../../worker/service';
 import {
-  allowedEndpoint, codeMatches, createRideRules, decideRide, WrongCodes, MAX_RIDES, NOTICE_REPUSHES, RIDE_CAP_MS, type RideRow,
+  allowedEndpoint, codeMatches, createRideRules, decideRide, WrongCodes, MAX_PUSH_FAILURES, MAX_RIDES, NOTICE_REPUSHES, RIDE_CAP_MS, SAVE_MS, type RideRow,
 } from '../../worker/ride-alerts';
+import { HistoryArchive } from '../../worker/history-archive';
+import { HistoryJournal } from '../../worker/history-journal';
 import { fromBase64Url, loadVapid, sendPush, toBase64Url, PUSH_TTL_SECONDS, VAPID_SUBJECT } from '../../worker/web-push';
 import { liveDataset, NOW, binaryFeed, descriptor } from '../helpers/liveBus';
 import { createBusSession, reduceBusSession, type BusSession } from '../../src/domain/busLock';
@@ -40,16 +42,18 @@ const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 interface FeedState { stop: number | null; lonShift: number; age: number; vehicleId: string; second?: number; skipped: string[]; prediction?: { stopId: string; at: number; age?: number } }
-async function harness(options: { collection?: boolean; keys?: Partial<Awaited<ReturnType<typeof secrets>>> | null; sql?: boolean } = {}) {
+async function harness(options: { collection?: boolean; archive?: boolean; keys?: Partial<Awaited<ReturnType<typeof secrets>>> | null; sql?: boolean } = {}) {
   const db = new DatabaseSync(':memory:'); databases.push(db);
-  let now = NOW, alarmAt: number | null = null;
+  let now = NOW, alarmAt: number | null = null, full = false, rideWrites = 0;
   const saved = new Map<string, unknown>(), calls: { endpoint: string; at: number }[] = [], pushes: { url: string; headers: Headers; bytes: number; at: number }[] = [];
   let pushStatus: number | 'offline' = 201;
   const feed: FeedState = { stop: 0, lonShift: 0, age: 1, vehicleId: 'bus-A', skipped: [] };
   const storage = {
     ...(options.sql === false ? {} : {
-      sql: { get databaseSize() { return Number(db.prepare('PRAGMA page_count').get()!.page_count) * Number(db.prepare('PRAGMA page_size').get()!.page_size); }, exec(query: string, ...bindings: (string | number | null)[]) {
-        const rows = db.prepare(query).all(...bindings) as Record<string, unknown>[]; return { toArray: () => rows };
+      sql: { get databaseSize() { return full ? 500_000_000 : Number(db.prepare('PRAGMA page_count').get()!.page_count) * Number(db.prepare('PRAGMA page_size').get()!.page_size); }, exec(query: string, ...bindings: (string | number | null)[]) {
+        const rows = db.prepare(query).all(...bindings) as Record<string, unknown>[];
+        if (/^\s*(INSERT|UPDATE|DELETE)\b[^]*\bdale_ride_alerts\b/i.test(query)) rideWrites += Number(db.prepare('SELECT changes() AS n').get()!.n);
+        return { toArray: () => rows };
       } },
       transactionSync<T>(callback: () => T): T {
         db.exec('BEGIN'); try { const result = callback(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -86,12 +90,17 @@ async function harness(options: { collection?: boolean; keys?: Partial<Awaited<R
   const ctx = { storage, blockConcurrencyWhile: async <T,>(callback: () => Promise<T>) => callback() };
   const Feed = createFeedClass(ds, net, () => now);
   const env = { NJT_API_USERNAME: 'synthetic', NJT_API_PASSWORD: 'synthetic', HISTORY_COLLECTION: options.collection ? 'enabled' : 'disabled',
-    VAPID_PRIVATE_KEY: keys.VAPID_PRIVATE_KEY, HOUSEHOLD_CODE_HASH: keys.HOUSEHOLD_CODE_HASH, FEED: { idFromName: () => 'one', get: () => h.object } };
+    VAPID_PRIVATE_KEY: keys.VAPID_PRIVATE_KEY, HOUSEHOLD_CODE_HASH: keys.HOUSEHOLD_CODE_HASH, FEED: { idFromName: () => 'one', get: () => h.object },
+    ...(options.archive ? { HISTORY_ARCHIVE: {} as never } : {}) };
   const router = createRouter(ds);
   const h = {
     object: new Feed(ctx, env), Feed, ctx, env, db, calls, pushes, feed, keys,
     now: () => now, clock: (value: number) => { now = value; }, advance: (ms: number) => { now += ms; },
     alarmAt: () => alarmAt,
+    /** Ride rows written (inserted, updated or deleted), as the Free plan counts rows written. */
+    rideWrites: () => rideWrites,
+    /** Makes storage report the history size limit, as in the collector's storage-limit state. */
+    setFull: (value: boolean) => { full = value; },
     setPush: (status: number | 'offline') => { pushStatus = status; },
     restart: () => { h.object = new Feed(ctx, env); },
     alarm: async () => { alarmAt = null; await h.object.alarm(); },
@@ -370,6 +379,67 @@ describe('ride checks', () => {
     }
   });
 
+  it('records a stage as sent only when the push service accepted it, and ends the ride after 3 refusals in a row', async () => {
+    const h = await harness();
+    const id = await h.start();
+    const row = () => h.db.prepare('SELECT sent_stage, last_push_at, failures FROM dale_ride_alerts WHERE id=?').get(id);
+    // Refused (403, as after a key change): nothing is recorded as sent, and it stays due.
+    h.setPush(403); await h.step(2);
+    expect(pushCount(h)).toBe(1); expect(row()).toEqual({ sent_stage: null, last_push_at: null, failures: 1 });
+    // Retried at most every 30 seconds.
+    h.advance(10_000); await h.alarm(); expect(pushCount(h)).toBe(1);
+    await h.step(2); expect(pushCount(h)).toBe(2); expect(row()).toMatchObject({ sent_stage: null, failures: 2 });
+    // Network errors, 429 and 5xx are retried too, but do not count toward ending the ride.
+    h.setPush(503); for (let i = 0; i < 4; i++) await h.step(2);
+    expect(pushCount(h)).toBe(6); expect(row()).toMatchObject({ sent_stage: null, failures: 2 });
+    // Accepted: now recorded as sent, and the count of refusals starts again.
+    h.setPush(201); await h.step(2);
+    expect(pushCount(h)).toBe(7); expect(row()).toMatchObject({ sent_stage: 'three', failures: 0 });
+    h.setPush(403);
+    for (let i = 0; i < MAX_PUSH_FAILURES; i++) await h.step(2);
+    expect(pushCount(h)).toBe(7 + MAX_PUSH_FAILURES);
+    expect(await h.latest(id)).toEqual({ status: 410, body: { v: 1, kind: 'ended', reason: 'push_failed' } });
+    expect(h.db.prepare('SELECT endpoint, session FROM dale_ride_alerts WHERE id=?').get(id)).toEqual({ endpoint: null, session: null });
+    await h.step(2); expect(pushCount(h)).toBe(7 + MAX_PUSH_FAILURES);
+  });
+
+  it('counts only accepted pushes toward the service-change notice limit', async () => {
+    const h = await harness();
+    const id = await h.start();
+    h.feed.skipped = ['L6']; h.setPush(503);
+    for (let i = 0; i < 8; i++) await h.step(2);
+    // Every check tries again (every 30 seconds) and none of them uses up the limit.
+    expect(pushCount(h)).toBe(8);
+    expect(h.db.prepare('SELECT notice, notice_pushes FROM dale_ride_alerts WHERE id=?').get(id)).toEqual({ notice: 'none', notice_pushes: 0 });
+    h.setPush(201);
+    for (let i = 0; i < 40; i++) await h.step(2);
+    expect(pushCount(h)).toBe(8 + 1 + NOTICE_REPUSHES);
+    expect(h.db.prepare('SELECT notice, notice_pushes FROM dale_ride_alerts WHERE id=?').get(id)).toEqual({ notice: 'pending', notice_pushes: 1 + NOTICE_REPUSHES });
+  });
+
+  it('writes a ride at most every 2 minutes over an hour of fresh positions, and a sent stage at once', async () => {
+    const h = await harness();
+    const id = await h.start();
+    const before = h.rideWrites();
+    // An hour of fresh positions every 30 seconds, the bus creeping along (and running late) short of 3 stops.
+    for (let t = 0; t < 120; t++) await h.step(0.5 + t * 0.002);
+    const hour = h.rideWrites() - before;
+    expect(hour).toBeLessThanOrEqual(60 * 60_000 / SAVE_MS + 1);
+    expect(hour).toBeGreaterThanOrEqual(60 * 60_000 / SAVE_MS - 1);
+    expect((await h.latest(id)).status).toBe(200);
+    // A stage that was sent is written with its push, not up to 2 minutes later.
+    const sent = h.rideWrites();
+    await h.step(2);
+    expect(pushCount(h)).toBe(1); expect(h.rideWrites() - sent).toBe(1);
+    expect(h.db.prepare('SELECT sent_stage FROM dale_ride_alerts WHERE id=?').get(id)).toEqual({ sent_stage: 'three' });
+    // A repeat of the same unconfirmed stage is not written; a restart then loses at most the newest positions, never the sent stage.
+    const repeat = h.rideWrites();
+    await h.step(2.01); expect(pushCount(h)).toBe(2); expect(h.rideWrites() - repeat).toBe(0);
+    h.restart(); await h.step(2.02);
+    expect(h.db.prepare('SELECT sent_stage FROM dale_ride_alerts WHERE id=?').get(id)).toEqual({ sent_stage: 'three' });
+    expect((await h.latest(id)).body.stage).toBe('three');
+  });
+
   it('keeps a service-change notice pending until the phone confirms it, across a restart, at most 5 more times', async () => {
     const h = await harness();
     const id = await h.start();
@@ -466,6 +536,28 @@ describe('ride expiry', () => {
     const capped = snap({ receivedAt: muchLater, vehicles: { state: 'ok', timestamp: muchLater - 1000 }, observations: [{ ...position, observedAt: muchLater - 1000 }] });
     expect(rules.expiry(row, session(muchLater, capped), capped, muchLater)).toBe(NOW + RIDE_CAP_MS);
   });
+  it('extends only while the ride\'s own guide places the bus short of the alighting stop', () => {
+    const now = scheduled + 50 * 60_000;
+    const report = (stop: number) => {
+      const s = snap({ receivedAt: now, vehicles: { state: 'ok', timestamp: now - 1000 }, updates: { state: 'ok', timestamp: now - 1000 },
+        observations: [{ tripInstanceId: INSTANCE, vehicleId: 'bus-A', observedAt: now - 1000, lat: at(stop).latitude, lon: at(stop).longitude }] });
+      return rules.expiry(row, session(now, s), s, now);
+    };
+    expect(report(4)).toBe(now - 1000 + 1800_000);
+    // At or beyond the alighting stop (index 5), a fresh position never keeps the ride open.
+    expect(report(5)).toBe(scheduled + 1800_000);
+    expect(report(6)).toBe(scheduled + 1800_000);
+  });
+  it('ends a ride on time when the bus reports beyond the alighting stop during a service change', async () => {
+    const h = await harness();
+    const id = await h.start();
+    h.feed.skipped = ['L3'];
+    await h.step(2);
+    // The service change pauses the countdown, so only expiry can end this ride; a bus past the stop does not extend it.
+    for (let t = 0; t < 80 && (await h.latest(id)).status === 200; t++) await h.step(6);
+    expect(await h.latest(id)).toEqual({ status: 410, body: { v: 1, kind: 'ended', reason: 'expired' } });
+    expect(h.now()).toBeLessThanOrEqual(scheduled + 1800_000 + 30_000);
+  });
   it('keeps a late bus\'s ride while it reports, ends it after, and drops the tombstone after expiry', async () => {
     const h = await harness();
     const id = await h.start();
@@ -474,7 +566,8 @@ describe('ride expiry', () => {
     expect(h.now()).toBeGreaterThan(scheduled + 1800_000);
     expect((await h.latest(id)).status).toBe(200);
     const kept = Number(h.db.prepare('SELECT expires_at FROM dale_ride_alerts WHERE id=?').get(id)!.expires_at);
-    expect(kept).toBeGreaterThan(h.now() + 29 * 60_000);
+    // The stored expiry is written with the ride's other changes, so it can trail the newest position by under 2 minutes.
+    expect(kept).toBeGreaterThan(h.now() + 27 * 60_000);
     // It stops reporting: 30 minutes after its last fresh position the ride ends, and the tombstone answers "ended".
     for (let t = 0; t < 61; t++) await h.step(null);
     expect(await h.latest(id)).toEqual({ status: 410, body: { v: 1, kind: 'ended', reason: 'expired' } });
@@ -506,6 +599,45 @@ describe('history collection with rides', () => {
     const collection = (await (await h.api('/v1/collection')).json()).collection;
     return { calls: h.calls, alarmAt: h.alarmAt(), observations: collection.observations, batches: collection.batches, pushes: h.pushes.length };
   }
+  it.each([['collecting normally', false, 20 * 60_000], ['waiting at the storage limit', true, 150 * 60_000]] as const)(
+    'runs history attempts, archive flush and prune at the same times with and without a ride (%s)', async (_, full, span) => {
+      async function timing(withRide: boolean) {
+        const flushes: number[] = [], prunes: number[] = [], attempts: number[] = [];
+        const begin = HistoryJournal.prototype.beginAttempt;
+        vi.spyOn(HistoryArchive.prototype, 'flush').mockImplementation(async (now: number) => { flushes.push(now); });
+        vi.spyOn(HistoryJournal.prototype, 'pruneVerified').mockImplementation((now: number) => { prunes.push(now); });
+        vi.spyOn(HistoryJournal.prototype, 'beginAttempt').mockImplementation(function (this: HistoryJournal, now: number) {
+          const attempt = begin.call(this, now); if (attempt !== undefined) attempts.push(attempt); return attempt;
+        });
+        try {
+          const h = await harness({ collection: true, archive: true });
+          await h.api('/v1/collection');
+          h.setFull(full);
+          h.feed.stop = 0.5;
+          if (withRide) await h.start();
+          const end = h.now() + span;
+          while (h.now() < end) { h.advance(5000); if (h.alarmAt() !== null && h.alarmAt()! <= h.now()) await h.alarm(); }
+          const polls = h.calls.filter((c) => c.endpoint === 'getVehiclePositions').length, active = (await h.health()).rideAlerts.active;
+          return { flushes, prunes, attempts, polls, active };
+        } finally { vi.restoreAllMocks(); }
+      }
+      const plain = await timing(false), riding = await timing(true);
+      expect(riding.flushes).toEqual(plain.flushes);
+      expect(riding.prunes).toEqual(plain.prunes);
+      expect(riding.attempts).toEqual(plain.attempts);
+      expect(riding.active).toBe(1);
+      if (full) {
+        // Once an hour, as with no ride, while the ride kept polling every 30 seconds.
+        expect(plain.attempts).toEqual([]);
+        expect(plain.flushes.length).toBe(3);
+        for (let i = 1; i < plain.flushes.length; i++) expect(plain.flushes[i]! - plain.flushes[i - 1]!).toBeGreaterThanOrEqual(3600_000);
+        expect(plain.polls).toBe(0); expect(riding.polls).toBeGreaterThan(250);
+      } else {
+        expect(plain.flushes.length).toBeGreaterThan(30);
+        expect(riding.polls).toBe(plain.polls);
+      }
+    });
+
   it('keeps the same upstream pacing, journal and alarm when collection is enabled', async () => {
     const plain = await run(false), riding = await run(true);
     expect(riding.calls).toEqual(plain.calls);

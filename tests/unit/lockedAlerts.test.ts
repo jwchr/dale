@@ -38,16 +38,27 @@ describe('which ride to register', () => {
   it('needs a boarded rider, an exact locked vehicle and a stop further along the trip', () => {
     const s = boardedSession('bus-A');
     const alight = s.departure.stopIndex + 1;
-    expect(wantedRide(s, alight)).toEqual({ key: `${s.id}|bus-A|${alight}`, sessionId: s.id, trip: s.departure.tripId, date: s.departure.serviceDate,
-      vehicle: 'bus-A', board: s.departure.stopIndex, alight });
-    expect(wantedRide(boardedSession(), alight)).toBeUndefined(); // no vehicle yet
-    expect(wantedRide(s, s.departure.stopIndex)).toBeUndefined();
-    expect(wantedRide(s, s.departure.pattern.stopIds.length)).toBeUndefined();
-    expect(wantedRide({ ...s, phase: 'waiting' }, alight)).toBeUndefined();
-    expect(wantedRide({ ...s, lock: { ...s.lock, status: 'cancelled' } }, alight)).toBeUndefined();
+    expect(wantedRide(s, alight, 'en')).toEqual({ key: `${s.id}|bus-A|${alight}|en`, sessionId: s.id, trip: s.departure.tripId, date: s.departure.serviceDate,
+      vehicle: 'bus-A', board: s.departure.stopIndex, alight, lang: 'en' });
+    expect(wantedRide(boardedSession(), alight, 'en')).toBeUndefined(); // no vehicle yet
+    expect(wantedRide(s, s.departure.stopIndex, 'en')).toBeUndefined();
+    expect(wantedRide(s, s.departure.pattern.stopIds.length, 'en')).toBeUndefined();
+    expect(wantedRide({ ...s, phase: 'waiting' }, alight, 'en')).toBeUndefined();
+    expect(wantedRide({ ...s, lock: { ...s.lock, status: 'cancelled' } }, alight, 'en')).toBeUndefined();
     // A confirmed vehicle change is a different ride; the rider's pending decision is not.
-    expect(wantedRide({ ...s, lock: { ...s.lock, vehicleId: 'bus-B' } }, alight)!.key).not.toBe(wantedRide(s, alight)!.key);
-    expect(wantedRide({ ...s, lock: { ...s.lock, status: 'needs_confirmation' } }, alight)!.key).toBe(wantedRide(s, alight)!.key);
+    expect(wantedRide({ ...s, lock: { ...s.lock, vehicleId: 'bus-B' } }, alight, 'en')!.key).not.toBe(wantedRide(s, alight, 'en')!.key);
+    expect(wantedRide({ ...s, lock: { ...s.lock, status: 'needs_confirmation' } }, alight, 'en')!.key).toBe(wantedRide(s, alight, 'en')!.key);
+  });
+
+  it('treats a language change as a different ride, so the server and the service worker get the new language', () => {
+    const s = boardedSession('bus-A');
+    const alight = s.departure.stopIndex + 1;
+    const en = wantedRide(s, alight, 'en')!, es = wantedRide(s, alight, 'es')!;
+    expect(es.key).not.toBe(en.key);
+    expect(es.lang).toBe('es');
+    // Everything else about the ride is unchanged.
+    const { key: _a, lang: _b, ...restEn } = en, { key: _c, lang: _d, ...restEs } = es;
+    expect(restEs).toEqual(restEn);
   });
 
   it('ends as "got off" only after the rider said so; anything else is an unlock', () => {

@@ -87,3 +87,12 @@ function withStore(mode: IDBTransactionMode, act: (s: IDBObjectStore) => void): 
 }
 export const writeRideRecord = (record: RideRecord) => withStore('readwrite', (s) => { s.put(record, KEY); });
 export const deleteRideRecord = () => withStore('readwrite', (s) => { s.delete(KEY); });
+/** The ride id in the service worker's record, or undefined when there is none or it cannot be read. */
+export async function readRideRecordId(): Promise<string | undefined> {
+  let id: string | undefined;
+  const ok = await withStore('readonly', (s) => {
+    const get = s.get(KEY);
+    get.onsuccess = () => { const r = get.result as { rideId?: unknown } | undefined; id = typeof r?.rideId === 'string' ? r.rideId : undefined; };
+  });
+  return ok ? id : undefined;
+}

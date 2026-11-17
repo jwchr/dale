@@ -16,7 +16,7 @@ interface Storage extends Partial<HistoryStorage> {
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
 interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
@@ -36,6 +36,13 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
+    /**
+     * When history collection's own alarm is due: exactly the time the alarm would hold with no ride. Ride
+     * wakes share the one alarm but never move this, so collection, archive flush and prune keep their
+     * schedule while a ride is active. With no ride the alarm itself holds it; while a ride is active or
+     * pending it is also stored, so a restart keeps it.
+     */
+    private historyAt: number | null = null;
     constructor(ctx: State, env: Env) {
       this.ctx = ctx; this.env = env;
       this.ready = ctx.blockConcurrencyWhile(async () => {
@@ -63,6 +70,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             // attempt reservation remains the conservative shared pace anchor.
             this.saved.pollAt = Math.max(this.saved.pollAt, this.journal.status(clock()).lastAttemptAt ?? 0);
             if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
+            if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() === null ? await ctx.storage.getAlarm() : this.saved.historyAt ?? null;
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
@@ -83,17 +91,32 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (ridesChanged && this.ctx.storage.deleteAlarm && await this.ctx.storage.getAlarm() !== null) await this.ctx.storage.deleteAlarm();
         return;
       }
-      let next = collecting ? this.journal!.status(clock()).nextAttemptAt : null;
-      if (rideAt !== null) next = next === null ? rideAt : Math.min(next, rideAt);
+      let history: number | null = null;
+      if (collecting) {
+        // The same rule as with no ride: the earliest due time asked for since the last history run.
+        const due = this.journal!.status(clock()).nextAttemptAt, desired = due === null ? null : Math.max(clock() + 1000, due);
+        history = desired === null ? this.historyAt : this.historyAt === null ? desired : Math.min(this.historyAt, desired);
+        this.historyAt = history;
+        if (rideAt !== null && (this.saved.historyAt ?? null) !== history) {
+          this.saved.historyAt = history ?? undefined;
+          await this.ctx.storage.put('state-v1', this.saved);
+        }
+      }
+      // A ride check due within one poll before the history run waits for it, so a ride poll never takes
+      // the history run's turn at the global pace.
+      let next = rideAt;
+      if (history !== null) next = rideAt === null || history - Math.max(rideAt, clock()) < POLL_MS ? history : Math.min(history, rideAt);
       if (next !== null) {
         const desired = Math.max(clock() + 1000, next), existing = await this.ctx.storage.getAlarm();
-        if (existing === null || existing > desired) await this.ctx.storage.setAlarm(desired);
+        // Moved later only when rides changed, so an ended ride leaves no early alarm behind.
+        if (existing === null || existing > desired || (ridesChanged && existing < desired)) await this.ctx.storage.setAlarm(desired);
       }
     }
     private async poll(background = false, forRides = false) {
       if (!this.pending && clock() - this.saved.pollAt >= (this.journal?.intervalMs(clock()) ?? POLL_MS)) {
         let attempt: number | undefined;
-        try { attempt = this.journal?.beginAttempt(clock()); } catch { this.collectionError = true; }
+        // A ride's poll never starts a history attempt: collection runs only on its own schedule.
+        try { attempt = forRides ? undefined : this.journal?.beginAttempt(clock()); } catch { this.collectionError = true; }
         // A paused/disabled collector must not start upstream work on its own. An active ride
         // may, at the same global pace (pollAt above) as a demand read from an open app.
         if (background && attempt === undefined && !forRides) return;
@@ -112,13 +135,13 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       await this.ready;
       const collecting = this.env.HISTORY_COLLECTION === 'enabled', rideAt = this.rideWake();
       if (!collecting && rideAt === null) return;
-      // An alarm set early only for a ride leaves collection to its own due time, so its pacing is unchanged.
-      let collect = collecting;
-      if (collecting && rideAt !== null && this.journal) {
-        try { const due = this.journal.status(clock()).nextAttemptAt; collect = due === null || due <= clock() + 1000; } catch { collect = true; }
-      }
+      // History runs (collection, archive flush, prune) only at their own due time, exactly as with no ride:
+      // an alarm that fired for a ride leaves them alone, and a ride never makes them later. With no ride the
+      // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
+      const collect = collecting && (rideAt === null || !this.journal || this.historyAt === null || this.historyAt <= clock());
       try {
         if (collect) {
+          this.historyAt = null;
           await this.poll(true);
           if (this.archive) await this.archive.flush(clock());
           this.journal?.pruneVerified(clock());
@@ -138,7 +161,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       try {
         rides.store.purge(clock());
         if (rides.activeCount() === 0) return;
-        await this.poll(true, true);
+        // Within one poll of the history run, the ride waits for that run's poll (see arm) and checks the latest data.
+        const now = clock(), history = this.env.HISTORY_COLLECTION === 'enabled' ? this.historyAt : null;
+        if (history === null || history <= now || history - now >= POLL_MS) await this.poll(true, true);
         await rides.watch(this.env);
       } catch { /* A failed ride check is retried on the next alarm; it never reveals a ride. */ }
     }

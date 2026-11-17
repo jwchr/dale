@@ -20,7 +20,11 @@ interface Server {
   config: () => unknown;
   register: (body: Record<string, unknown>) => { status: number; json: unknown };
   remove: (route: Route) => Promise<void>;
+  /** Answers an activation; by default 200 active. */
+  activate: () => Promise<number>;
   posts: Record<string, unknown>[]; activations: number; deletes: string[];
+  /** At each activation call: the ride id in the service worker's record and the ride saved on the phone. */
+  atActivate: { record: string | null; saved: string | null }[];
 }
 
 async function setup(page: Page, opts: { lang?: Lang; enabled?: boolean; granted?: boolean; failRecord?: boolean } = {}): Promise<Server> {
@@ -29,15 +33,27 @@ async function setup(page: Page, opts: { lang?: Lang; enabled?: boolean; granted
     config: () => ({ v: 1, available: true, publicKey: PUBLIC_KEY }),
     register: () => ({ status: 201, json: { v: 1, id: RIDE, expiresAt: NOW + 3_600_000 } }),
     remove: (route) => route.fulfill({ status: 204, headers: cors }),
-    posts: [], activations: 0, deletes: [],
+    activate: async () => 200,
+    posts: [], activations: 0, deletes: [], atActivate: [],
   };
   await page.clock.install({ time: NOW });
   await page.addInitScript(({ lang, enabled, granted, failRecord, code }) => {
-    localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'live-test', label: 'My live bus', fromStopId: '2', toStopId: '3', routeIds: ['10'] }]));
-    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
-    if (enabled) localStorage.setItem('arriba.rideAlerts.v1', JSON.stringify({ enabled: true, code, pending: [] }));
+    // Seeded once per test, so a reload keeps what Dale saved.
+    if (!sessionStorage.getItem('test-seeded')) {
+      sessionStorage.setItem('test-seeded', '1');
+      localStorage.setItem('arriba.favorites.v1.g2', JSON.stringify([{ id: 'live-test', label: 'My live bus', fromStopId: '2', toStopId: '3', routeIds: ['10'] }]));
+      localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
+      if (enabled) localStorage.setItem('arriba.rideAlerts.v1', JSON.stringify({ enabled: true, code, pending: [] }));
+    }
     const w = window as unknown as Record<string, unknown>;
     const log: string[] = []; w.__log = log;
+    // Whether a ride was ever saved on this phone (it must never be saved before its service-worker record).
+    w.__rideSaved = false;
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'arriba.rideAlerts.v1' && JSON.parse(value)?.ride) w.__rideSaved = true;
+      return setItem.call(this, key, value);
+    };
     class FakeNotification {
       static permission: NotificationPermission = granted ? 'granted' : 'default';
       static requestPermission() { log.push('permission'); FakeNotification.permission = 'granted'; return Promise.resolve(FakeNotification.permission); }
@@ -77,7 +93,12 @@ async function setup(page: Page, opts: { lang?: Lang; enabled?: boolean; granted
       const answer = server.register(body);
       return route.fulfill({ status: answer.status, json: answer.json, headers: cors });
     }
-    if (path.endsWith('/activate')) { server.activations++; return route.fulfill({ json: { v: 1, state: 'active' }, headers: cors }); }
+    if (path.endsWith('/activate')) {
+      server.atActivate.push({ record: ((await swRecord(page)) as { rideId?: string } | null)?.rideId ?? null, saved: (await saved(page))?.ride?.id ?? null });
+      const status = await server.activate();
+      if (status !== 200) return route.fulfill({ status, json: { v: 1 }, headers: cors });
+      server.activations++; return route.fulfill({ json: { v: 1, state: 'active' }, headers: cors });
+    }
     if (req.method() === 'DELETE') { server.deletes.push(`${path}${new URL(req.url()).search}`); return server.remove(route); }
     return route.fulfill({ status: 404, json: { v: 1 }, headers: cors });
   });
@@ -173,6 +194,8 @@ for (const lang of ['en', 'es'] as const) test(`boarding registers a fresh ride,
   await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.on);
   expect(server.posts).toEqual([{ v: 1, code: CODE, endpoint: 'https://fcm.googleapis.com/fcm/send/ride-1', trip: 'T1', date: '20261104', vehicle: 'bus-A', board: 1, alight: 2, lang }]);
   expect(server.activations).toBe(1);
+  // Created, then the service worker's record, then saved on the phone, then activated.
+  expect(server.atActivate).toEqual([{ record: RIDE, saved: RIDE }]);
   expect(await log(page)).toEqual(['unsubscribe https://fcm.googleapis.com/fcm/send/earlier', 'subscribe true 65']);
   expect(await swRecord(page)).toEqual({ rideId: RIDE, endpoint: 'https://fcm.googleapis.com/fcm/send/ride-1', apiBase: API, lang, highestShown: 0, noticeShown: false,
     text: { cantCheck: { title: s.noteTitle, body: s.cantCheck }, ended: { title: s.endedTitle, body: s.ended } } });
@@ -223,6 +246,50 @@ test('a ride record this phone cannot save deletes the ride at once and keeps al
   await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.storage);
   await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
   expect(server.activations).toBe(0);
+  // The ride was never saved on the phone, so nothing could activate it later.
+  expect(await page.evaluate(() => (window as unknown as { __rideSaved: boolean }).__rideSaved)).toBe(false);
+  expect((await saved(page)).ride).toBeUndefined();
+});
+
+test('a saved ride whose service-worker record is missing is never activated: it is deleted on the server', async ({ page }) => {
+  const s = strings.en.lockedAlerts;
+  const server = await setup(page, { enabled: true, granted: true });
+  // The first try fails, and meanwhile the record is lost (as after a start that was cut short).
+  let first = true;
+  server.activate = async () => {
+    if (!first) return 200;
+    first = false;
+    await page.evaluate(() => new Promise((resolve) => { const open = indexedDB.open('dale-ride-alerts', 1); open.onsuccess = () => {
+      const tx = open.result.transaction('ride', 'readwrite'); tx.objectStore('ride').delete('current'); tx.oncomplete = () => { open.result.close(); resolve(null); };
+    }; }));
+    return 503;
+  };
+  const ride = await board(page, 'en');
+  await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
+  await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.storage);
+  expect(server.activations).toBe(0);
+  expect(server.atActivate).toEqual([{ record: RIDE, saved: RIDE }]);
+  expect((await saved(page)).ride).toBeUndefined();
+});
+
+test('changing the language mid-ride ends the ride and registers a new one in the new language', async ({ page }) => {
+  const server = await setup(page, { enabled: true, granted: true });
+  const second = 'ZyXwVuTsRqPoNmLkJiHgFe';
+  server.register = () => ({ status: 201, json: { v: 1, id: server.posts.length > 1 ? second : RIDE, expiresAt: NOW + 3_600_000 } });
+  const ride = await board(page, 'en');
+  await expect(ride.locator('.locked-status [role=status]')).toHaveText(strings.en.lockedAlerts.on);
+  // Dale opens again with the lock offered back; the rider switches to Spanish, then resumes.
+  await page.reload();
+  const offer = page.locator('.lock-return[role="note"]');
+  await expect(offer).toBeVisible();
+  await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
+  await page.getByRole('button', { name: 'Español', exact: true }).first().click();
+  await page.keyboard.press('Escape');
+  await offer.getByRole('button', { name: strings.es.busLock.resumeYes, exact: true }).click();
+  await expect.poll(() => server.posts.map((p) => p.lang)).toEqual(['en', 'es']);
+  await expect.poll(() => server.activations).toBe(2);
+  expect(server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
+  expect(await swRecord(page)).toMatchObject({ rideId: second, lang: 'es', text: { ended: { title: strings.es.lockedAlerts.endedTitle, body: strings.es.lockedAlerts.ended } } });
 });
 
 for (const lang of ['en', 'es'] as const) test(`turning it off offline keeps the delete and sends it when the network returns (${lang})`, async ({ page }) => {

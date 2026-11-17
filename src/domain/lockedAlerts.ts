@@ -19,20 +19,22 @@ export const ACTIVATE_WINDOW_MS = 2 * 60_000;
 export const SERVER_RIDE_CAP_MS = 3 * 60 * 60_000;
 
 /** The ride the app should have registered right now, or undefined for none. */
-export interface WantedRide { key: string; sessionId: string; trip: string; date: string; vehicle: string; board: number; alight: number }
+export interface WantedRide { key: string; sessionId: string; trip: string; date: string; vehicle: string; board: number; alight: number; lang: 'en' | 'es' }
 
 /**
  * A ride is wanted once the rider has boarded a locked bus (an exact vehicle is known), with a stop to get
  * off at further along the trip. A vehicle change the rider has not confirmed keeps the current one.
+ * The language is part of the ride: changing it mid-ride ends the ride and registers a new one, so the
+ * server's lines and the service worker's record follow the new language.
  */
-export function wantedRide(session: BusSession | undefined, alightIndex: number): WantedRide | undefined {
+export function wantedRide(session: BusSession | undefined, alightIndex: number, lang: 'en' | 'es'): WantedRide | undefined {
   if (!session || session.phase !== 'onboard') return undefined;
   const { lock, departure: dep } = session;
   if (!lock.vehicleId || lock.status === 'cancelled' || lock.status === 'ended') return undefined;
   if (!Number.isInteger(alightIndex) || alightIndex <= dep.stopIndex || alightIndex >= dep.pattern.stopIds.length) return undefined;
   return {
-    key: `${session.id}|${lock.vehicleId}|${alightIndex}`, sessionId: session.id,
-    trip: dep.tripId, date: dep.serviceDate, vehicle: lock.vehicleId, board: dep.stopIndex, alight: alightIndex,
+    key: `${session.id}|${lock.vehicleId}|${alightIndex}|${lang}`, sessionId: session.id,
+    trip: dep.tripId, date: dep.serviceDate, vehicle: lock.vehicleId, board: dep.stopIndex, alight: alightIndex, lang,
   };
 }
 

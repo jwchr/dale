@@ -31,17 +31,27 @@ export const REPUSH_MS = 30_000;
 /** A pending service-change notice is pushed again this often, at most NOTICE_REPUSHES times. */
 export const NOTICE_REPUSH_MS = 2 * 60_000;
 export const NOTICE_REPUSHES = 5;
+/** A ride's lock and history are written at least this often, and sooner only when something that matters changed. */
+export const SAVE_MS = 2 * 60_000;
+/** Consecutive refused pushes (a 4xx other than 404/410, such as 403 after a key change) before the ride ends. */
+export const MAX_PUSH_FAILURES = 3;
 /** A tombstone (id and reason only) answers "ended" until the ride's expiry, and at least this long. */
 export const TOMBSTONE_MIN_MS = 10 * 60_000;
 export const MAX_BODY_BYTES = 4096;
 const WRONG_WINDOW_MS = 10 * 60_000, WRONG_LIMIT = 5, WRONG_LOCKOUT_MS = 3600_000, WRONG_ADDRESSES = 1000;
 
-export type EndReason = 'unlocked' | 'got_off' | 'arrived' | 'passed' | 'expired' | 'replaced';
+export type EndReason = 'unlocked' | 'got_off' | 'arrived' | 'passed' | 'expired' | 'replaced' | 'push_failed';
 export type NoticeState = 'none' | 'pending' | 'shown';
 export interface RideRow {
   id: string; state: 'pending' | 'active' | 'ended'; reason: EndReason | null; endpoint: string; trip: string; date: string; vehicle: string;
   board: number; alight: number; lang: Lang; createdAt: number; expiresAt: number; sentStage: RideStage | null; shown: number;
   serviceChange: boolean; notice: NoticeState; noticePushes: number; noticeAt: number | null; lastPushAt: number | null; session: string | null;
+  savedAt: number | null; failures: number;
+}
+/** What one check writes, in a single statement: the lock and history with flag and expiry, and push results that must outlive a restart. */
+export interface RidePatch {
+  session?: string; serviceChange?: boolean; expiresAt?: number; savedAt?: number;
+  sentStage?: RideStage; lastPushAt?: number; noticeAt?: number; failures?: number;
 }
 export interface RideEnv { VAPID_PRIVATE_KEY?: string; HOUSEHOLD_CODE_HASH?: string }
 interface RideStorage { sql: HistorySql; transactionSync<T>(callback: () => T): T }
@@ -93,7 +103,8 @@ export class RideStore {
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS dale_ride_alerts (id TEXT PRIMARY KEY, state TEXT NOT NULL, reason TEXT, endpoint TEXT, trip TEXT,
       date TEXT, vehicle TEXT, board INTEGER, alight INTEGER, lang TEXT, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, sent_stage TEXT,
       shown INTEGER NOT NULL DEFAULT 0, service_change INTEGER NOT NULL DEFAULT 0, notice TEXT NOT NULL DEFAULT 'none',
-      notice_pushes INTEGER NOT NULL DEFAULT 0, notice_at INTEGER, last_push_at INTEGER, session TEXT) WITHOUT ROWID`);
+      notice_pushes INTEGER NOT NULL DEFAULT 0, notice_at INTEGER, last_push_at INTEGER, session TEXT, saved_at INTEGER,
+      failures INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID`);
   }
   private rows(query: string, ...bindings: (string | number | null)[]): RideRow[] {
     return this.storage.sql.exec(query, ...bindings).toArray().map((r) => ({
@@ -104,6 +115,7 @@ export class RideStore {
       serviceChange: Number(r.service_change) === 1, notice: (['pending', 'shown'].includes(String(r.notice)) ? r.notice : 'none') as NoticeState,
       noticePushes: Number(r.notice_pushes), noticeAt: r.notice_at == null ? null : Number(r.notice_at),
       lastPushAt: r.last_push_at == null ? null : Number(r.last_push_at), session: r.session == null ? null : String(r.session),
+      savedAt: r.saved_at == null ? null : Number(r.saved_at), failures: Number(r.failures ?? 0),
     }));
   }
   get(id: string) { return this.rows('SELECT * FROM dale_ride_alerts WHERE id=?', id)[0]; }
@@ -133,9 +145,9 @@ export class RideStore {
       const others = Number(this.storage.sql.exec("SELECT COUNT(*) AS n FROM dale_ride_alerts WHERE state<>'ended' AND endpoint<>?", row.endpoint).toArray()[0]?.n ?? 0);
       if (others >= MAX_RIDES) return false;
       for (const r of this.rows("SELECT * FROM dale_ride_alerts WHERE state<>'ended' AND endpoint=?", row.endpoint)) this.end(r.id, 'replaced', row.createdAt);
-      this.storage.sql.exec(`INSERT INTO dale_ride_alerts (id, state, endpoint, trip, date, vehicle, board, alight, lang, created_at, expires_at, session)
-        VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, row.endpoint, row.trip, row.date, row.vehicle, row.board, row.alight, row.lang,
-      row.createdAt, row.expiresAt, row.session);
+      this.storage.sql.exec(`INSERT INTO dale_ride_alerts (id, state, endpoint, trip, date, vehicle, board, alight, lang, created_at, expires_at, session, saved_at)
+        VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, row.endpoint, row.trip, row.date, row.vehicle, row.board, row.alight, row.lang,
+      row.createdAt, row.expiresAt, row.session, row.createdAt);
       return true;
     });
   }
@@ -144,18 +156,24 @@ export class RideStore {
   ack(id: string, rank: number) { this.storage.sql.exec("UPDATE dale_ride_alerts SET shown=MAX(shown, ?) WHERE id=? AND state<>'ended'", rank, id); }
   /** The phone showed a service-change answer: keep the flag and stop the notice. */
   noticeAck(id: string) { this.storage.sql.exec("UPDATE dale_ride_alerts SET notice='shown', service_change=1 WHERE id=? AND state<>'ended'", id); }
-  /** Lock, history, flag and expiry from one check, written only when something changed. */
-  saveCheck(row: RideRow, session: string, serviceChange: boolean, expiresAt: number) {
-    if (row.session === session && row.serviceChange === serviceChange && row.expiresAt === expiresAt) return;
-    this.storage.sql.exec("UPDATE dale_ride_alerts SET session=?, service_change=MAX(service_change, ?), expires_at=? WHERE id=? AND state='active'",
-      session, serviceChange ? 1 : 0, expiresAt, row.id);
-  }
-  recordStage(id: string, stage: RideStage, now: number) {
-    this.storage.sql.exec("UPDATE dale_ride_alerts SET sent_stage=?, last_push_at=? WHERE id=? AND state='active'", stage, now, id);
-  }
-  recordNotice(id: string, now: number) {
-    this.storage.sql.exec(`UPDATE dale_ride_alerts SET notice=CASE WHEN notice='shown' THEN 'shown' ELSE 'pending' END, notice_pushes=notice_pushes+1,
-      notice_at=? WHERE id=? AND state='active'`, now, id);
+  /** One check's write, at most one statement. Column names are fixed here; only values are bound. */
+  update(id: string, patch: RidePatch) {
+    const sets: string[] = [], values: (string | number | null)[] = [];
+    const set = (sql: string, value: string | number | null) => { sets.push(sql); values.push(value); };
+    if (patch.session !== undefined) set('session=?', patch.session);
+    if (patch.serviceChange !== undefined) set('service_change=MAX(service_change, ?)', patch.serviceChange ? 1 : 0);
+    if (patch.expiresAt !== undefined) set('expires_at=?', patch.expiresAt);
+    if (patch.savedAt !== undefined) set('saved_at=?', patch.savedAt);
+    if (patch.sentStage !== undefined) set('sent_stage=?', patch.sentStage);
+    if (patch.lastPushAt !== undefined) set('last_push_at=?', patch.lastPushAt);
+    if (patch.failures !== undefined) set('failures=?', patch.failures);
+    // An accepted notice push: pending until the phone confirms it. Only accepted pushes count toward the limit.
+    if (patch.noticeAt !== undefined) {
+      sets.push("notice=CASE WHEN notice='shown' THEN 'shown' ELSE 'pending' END", 'notice_pushes=notice_pushes+1');
+      set('notice_at=?', patch.noticeAt);
+    }
+    if (!sets.length) return;
+    this.storage.sql.exec(`UPDATE dale_ride_alerts SET ${sets.join(', ')} WHERE id=? AND state='active'`, ...values, id);
   }
 }
 
@@ -172,7 +190,13 @@ export type RideAction = { push: 'notice' } | { push: 'stage'; stage: RideStage 
  * (starting at rank 0, "riding"), so a ride registered inside 3 stops still alerts once. A sent but unconfirmed
  * stage is pushed again at most every 30 seconds while it is still current; a stage the bus has passed never is.
  */
-export function decideRide(row: Pick<RideRow, 'shown' | 'sentStage' | 'lastPushAt' | 'notice' | 'noticePushes' | 'noticeAt'>, now: number, state: RideNow): RideAction {
+export function decideRide(row: Pick<RideRow, 'shown' | 'sentStage' | 'lastPushAt' | 'notice' | 'noticePushes' | 'noticeAt'> & { failAt?: number | null }, now: number, state: RideNow): RideAction {
+  const action = decide(row, now, state);
+  // A push the push service did not accept stays due, but is tried again at most every 30 seconds.
+  if (action && 'push' in action && row.failAt != null && now - row.failAt < REPUSH_MS) return;
+  return action;
+}
+function decide(row: Pick<RideRow, 'shown' | 'sentStage' | 'lastPushAt' | 'notice' | 'noticePushes' | 'noticeAt'>, now: number, state: RideNow): RideAction {
   if (state.kind === 'service_change') {
     if (row.notice === 'none') return { push: 'notice' };
     if (row.notice === 'pending' && row.noticePushes < 1 + NOTICE_REPUSHES && now - (row.noticeAt ?? 0) >= NOTICE_REPUSH_MS) return { push: 'notice' };
@@ -259,7 +283,7 @@ export function createRideRules(ds: Dataset) {
    * observed over 2 minutes ago, or for a time over 30 minutes past, is no prediction; without one, a fresh
    * position of the locked bus on this trip keeps the ride until 30 minutes after it. Never past the 3-hour cap.
    */
-  function expiry(row: Pick<RideRow, 'trip' | 'date' | 'alight' | 'createdAt'>, s: BusSession, snapshot: LiveBusSnapshot, now: number): number {
+  function expiry(row: Pick<RideRow, 'trip' | 'date' | 'board' | 'alight' | 'createdAt'>, s: BusSession, snapshot: LiveBusSnapshot, now: number): number {
     const trip = trips.get(row.trip)!;
     let until = (tripArrivalAt(ds, trip, row.date, row.alight) ?? tripTimeAt(ds, trip, row.date, row.alight)) + AFTER_ARRIVAL_MS;
     const predictions = snapshot.updates.state === 'ok' ? snapshot.predictions.filter((p) => p.stopIndex === row.alight
@@ -267,7 +291,12 @@ export function createRideRules(ds: Dataset) {
     const prediction = predictions.find((p) => p.kind === 'arrival') ?? predictions[0];
     if (prediction) until = Math.max(until, prediction.at + AFTER_ARRIVAL_MS);
     else if (s.lock.status === 'tracked' && s.lock.last && s.lock.last.tripInstanceId === s.departure.tripInstanceId && now - s.lock.last.observedAt <= LIVE_MAX_AGE_MS) {
-      until = Math.max(until, s.lock.last.observedAt + AFTER_ARRIVAL_MS);
+      // Only while the ride's own guide places the bus short of the alighting stop: a bus reporting at or past
+      // it, or one the guide cannot place, never keeps the ride open.
+      const guide = rideGuide(ds, s.departure.pattern.stopIds, row.board, row.alight, s.lock, now, s.history);
+      if (guide.basis === 'gps' && guide.stage !== 'arrived' && guide.stage !== 'passed' && guide.reachedIndex < row.alight) {
+        until = Math.max(until, guide.observedAt + AFTER_ARRIVAL_MS);
+      }
     }
     return Math.min(row.createdAt + RIDE_CAP_MS, until);
   }
@@ -287,6 +316,9 @@ export class RideAlerts {
   readonly store: RideStore;
   private readonly rules;
   private readonly wrong = new WrongCodes();
+  /** In memory only: when each ride's push was last accepted (a repeat of the same stage is not written) and last not accepted. */
+  private readonly pushedAt = new Map<string, number>();
+  private readonly failedAt = new Map<string, number>();
   constructor(storage: RideStorage, ds: Dataset, private readonly host: RideHost, private readonly clock: () => number, private readonly fetchImpl: typeof fetch) {
     this.store = new RideStore(storage);
     this.rules = createRideRules(ds);
@@ -370,10 +402,16 @@ export class RideAlerts {
       receivedAt: snapshot.receivedAt, title, body: stageMessage(t, state.stage, state.stopsAway, stop) });
   }
 
-  /** One alarm's check of every active ride, after the poll. Send, then record. */
+  /**
+   * One alarm's check of every active ride, after the poll. Send, then record: only a push the push service
+   * accepted counts as sent. Writes are bounded (docs/LOCKED_STOP_ALERTS.md, "Writes per ride"): one statement
+   * per check at most, and the lock and history only when the sent stage, notice, lock status, service-change flag
+   * or expiry changed, otherwise at most every 2 minutes. A repeat of the same stage is not written.
+   */
   async watch(env: RideEnv): Promise<void> {
-    const vapid = await loadVapid(env.VAPID_PRIVATE_KEY);
-    for (const id of this.store.ids('active')) {
+    const vapid = await loadVapid(env.VAPID_PRIVATE_KEY), ids = this.store.ids('active');
+    for (const map of [this.pushedAt, this.failedAt]) for (const id of map.keys()) if (!ids.includes(id)) map.delete(id);
+    for (const id of ids) {
       const row = this.store.get(id), now = this.clock();
       if (!row || row.state !== 'active') continue;
       const restored = this.rules.session(row);
@@ -384,17 +422,35 @@ export class RideAlerts {
       // Expiry only moves later, so one gap in the feed cannot end a late bus's ride early; the 3-hour cap still holds.
       const expiresAt = Math.min(row.createdAt + RIDE_CAP_MS, Math.max(row.expiresAt, this.rules.expiry(row, s, snapshot, now)));
       if (expiresAt <= now) { this.store.end(id, 'expired', now); continue; }
-      this.store.saveCheck(row, this.rules.saveSession(s, now), serviceChange, expiresAt);
-      const action = decideRide(row, now, this.rules.current({ ...row, serviceChange }, s, now));
-      if (!action) continue;
-      if ('end' in action) { this.store.end(id, action.end, now); continue; }
-      if (!vapid) continue;
-      const result = await sendPush(vapid, row.endpoint, id, now, this.fetchImpl);
-      // 404/410: the phone dropped this subscription (unlocked, got off or turned the setting off).
-      if (result === 'gone') { this.store.end(id, 'unlocked', this.clock()); continue; }
-      // A 201 means accepted, not shown: the stage is recorded as sent; only the phone's ack marks it shown.
-      if (action.push === 'notice') this.store.recordNotice(id, this.clock());
-      else this.store.recordStage(id, action.stage, this.clock());
+      const lastPushAt = Math.max(row.lastPushAt ?? 0, this.pushedAt.get(id) ?? 0) || null;
+      const action = decideRide({ ...row, lastPushAt, failAt: this.failedAt.get(id) ?? null }, now, this.rules.current({ ...row, serviceChange }, s, now));
+      if (action && 'end' in action) { this.store.end(id, action.end, now); continue; }
+      const patch: RidePatch = {};
+      if (action && vapid) {
+        const result = await sendPush(vapid, row.endpoint, id, now, this.fetchImpl), at = this.clock();
+        // 404/410: the phone dropped this subscription (unlocked, got off or turned the setting off).
+        if (result === 'gone') { this.store.end(id, 'unlocked', at); continue; }
+        if (result === 'ok') {
+          // Accepted, not shown: the stage is recorded as sent; only the phone's ack marks it shown.
+          this.failedAt.delete(id); this.pushedAt.set(id, at);
+          if (row.failures) patch.failures = 0;
+          if (action.push === 'notice') patch.noticeAt = at;
+          else if (action.stage !== row.sentStage) { patch.sentStage = action.stage; patch.lastPushAt = at; }
+        } else {
+          // Not accepted: nothing is recorded as sent, so it stays due for the next check.
+          this.failedAt.set(id, at);
+          if (result === 'failed') {
+            if (row.failures + 1 >= MAX_PUSH_FAILURES) { this.store.end(id, 'push_failed', at); continue; }
+            patch.failures = row.failures + 1;
+          }
+        }
+      }
+      const material = Object.keys(patch).length > 0 || serviceChange !== row.serviceChange || restored.lock.status !== s.lock.status
+        || expiresAt - row.expiresAt >= SAVE_MS || (expiresAt !== row.expiresAt && row.expiresAt - now <= SAVE_MS);
+      if (material || row.savedAt === null || now - row.savedAt >= SAVE_MS) {
+        Object.assign(patch, { session: this.rules.saveSession(s, now), serviceChange, expiresAt, savedAt: now });
+      }
+      this.store.update(id, patch);
     }
   }
 }
