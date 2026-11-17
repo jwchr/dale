@@ -186,13 +186,23 @@ function useSettings() {
   // Settings adopted from another tab are shown but never written back: that tab already
   // saved them, and it may have saved something newer since. Only this tab's own changes persist.
   const adopted = useRef(new WeakSet<Settings>());
+  // Settings this tab changed but could not save yet; they are kept until a save succeeds.
+  const pending = useRef(new Set<keyof Settings>());
+  const withPending = (base: Settings, from: Settings): Settings => {
+    const merged = { ...base };
+    for (const k of pending.current) (merged as Record<keyof Settings, unknown>)[k] = from[k];
+    return merged;
+  };
   useEffect(() => {
     // Another open tab saved settings: adopt them, so this tab's next save cannot undo that change.
     const sync = (event: StorageEvent) => {
       if (event.key !== 'arriba.settings.v1') return;
-      const next = readSettings();
-      adopted.current.add(next);
-      setSettings(next);
+      setSettings((prev) => {
+        // This tab's changes that this browser refused to save stay on screen.
+        const next = withPending(readSettings(), prev);
+        adopted.current.add(next);
+        return next;
+      });
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
@@ -204,9 +214,9 @@ function useSettings() {
     if (changed.length === 0) return;
     let base = settings;
     try { const raw = store?.getItem('arriba.settings.v1'); if (raw != null) { JSON.parse(raw); base = readSettings(); } } catch { /* unreadable: keep this tab's values */ }
-    const merged = { ...base };
-    for (const k of changed) (merged as Record<keyof Settings, unknown>)[k] = next[k];
-    try { store?.setItem('arriba.settings.v1', JSON.stringify(merged)); } catch { /* not saved */ }
+    for (const k of changed) pending.current.add(k);
+    const merged = withPending(base, next);
+    try { store?.setItem('arriba.settings.v1', JSON.stringify(merged)); pending.current.clear(); } catch { /* not saved: kept as pending */ }
     adopted.current.add(merged);
     setSettings(merged);
   }, [settings]);

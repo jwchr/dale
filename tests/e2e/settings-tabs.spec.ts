@@ -72,7 +72,9 @@ for (const lang of ['en', 'es'] as const) test(`a change saves only its own sett
 
 test('settings changes still work when this browser refuses to save them', async ({ page }) => {
   const t = strings.en;
+  // An older saved record exists, and this browser now refuses every new save (CodeRabbit on #187).
   await page.addInitScript(() => {
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean', theme: 'light', count: 3 }));
     Storage.prototype.setItem = function () { throw new DOMException('blocked', 'QuotaExceededError'); };
   });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
