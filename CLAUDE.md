@@ -35,7 +35,7 @@ This section replaces every earlier review, merge, operator, steward, queue and 
 3. **A few changes at a time.** Up to 3 open pull requests per app. Finish the oldest first. No two open PRs may change the same files. Merge the older one before sending a newer one for final review. Keep working while PRs wait for review; do not sit idle when approved work exists. One feature is one GitHub issue. Do not invent work to fill an empty queue.
 4. **Plain English on top.** The owner is not a developer. Every pull request description starts with two short parts for him: "What this does for you" and "How to try it" (step by step, in the app), or "Nothing for you to test."
 5. **Checks before merging.**
-   - The full automated tests pass on the final commit, and the GitHub check is green on that same commit.
+   - The full automated tests pass on the final commit, and the GitHub check is green on that same commit. Docs-only pull requests (only `docs/**` or Markdown) do not start the GitHub test check (D70); for them the local tests are the test requirement.
    - CodeRabbit has reviewed the final version. Every serious finding is fixed, or answered with a reason. If CodeRabbit is unavailable, use one Gemini 4 Argon review instead and tell the owner. Buy nothing.
    - Risky changes also get one independent review from Gemini 4 Argon, or from Codex when it is available. Risky means: money or billing; secrets or credentials; private, personal or client data; deleting or overwriting files or records; data pipelines and migrations; workflows, deploys and repository settings; these rules; anything hard to undo; anything you are unsure about.
    - Check every review finding against the code before acting on it. Reviewers miss real bugs and report false ones.
@@ -49,6 +49,6 @@ This section replaces every earlier review, merge, operator, steward, queue and 
 
 ### This app: Dale
 - Before every push run `npm run verify`.
-- CodeRabbit does not start by itself here (`.coderabbit.yaml`). Request one `@coderabbitai full review` when the pull request is ready, and never a duplicate.
+- CodeRabbit does not start by itself here (`.coderabbit.yaml`). Request one `@coderabbitai full review` when the pull request is ready. If a finding needs a fix that creates a new head, request one `@coderabbitai review` for that new head. Never request a second review of the same head.
 - After a merge, open the public Pages site and confirm the change is there, on a narrow phone layout, in English and Spanish.
 - Worker deploys, live-feed changes and history collection are risky changes. They also keep the conditions written in `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md`.
