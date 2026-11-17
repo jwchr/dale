@@ -18,7 +18,7 @@ Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Phone test on Jeff's and Diego's phones: install, save a commute, reverse it, open a trip from Port Authority, use it offline; also try the new optional settings (slogans, bilingual buttons, home photo) and a MyBus text draft without sending.
 - Whether the app should stay publicly reachable or be limited to the household.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority.
-- Optional: protect `main` on GitHub. Do not make the `test` check required as things stand: docs-only pull requests never start the workflow (D70), so a required `test` check would stay pending forever and block them. Requiring it first needs an always-running gate job that passes for docs-only changes. Draft pull requests do start the workflow and report the skipped job as passed.
+- Optional: protect `main` on GitHub. Do not make the `test` check required as things stand: docs-only pull requests, drafts included, never start the workflow (D70), so a required `test` check would stay pending forever and block them. To require a check, first add an always-running gate job that passes for docs-only changes, and require that gate instead of `test`. A draft pull request that does start the workflow reports the skipped `test` job as passed.
 
 ## Next
 1. Weekly rollover before 2026-11-23 (plan around Nov 20): tell the owner first, `qualify-enabled`, then `rollover-enabled` with the pins above.
