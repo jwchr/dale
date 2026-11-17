@@ -59,4 +59,4 @@ Reason: chats were filling to 40% in about 3 hours, and long chats use more of t
 - Search (grep) for the lines you need instead of reading whole files.
 - Send big reading jobs (long logs, large files, big diffs, reviews) to a subagent that returns a short answer.
 - Never paste whole files, logs or diffs into the chat.
-- A fresh chat reads only its newest handoff note and its own SSOT rows to start; older notes only if there is a gap.
+- A fresh chat reads only its newest handoff note and its own SSOT rows to start, plus the required startup reads above (`docs/V1_CONTRACT.md`, `docs/HANDOFF.md` and the GitHub state check); older notes only if there is a gap.
