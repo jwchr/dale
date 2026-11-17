@@ -21,6 +21,8 @@ import { Recovery } from './Recovery';
 import { ShareUpdate } from './ShareUpdate';
 import { StripMap } from './StripMap';
 import { useScreenWakeLock } from './useScreenWakeLock';
+import { LockedAlertsSetting } from './LockedAlertsSetting';
+import { useLockedAlertsView } from './lockedRideAlerts';
 import { canChime, canSpeak, chime, notify, notifyPermission, notifySupport, primeSound, requestNotify, soundPrimed, speak, stopSpeech } from './stopAlertOutputs';
 
 interface Props {
@@ -57,6 +59,7 @@ const URGENT: RideStage[] = ['one', 'request', 'last_next', 'arrived', 'passed']
 
 export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang, onEvent, onAdvanceDemo, gateText, badge, onOpenTrip }: Props) {
   const bilingual = useBilingualButtons().enabled;
+  const lockedAlerts = useLockedAlertsView().enabled;
   const r = t.ride;
   const dep = session.departure;
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
@@ -183,6 +186,7 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
           {prefs.sound && <button className="ghost" onClick={() => { primeSound(); setSoundReady(true); chime(); speak(r.stopsTo(3, dest), lang); }}>{r.soundTest}</button>}
         </div>
         <label className="lock-toggle"><input type="checkbox" checked={prefs.notify} onChange={(e) => { void toggleNotify(e.target.checked); }} />{r.notify}</label>
+        <LockedAlertsSetting t={t} />
       </fieldset>
       {prefs.awake && <p className="small" role="status" data-testid="ride-wake">{t.busLock.wake[wake.status]}</p>}
       {!canVibrate && <p className="muted small">{r.vibrateUnsupported}</p>}
@@ -200,7 +204,7 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
         ))}
       </ol>
       <p className="muted small">{r.ticket}</p>
-      <p className="muted small">{r.foreground}</p>
+      <p className="muted small">{lockedAlerts ? t.lockedAlerts.foregroundOn : r.foreground}</p>
       {ds.meta.demo && guide.basis !== 'timetable_only' && <button onClick={demoNextStop}>{r.demoNext}</button>}
       <Recovery sessionId={session.id} ds={ds} dep={dep} alightIndex={alightIndex} now={now} t={t} lang={lang} gateText={gateText} badge={badge} onOpen={onOpenTrip} />
       <ShareUpdate ds={ds} session={session} alightIndex={alightIndex} now={now} t={t} lang={lang} />

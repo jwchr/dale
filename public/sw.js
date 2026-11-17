@@ -145,3 +145,145 @@ function networkFirst(req, url) {
   })();
   return { response, done: net.done };
 }
+
+// ---- Stop alerts while the phone is locked (#176 step C; docs/LOCKED_STOP_ALERTS.md, flow step 7) ----
+// A push carries no data. The worker reads the ride record the app saved (IndexedDB `dale-ride-alerts`),
+// checks it belongs to this browser's current push address, asks Dale's server for the ride's answer now,
+// and shows it under one notification tag. Pushes are handled one at a time, and the record is read again
+// just before anything is shown, so a slow or out-of-order answer never replaces or sounds over a newer
+// stage. Only a stage that was saved here is acknowledged to the server. tests/unit/swRideAlerts.test.ts
+// runs these handlers with stand-ins.
+const RIDE_TAG = 'dale-ride-alert';
+const RIDE_MAX_AGE_MS = 120000;
+const RIDE_FETCH_TIMEOUT_MS = 20000;
+const RIDE_ENDED_ANY = { title: 'Dale', body: 'Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.' };
+const RIDE_CANT_CHECK_ANY = { title: 'Dale', body: 'Dale can’t check your bus right now. Open Dale. / Dale no puede revisar tu autobús ahora mismo. Abre Dale.' };
+
+function rideStore(mode, act) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open('dale-ride-alerts', 1);
+    open.onupgradeneeded = () => { if (!open.result.objectStoreNames.contains('ride')) open.result.createObjectStore('ride'); };
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction('ride', mode);
+      const req = act(tx.objectStore('ride'));
+      tx.oncomplete = () => { db.close(); resolve(req.result); };
+      tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+    };
+  });
+}
+
+/** Everything the push handler touches outside itself; the unit test swaps these for stand-ins. */
+const rideIo = {
+  read: () => rideStore('readonly', (s) => s.get('current')),
+  write: (record) => rideStore('readwrite', (s) => s.put(record, 'current')),
+  subscription: () => self.registration.pushManager.getSubscription(),
+  fetch: (url, init) => fetch(url, init),
+  show: (title, options) => self.registration.showNotification(title, options),
+  now: () => Date.now(),
+};
+
+const isNote = (n) => !!n && typeof n.title === 'string' && typeof n.body === 'string';
+function validRideRecord(r) {
+  return !!r && typeof r === 'object' && typeof r.rideId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(r.rideId)
+    && typeof r.endpoint === 'string' && typeof r.apiBase === 'string' && /^https:\/\/dale-live\.[a-z0-9-]+\.workers\.dev$/.test(r.apiBase)
+    && (r.lang === 'en' || r.lang === 'es') && typeof r.highestShown === 'number' && !!r.text && isNote(r.text.cantCheck) && isNote(r.text.ended);
+}
+const rideUrl = (r, suffix) => `${r.apiBase}/v1/ride-alerts/${encodeURIComponent(r.rideId)}${suffix}`;
+
+/** The server's answer now: `{ kind: 'answer', body }`, `{ kind: 'ended' }` (410/404) or `{ kind: 'failed' }`. */
+async function fetchRideLatest(io, record) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : undefined;
+  const timer = setTimeout(() => { if (ctl) ctl.abort(); }, RIDE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await io.fetch(rideUrl(record, '/latest'), { cache: 'no-store', credentials: 'omit', signal: ctl && ctl.signal });
+    if (res.status === 410 || res.status === 404) return { kind: 'ended' };
+    if (res.status !== 200) return { kind: 'failed' };
+    return { kind: 'answer', body: await res.json() };
+  } catch {
+    return { kind: 'failed' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * What to show for an answer, given the ride record as it is now and the time of showing. Only a stage
+ * higher than the highest already shown sounds and is saved; a repeated or lower one re-shows that highest
+ * line silently. A position more than 2 minutes old by now (the fetch time counts) is "can't check" and is
+ * not acknowledged, so the server pushes the current stage again.
+ */
+function ridePlan(record, answer, now) {
+  const cantCheck = { note: record.text.cantCheck, silent: true };
+  if (answer.kind === 'ended') return { note: record.text.ended, silent: true };
+  if (answer.kind !== 'answer' || !answer.body || answer.body.v !== 1) return cantCheck;
+  const b = answer.body;
+  if (b.kind === 'service_change' && isNote(b)) {
+    const note = { title: b.title, body: b.body };
+    return record.noticeShown ? { note, silent: true, noticeAck: true } : { note, silent: false, save: { noticeShown: true }, noticeAck: true };
+  }
+  if (b.kind === 'uncertain' && isNote(b)) return { note: { title: b.title, body: b.body }, silent: true };
+  if (b.kind === 'stage' && isNote(b) && typeof b.stage === 'string' && Number.isFinite(b.rank) && Number.isFinite(b.observedAt)) {
+    if (!(now - b.observedAt <= RIDE_MAX_AGE_MS)) return cantCheck;
+    const note = { title: b.title, body: b.body };
+    if (b.rank > record.highestShown) return { note, silent: false, save: { highestShown: b.rank, shown: note }, ack: b.stage };
+    return { note: isNote(record.shown) ? record.shown : note, silent: true, ack: b.stage };
+  }
+  return cantCheck;
+}
+
+function showRideNote(io, note, silent, lang) {
+  const options = { body: note.body, tag: RIDE_TAG, renotify: !silent, silent, icon: new URL('icon-192.png', self.location.href).href };
+  if (lang) options.lang = lang;
+  if (!silent) options.vibrate = [200, 100, 200];
+  return io.show(note.title, options);
+}
+
+function postRide(io, record, suffix, body) {
+  return io.fetch(rideUrl(record, suffix), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'omit' })
+    .catch(() => undefined);
+}
+
+async function handleRidePush(io, retried) {
+  const record = await Promise.resolve().then(io.read).catch(() => undefined);
+  const sub = await Promise.resolve().then(io.subscription).catch(() => null);
+  if (!validRideRecord(record) || !sub || sub.endpoint !== record.endpoint) {
+    // Not this browser's current ride: nothing about it is shown, and the server is asked to drop it.
+    if (validRideRecord(record)) await io.fetch(rideUrl(record, ''), { method: 'DELETE', credentials: 'omit' }).catch(() => undefined);
+    return showRideNote(io, RIDE_ENDED_ANY, true);
+  }
+  const answer = await fetchRideLatest(io, record);
+  const current = await Promise.resolve().then(io.read).catch(() => undefined);
+  if (!validRideRecord(current) || current.rideId !== record.rideId || current.endpoint !== record.endpoint) {
+    // The ride ended or was replaced while the answer was on its way: never show the old ride's line.
+    if (validRideRecord(current) && !retried) return handleRidePush(io, true);
+    return showRideNote(io, RIDE_ENDED_ANY, true);
+  }
+  const plan = ridePlan(current, answer, io.now());
+  let saved = !plan.save;
+  if (plan.save) saved = await io.write({ ...current, ...plan.save }).then(() => true, () => false);
+  await showRideNote(io, plan.note, plan.silent, current.lang);
+  if (plan.ack && saved) await postRide(io, current, '/ack', { stage: plan.ack });
+  if (plan.noticeAck && saved) await postRide(io, current, '/notice-ack', {});
+}
+
+let ridePushChain = Promise.resolve();
+self.addEventListener('push', (e) => {
+  const run = ridePushChain.then(() => handleRidePush(rideIo, false))
+    .catch(() => showRideNote(rideIo, RIDE_CANT_CHECK_ANY, true).catch(() => {}));
+  ridePushChain = run.catch(() => {});
+  e.waitUntil(run);
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(openDale());
+});
+
+async function openDale() {
+  const base = new URL('./', self.location.href).href;
+  const open = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).find((c) => c.url.startsWith(base));
+  if (open && open.focus) return open.focus();
+  return self.clients.openWindow(base);
+}

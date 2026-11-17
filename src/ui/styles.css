@@ -277,6 +277,25 @@ main { flex: 1; padding-bottom: 24px; }
 .ride-alerts legend { padding: 0; font-weight: 700; font-size: .95rem; }
 .ride-alert-sound { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; }
 .ride-alert-sound .ghost { min-height: 44px; }
+/* Locked-phone alerts (#176 step C): the consent and code entry open in place under the option. */
+.locked-alerts { min-inline-size: 0; }
+.locked-consent { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 12px; padding: 12px; margin: 2px 0 8px; font-size: .9rem; overflow-wrap: anywhere; }
+.locked-consent p { margin: 0 0 8px; }
+.locked-consent-title, .locked-limits-title { font-weight: 700; }
+.locked-limits-list { margin: 0 0 8px; padding-inline-start: 1.2em; font-size: .9rem; }
+.locked-limits-list li + li { margin-top: 4px; }
+.locked-code-label { display: block; font-weight: 700; margin: 4px 0; }
+.locked-code { font: inherit; font-size: 1.05rem; letter-spacing: .08em; text-transform: uppercase; inline-size: 100%; max-inline-size: 22rem; min-height: 48px;
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.locked-consent .small { margin: 4px 0 0; }
+.locked-alert-note { color: var(--warn-ink); background: var(--warn-bg); border-radius: 8px; padding: 6px 10px; font-weight: 600; }
+.locked-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
+.locked-actions button { max-inline-size: 100%; white-space: normal; }
+.locked-status { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; }
+.locked-status p { margin: 0; }
+.locked-status p:empty { display: none; }
+.locked-status .ghost { min-height: 44px; }
+.locked-limits summary { min-height: 44px; padding-block: 11px; cursor: pointer; font-size: .9rem; font-weight: 600; color: var(--brand-text); }
 .near-me { margin: 12px 0; }
 /* Boarding check and driver card (issue #55). */
 .boarding-open { margin: 10px 0; }
