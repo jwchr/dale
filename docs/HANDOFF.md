@@ -1,6 +1,6 @@
 # Handoff: current state
 
-Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). Committed `.claude/settings.json` pre-approves session, schedule and message tools for every new session (D72). History lives in git and the GitHub issues, not here.
+Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). Committed `.claude/settings.json` pre-approves session, schedule and message tools for new local and single-repository cloud sessions (D72); cloud sessions with several repositories and cloud threads inside a Project do not load its permission rules, so start Dale sessions with this repository alone. History lives in git and the GitHub issues, not here.
 
 ## Built and live
 - Public app: main after #174 (ride screen fits narrow phones at large text: the LED board stacks when tight, and the stop list's Get off here tag wraps instead of pushing the page wide; checked with GitHub's wider DejaVu Sans font too). The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
