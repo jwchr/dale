@@ -82,7 +82,7 @@ export const lockedAlertStrings = {
     demo: 'No disponible en la demostración.',
     foregroundOn: 'La guía en esta pantalla funciona mientras Dale está abierta. Las alertas con el teléfono bloqueado vienen del servidor de Dale y necesitan el GPS en vivo del autobús.',
     noteTitle: 'Dale: tu parada',
-    cantCheck: 'Dale no puede revisar tu autobús ahora mismo. Abre Dale.',
+    cantCheck: 'Dale no puede revisar tu autobús ahora. Abre Dale.',
     endedTitle: 'Dale',
     ended: 'Tu alerta de parada de Dale terminó.',
   },

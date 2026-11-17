@@ -30,7 +30,7 @@ let clients: { matchAll: () => Promise<{ url: string; focus: () => Promise<void>
 const T0 = Date.parse('2026-11-17T12:00:00Z');
 const text = (lang: 'en' | 'es') => lang === 'en'
   ? { cantCheck: { title: 'Dale: your stop', body: 'Dale can’t check your bus right now. Open Dale.' }, ended: { title: 'Dale', body: 'Your Dale stop alert has ended.' } }
-  : { cantCheck: { title: 'Dale: tu parada', body: 'Dale no puede revisar tu autobús ahora mismo. Abre Dale.' }, ended: { title: 'Dale', body: 'Tu alerta de parada de Dale terminó.' } };
+  : { cantCheck: { title: 'Dale: tu parada', body: 'Dale no puede revisar tu autobús ahora. Abre Dale.' }, ended: { title: 'Dale', body: 'Tu alerta de parada de Dale terminó.' } };
 const makeRecord = (patch: Record<string, unknown> = {}) => ({ rideId: RIDE, endpoint: 'https://fcm.googleapis.com/fcm/send/new', apiBase: API, lang: 'en', highestShown: 0, noticeShown: false, text: text('en'), ...patch });
 const stage = (stageName: string, rank: number, body: string, observedAt = clock - 10_000) =>
   ({ v: 1, kind: 'stage', stage: stageName, rank, stopsAway: 0, observedAt, receivedAt: observedAt + 2_000, title: 'Dale: your stop', body });
@@ -124,11 +124,11 @@ describe('locked-phone stop alerts in the service worker', () => {
     record = makeRecord({ lang: 'es', text: text('es') });
     server = async () => { throw new TypeError('offline'); };
     await push();
-    expect(shown[0]).toMatchObject({ title: 'Dale: tu parada', options: { body: 'Dale no puede revisar tu autobús ahora mismo. Abre Dale.', silent: true, lang: 'es' } });
+    expect(shown[0]).toMatchObject({ title: 'Dale: tu parada', options: { body: 'Dale no puede revisar tu autobús ahora. Abre Dale.', silent: true, lang: 'es' } });
     expect(requests().filter((r) => r.startsWith('POST'))).toEqual([]);
     server = async () => new Response('busy', { status: 503 });
     await push();
-    expect(shown[1]!.options.body).toBe('Dale no puede revisar tu autobús ahora mismo. Abre Dale.');
+    expect(shown[1]!.options.body).toBe('Dale no puede revisar tu autobús ahora. Abre Dale.');
   });
 
   it('an ended ride (410) shows the silent ended line in the ride\'s language', async () => {

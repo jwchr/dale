@@ -157,7 +157,7 @@ const RIDE_TAG = 'dale-ride-alert';
 const RIDE_MAX_AGE_MS = 120000;
 const RIDE_FETCH_TIMEOUT_MS = 20000;
 const RIDE_ENDED_ANY = { title: 'Dale', body: 'Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.' };
-const RIDE_CANT_CHECK_ANY = { title: 'Dale', body: 'Dale can’t check your bus right now. Open Dale. / Dale no puede revisar tu autobús ahora mismo. Abre Dale.' };
+const RIDE_CANT_CHECK_ANY = { title: 'Dale', body: 'Dale can’t check your bus right now. Open Dale. / Dale no puede revisar tu autobús ahora. Abre Dale.' };
 
 function rideStore(mode, act) {
   return new Promise((resolve, reject) => {
