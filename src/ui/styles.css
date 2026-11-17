@@ -272,6 +272,11 @@ main { flex: 1; padding-bottom: 24px; }
 .ride-mode[data-large] .ride-message { font-size: 1.6rem; line-height: 1.25; }
 .ride-mode[data-stage='one'], .ride-mode[data-stage='arrived'] { border-width: 4px; }
 .ride-controls { flex-wrap: wrap; }
+/* Stop alerts (#176): one heading, short options; the sound test sits beside its option when it fits. */
+.ride-alerts { margin: 4px 0 8px; border: 0; padding: 0; min-inline-size: 0; }
+.ride-alerts legend { padding: 0; font-weight: 700; font-size: .95rem; }
+.ride-alert-sound { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; }
+.ride-alert-sound .ghost { min-height: 44px; }
 .near-me { margin: 12px 0; }
 /* Boarding check and driver card (issue #55). */
 .boarding-open { margin: 10px 0; }
