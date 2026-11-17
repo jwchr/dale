@@ -45,11 +45,18 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
           const buttons = [...region.current!.querySelectorAll<HTMLButtonElement>('button')];
           const next = buttons[buttons.indexOf(button) + 1] ?? buttons[buttons.indexOf(button) - 1];
           await dismiss(notice.id);
-          requestAnimationFrame(() => {
+          // Move focus only once the dismissed card is really gone: on a slow phone React can commit after
+          // the next frame, and focusing the soon-removed heading would drop focus to the page body.
+          // A control the rider moved to meanwhile keeps focus.
+          const movedOn = () => { const now = document.activeElement; return !!now && now !== button && now !== document.body && now.isConnected; };
+          const settle = (frames = 0) => requestAnimationFrame(() => {
+            if (movedOn()) return;
+            if (button.isConnected && frames < 60) { settle(frames + 1); return; }
             if (next?.isConnected) next.focus();
             else (region.current?.querySelector<HTMLElement>('h2')
               ?? document.querySelector<HTMLElement>('[data-favorite-id] button, main button'))?.focus();
           });
+          settle();
         }}>{messages.dismiss}</button>
       </article>;
     })}

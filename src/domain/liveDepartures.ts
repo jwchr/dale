@@ -58,7 +58,8 @@ export function parseDepartureBatch(raw: unknown, ds: Dataset, queries: Departur
   return batch;
 }
 export type DepartureEvidenceKind = 'live' | 'checking' | 'unavailable' | 'stale' | 'ambiguous' | 'date-unknown' | 'no-prediction' | 'passed' | 'cancelled' | 'boarding-skipped' | 'destination-skipped' | 'limited';
-export interface DepartureEvidence { kind: DepartureEvidenceKind; boarding?: LivePrediction; arrival?: LivePrediction; gpsObservedAt?: number }
+/** `reportedAt`: when NJ Transit posted a cancellation or skipped stop, so the row can show its age. */
+export interface DepartureEvidence { kind: DepartureEvidenceKind; boarding?: LivePrediction; arrival?: LivePrediction; gpsObservedAt?: number; reportedAt?: number }
 /** Freshness is evaluated at render time too, so a suspended/failed poll cannot prolong Live. */
 export function departureEvidence(batch: DepartureBatch | undefined, item: DepartureReport | undefined, now: number): DepartureEvidence {
   if (!batch || batch.receivedAt > now + 30_000) return { kind: 'unavailable' };
@@ -72,9 +73,9 @@ export function departureEvidence(batch: DepartureBatch | undefined, item: Depar
   if (item.problem === 'ambiguous') return { kind: 'ambiguous', gpsObservedAt };
   if (batch.updates.state !== 'ok') return { kind: batch.updates.state === 'stale' ? 'stale' : 'unavailable', gpsObservedAt };
   if (!fresh(batch.updates.timestamp)) return { kind: 'stale', gpsObservedAt };
-  if (fresh(item.cancelledAt)) return { kind: 'cancelled', gpsObservedAt };
-  if (fresh(item.updatedAt) && item.boardingSkipped) return { kind: 'boarding-skipped', gpsObservedAt };
-  if (fresh(item.updatedAt) && item.destinationSkipped) return { kind: 'destination-skipped', gpsObservedAt };
+  if (fresh(item.cancelledAt)) return { kind: 'cancelled', gpsObservedAt, reportedAt: item.cancelledAt };
+  if (fresh(item.updatedAt) && item.boardingSkipped) return { kind: 'boarding-skipped', gpsObservedAt, reportedAt: item.updatedAt };
+  if (fresh(item.updatedAt) && item.destinationSkipped) return { kind: 'destination-skipped', gpsObservedAt, reportedAt: item.updatedAt };
   const prediction = (p: LivePrediction | undefined) => p && fresh(p.observedAt) && p.at >= checkedAt ? p : undefined;
   const boarding = prediction(item.departure) ?? prediction(item.boardingArrival), arrival = prediction(item.arrival);
   return { kind: boarding ? 'live' : item.problem === 'date-unknown' ? 'date-unknown' : item.departure && fresh(item.departure.observedAt) && item.departure.at < checkedAt ? 'passed' : 'no-prediction', boarding, arrival, gpsObservedAt };

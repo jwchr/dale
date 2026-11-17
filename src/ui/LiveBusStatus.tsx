@@ -5,9 +5,10 @@ import type { Dataset, Departure } from '../domain/types';
 import type { Strings, Lang } from './i18n';
 import { localYmd, formatTime12 } from '../domain/time';
 import type { LiveRequestState } from './useLiveBus';
-export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStatus, skippedKnown, hasStopChanges, ds }: { ds?: Dataset; state: LiveRequestState; snapshot?: LiveBusSnapshot; dep: Departure; now: number; t: Strings; lang: Lang; tz: string; lockStatus: string; skippedKnown?: boolean; hasStopChanges?: boolean }) {
+export function LiveBusStatus({ state, snapshot, dep, now, t, lang, tz, lockStatus, lockVehicleId, skippedKnown, hasStopChanges, ds }: { ds?: Dataset; state: LiveRequestState; snapshot?: LiveBusSnapshot; dep: Departure; now: number; t: Strings; lang: Lang; tz: string; lockStatus: string; lockVehicleId?: string; skippedKnown?: boolean; hasStopChanges?: boolean }) {
   const l = t.live;
-  const newest = snapshot?.observations.filter((o) => o.tripInstanceId === dep.tripInstanceId).sort((a, b) => b.observedAt - a.observedAt)[0];
+  // Only the locked bus counts: a report from a bus the rider declined must never read as live (lock.ts).
+  const newest = snapshot?.observations.filter((o) => o.tripInstanceId === dep.tripInstanceId && (!lockVehicleId || o.vehicleId === lockVehicleId)).sort((a, b) => b.observedAt - a.observedAt)[0];
   const fresh = state === 'available' && newest && now - newest.observedAt <= LIVE_MAX_AGE_MS;
   const shown = lockStatus === 'cancelled' ? 'cancelled' : lockStatus === 'needs_confirmation' ? 'confirmation' : state === 'checking' ? 'checking' : state === 'ambiguous' ? 'ambiguous' : fresh ? 'available' : 'missing';
   const updateFresh = snapshot?.updates.state === 'ok' && now - snapshot.receivedAt <= LIVE_MAX_AGE_MS;

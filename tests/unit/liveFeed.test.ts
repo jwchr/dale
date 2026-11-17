@@ -282,7 +282,8 @@ describe('fixed secret-safe connection diagnostics', () => {
     const Feed = createFeedClass(ds, (async (url: RequestInfo | URL) => {
       if (String(url).endsWith('authenticateUser')) return Response.json({ Authenticated: true, UserToken: 'private-token' });
       if (recover && String(url).endsWith('getVehiclePositions')) return new Response(new Uint8Array(gps()).buffer);
-      return new Response('private-error-body', { status: String(url).endsWith('getVehiclePositions') ? 403 : 429 });
+      // Both feeds refuse the token, so it is dropped and re-login waits for the cooldown.
+      return new Response('private-error-body', { status: recover ? 429 : 403 });
     }) as typeof fetch, () => now);
     const env = { ...creds, FEED: { idFromName: () => '', get: () => object } };
     const object = new Feed(ctx, env);

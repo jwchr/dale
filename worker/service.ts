@@ -117,18 +117,23 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           await this.ctx.storage.put('state-v1', this.saved);
         }
         const token = this.saved.token.value;
+        // One endpoint refusing the token must not cut off the other: keep the shared token while a
+        // feed still works with it. A refusal with no working feed drops it, so login is retried
+        // (within the existing one-hour cooldown) instead of reusing a dead token until it expires.
+        let denials = 0, successes = 0;
         const fetchFeed = async (endpoint: 'getVehiclePositions' | 'getTripUpdates', kind: 'vehicles' | 'updates') => {
           // A cooldown is not a new endpoint attempt: retain the last failure until that feed retries.
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
-          try { return normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); }
+          try { const feed = normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); if (feed.feed.state !== 'invalid') successes++; return feed; }
           catch (error) {
             this.saved.failures![kind] = { code: safeNjtFailure(error), at: now };
-            if (error instanceof NjtError && error.code === 'access-denied') this.saved.token = undefined;
+            if (error instanceof NjtError && error.code === 'access-denied') denials++;
             return unavailable();
           }
         };
         const [vehicles, updates] = await Promise.all([fetchFeed('getVehiclePositions', 'vehicles'), fetchFeed('getTripUpdates', 'updates')]);
+        if (denials > 0 && successes === 0) this.saved.token = undefined;
         this.saved.vehicles = vehicles; this.saved.updates = updates;
       } catch (error) {
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
