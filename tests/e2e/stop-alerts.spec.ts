@@ -128,3 +128,15 @@ for (const lang of ['en', 'es'] as const) test(`alert settings fit a narrow phon
   await page.keyboard.press('Enter');
   expect((await spoken(page)).at(-1)?.text).toBe(r.stopsTo(3, 'Port Authority Bus Terminal'));
 });
+
+for (const lang of ['en', 'es'] as const) test(`a saved "sound on" asks for one tap until the page may play sound (${lang})`, async ({ page }) => {
+  const r = strings[lang].ride;
+  await recordOutputs(page);
+  await page.addInitScript(() => localStorage.setItem('arriba.ride.v1', JSON.stringify({ sound: true })));
+  const ride = await board(page, lang);
+  await expect(ride.getByRole('checkbox', { name: r.sound })).toBeChecked();
+  const note = ride.getByRole('status').filter({ hasText: r.soundTap });
+  await expect(note).toBeVisible();
+  await ride.locator('h3').first().click();
+  await expect(note).toHaveCount(0);
+});

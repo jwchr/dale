@@ -19,7 +19,11 @@ export const canChime = (): boolean => typeof window !== 'undefined' && (typeof 
  * iPhone and some browsers only allow sound and speech after a tap on the page. Called from the rider's
  * own taps (the setting, the test button, any tap while riding) so later alerts can play.
  */
+let primed = false;
+/** Whether a tap has primed sound in this page yet; a saved "sound on" setting alone does not. */
+export const soundPrimed = (): boolean => primed;
 export function primeSound(): void {
+  primed = true;
   try { void audioContext()?.resume(); } catch { /* no sound */ }
   try { if (canSpeak()) window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch { /* no speech */ }
 }
@@ -86,4 +90,9 @@ export async function notify(title: string, body: string, tag: string): Promise<
     if (reg) { await reg.showNotification(title, options); return; }
   } catch { /* fall back below */ }
   try { new Notification(title, options); } catch { /* not shown */ }
+}
+
+/** Stop any line still being spoken, when sound is turned off or the ride view closes. */
+export function stopSpeech(): void {
+  try { if (canSpeak()) window.speechSynthesis.cancel(); } catch { /* no speech */ }
 }

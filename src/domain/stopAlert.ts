@@ -7,8 +7,9 @@ export const ALERT_STAGES: readonly RideStage[] = ['three', 'two', 'one', 'last_
 
 /**
  * Decide whether a newly computed stage alerts. `before` is the highest rank already handled for this
- * ride (undefined when ride mode has just opened). The first stage seen is only a baseline, so opening
- * the view never alerts; afterwards an alert fires once per forward step into an alerting stage, and
+ * ride (undefined when ride mode has just opened). The stage showing when the view opens is only a
+ * baseline, so opening the view never alerts. When it opens without GPS (rank -1), the first GPS stage
+ * that arrives later is a countdown the rider has not been told yet, so it alerts; afterwards an alert fires once per forward step into an alerting stage, and
  * GPS jitter that moves the stage back and forth never repeats one.
  */
 export function stopAlertStep(before: number | undefined, stage: RideStage | undefined): { handled: number; alert: boolean } {

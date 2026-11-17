@@ -21,7 +21,7 @@ import { Recovery } from './Recovery';
 import { ShareUpdate } from './ShareUpdate';
 import { StripMap } from './StripMap';
 import { useScreenWakeLock } from './useScreenWakeLock';
-import { canChime, canSpeak, chime, notify, notifyPermission, notifySupport, primeSound, requestNotify, speak } from './stopAlertOutputs';
+import { canChime, canSpeak, chime, notify, notifyPermission, notifySupport, primeSound, requestNotify, soundPrimed, speak, stopSpeech } from './stopAlertOutputs';
 
 interface Props {
   routeDistance?: ReportedRouteDistance;
@@ -69,6 +69,8 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
   });
   const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
   const canSound = canSpeak() || canChime();
+  // A saved "sound on" stays silent on iPhone until a tap in this page; say so until one arrives.
+  const [soundReady, setSoundReady] = useState(soundPrimed);
   const [notifyNote, setNotifyNote] = useState<'blocked' | 'iphone-install' | 'unsupported' | undefined>(undefined);
   const hasDestination = alightIndex > dep.stopIndex;
   const [full, setFullState] = useState(() => fullBySession.get(session.id) ?? true);
@@ -117,9 +119,9 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
   // iPhone plays sound only after a tap on the page: any tap while riding keeps sound ready.
   useEffect(() => {
     if (!prefs.sound) return;
-    const onTap = () => primeSound();
+    const onTap = () => { primeSound(); setSoundReady(true); };
     document.addEventListener('pointerdown', onTap);
-    return () => document.removeEventListener('pointerdown', onTap);
+    return () => { document.removeEventListener('pointerdown', onTap); stopSpeech(); };
   }, [prefs.sound]);
 
   async function toggleNotify(on: boolean) {
@@ -177,14 +179,15 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
         <legend>{r.alerts}</legend>
         <label className="lock-toggle"><input type="checkbox" checked={prefs.vibrate} disabled={!canVibrate} onChange={(e) => setPref({ vibrate: e.target.checked })} />{r.vibrate}</label>
         <div className="ride-alert-sound">
-          <label className="lock-toggle"><input type="checkbox" checked={prefs.sound} disabled={!canSound} onChange={(e) => { if (e.target.checked) primeSound(); setPref({ sound: e.target.checked }); }} />{r.sound}</label>
-          {prefs.sound && <button className="ghost" onClick={() => { primeSound(); chime(); speak(r.stopsTo(3, dest), lang); }}>{r.soundTest}</button>}
+          <label className="lock-toggle"><input type="checkbox" checked={prefs.sound} disabled={!canSound} onChange={(e) => { if (e.target.checked) { primeSound(); setSoundReady(true); } setPref({ sound: e.target.checked }); }} />{r.sound}</label>
+          {prefs.sound && <button className="ghost" onClick={() => { primeSound(); setSoundReady(true); chime(); speak(r.stopsTo(3, dest), lang); }}>{r.soundTest}</button>}
         </div>
         <label className="lock-toggle"><input type="checkbox" checked={prefs.notify} onChange={(e) => { void toggleNotify(e.target.checked); }} />{r.notify}</label>
       </fieldset>
       {prefs.awake && <p className="small" role="status" data-testid="ride-wake">{t.busLock.wake[wake.status]}</p>}
       {!canVibrate && <p className="muted small">{r.vibrateUnsupported}</p>}
       {!canSound && <p className="muted small">{r.soundUnsupported}</p>}
+      {canSound && prefs.sound && !soundReady && <p className="small" role="status">{r.soundTap}</p>}
       {notifyNote && <p className="small" role="status">{notifyNote === 'blocked' ? r.notifyBlocked : notifyNote === 'iphone-install' ? r.notifyIphone : r.notifyUnsupported}</p>}
       <h4>{guide.basis === 'timetable_only' ? r.upcomingListed : r.upcoming}</h4>
       <ol className="stop-list ride-stops">

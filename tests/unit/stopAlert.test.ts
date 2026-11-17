@@ -10,6 +10,16 @@ describe('stop alerts (#176)', () => {
     }
   });
 
+  it('opened without GPS: the first GPS stage that arrives later is new news and alerts, then counts on', () => {
+    // Opening the view never alerts; a countdown the rider has never heard does, once GPS appears.
+    let step = stopAlertStep(undefined, undefined);
+    expect(step).toEqual({ handled: -1, alert: false });
+    step = stopAlertStep(step.handled, 'two');
+    expect(step).toEqual({ handled: STAGE_RANK.two, alert: true });
+    step = stopAlertStep(step.handled, 'one');
+    expect(step.alert).toBe(true);
+  });
+
   it('alerts once at each forward step to 3, 2, 1 and "ask now"', () => {
     let handled = stopAlertStep(undefined, 'riding').handled;
     const fired: RideStage[] = [];
