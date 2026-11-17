@@ -70,7 +70,8 @@ export function rescueOptions(ds: Dataset, fromStopId: string, homeStopId: strin
     for (const date of [today, addDays(today, 1), addDays(today, 2)]) {
       for (const dep of departuresOn(ds, { stopId: board.id, date })) {
         const ids = dep.pattern.stopIds;
-        const alightIndex = ids.findIndex((id, i) => i > dep.stopIndex && homes.some((h) => h.id === id));
+        // A stop the pattern does not let riders off at (GTFS drop_off_type) is never a way home.
+        const alightIndex = ids.findIndex((id, i) => i > dep.stopIndex && !dep.pattern.noDropOff?.includes(i) && homes.some((h) => h.id === id));
         if (alightIndex < 0) continue;
         const at = tripStopTimes(ds, dep)[alightIndex];
         if (!at) continue;

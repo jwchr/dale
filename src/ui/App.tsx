@@ -829,7 +829,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
                     </span>
                   </button>
-                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined && <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
+                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
+                    : live.reportedAt !== undefined && <span className="dep-source">{t.live.rows.reportAge(Math.max(0, Math.floor((now - live.reportedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
                 </li>;
               })}
             </ul>

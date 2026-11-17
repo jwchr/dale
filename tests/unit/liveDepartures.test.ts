@@ -63,7 +63,13 @@ describe('exact stop-specific upcoming arrivals', () => {
       [{ trip: { ...descriptor, scheduleRelationship: 3 } }, 'cancelled'],
       [{ stopTimeUpdate: [{ stopId: '2', scheduleRelationship: 1 }] }, 'boarding-skipped'],
       [{ stopTimeUpdate: [{ stopId: '3', scheduleRelationship: 1 }] }, 'destination-skipped'],
-    ] as const) { const b = batch(patch); expect(departureEvidence(b, b.items[0], NOW).kind).toBe(kind); }
+    ] as const) {
+      const b = batch(patch), e = departureEvidence(b, b.items[0], NOW);
+      expect(e.kind).toBe(kind);
+      // The row shows how old NJ Transit's report is, as every live value must.
+      expect(e.reportedAt).toBe(kind === 'cancelled' ? b.items[0]!.cancelledAt : b.items[0]!.updatedAt);
+      expect(e.reportedAt).toBeLessThanOrEqual(NOW);
+    }
   });
   it('rejects conflicting updates, predictions or multiple vehicles rather than picking one', () => {
     const b = batch(), v = positions(), u = updates();

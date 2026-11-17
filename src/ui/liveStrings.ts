@@ -2,7 +2,7 @@ export const liveStrings = {
   en: {
     rows: {
       live: 'LIVE ESTIMATE', boardingArrival: 'LIVE ARRIVAL', atYourStop: 'Your stop', scheduleShort: 'Schedule',
-      sourceAge: (s: number) => `Prediction by NJ Transit ${s}s ago`, estimateUnavailable: 'Live estimate unavailable',
+      sourceAge: (s: number) => `Prediction by NJ Transit ${s}s ago`, reportAge: (s: number) => `NJ Transit report ${s}s ago`, estimateUnavailable: 'Live estimate unavailable',
       notStarted: (time: string) => `No live estimate yet. Scheduled to start its route at ${time}.`,
       gpsHint: 'GPS available; no current NJ Transit prediction for your boarding stop. Tap this bus, then Lock onto this bus.', cancelledShort: 'Cancelled', timePassed: 'Time passed',
       reasons: {
@@ -28,9 +28,9 @@ export const liveStrings = {
     missing: 'NJ Transit GPS data unavailable — schedule estimates only.', ambiguous: 'BUS MATCH UNCERTAIN — SCHEDULE ESTIMATES ONLY',
     fallback: 'A scheduled position is an estimate, not confirmation that the bus has arrived or passed a stop. Your selected trip stays fixed.',
     source: 'Source: NJ Transit GTFS-RT, relayed by Dale. Refreshes about every 30 seconds while the app is visible; source reports can be older.',
-    age: (n: number) => `Last bus report: ${n} seconds ago`,
+    age: (n: number) => `Last bus report: ${n} ${n === 1 ? 'second' : 'seconds'} ago`,
     prediction: (time: string) => `NJ Transit predicts departure at ${time}`,
-    predictionAge: (n: number) => `Prediction updated ${n} seconds ago`,
+    predictionAge: (n: number) => `Prediction updated ${n} ${n === 1 ? 'second' : 'seconds'} ago`,
     predictionPast: 'That estimate is in the past. It does not confirm that the bus arrived; check alternatives if it is not here.',
     predictionMissing: 'No current departure prediction for this stop. Use the scheduled time as a backup.',
     skipped: 'NJ Transit reports that this trip skips your boarding stop. Check an alternative; the selected bus has not been changed.',
@@ -39,7 +39,7 @@ export const liveStrings = {
   es: {
     rows: {
       live: 'ESTIMACIÓN EN VIVO', boardingArrival: 'LLEGADA EN VIVO', atYourStop: 'Tu parada', scheduleShort: 'Horario',
-      sourceAge: (s: number) => `Predicción de NJ Transit hace ${s}s`, estimateUnavailable: 'Estimación en vivo no disponible',
+      sourceAge: (s: number) => `Predicción de NJ Transit hace ${s}s`, reportAge: (s: number) => `Reporte de NJ Transit hace ${s}s`, estimateUnavailable: 'Estimación en vivo no disponible',
       notStarted: (time: string) => `Aún no hay estimación en vivo. Su ruta está programada para empezar a las ${time}.`,
       gpsHint: 'GPS disponible; no hay una predicción actual de NJ Transit para tu parada de salida. Toca este autobús y luego Seguir este autobús.', cancelledShort: 'Cancelado', timePassed: 'Hora pasada',
       reasons: {
@@ -65,9 +65,9 @@ export const liveStrings = {
     missing: 'GPS de NJ Transit no disponible — solo estimaciones del horario.', ambiguous: 'AUTOBÚS NO IDENTIFICADO CON CERTEZA — SOLO ESTIMACIONES DEL HORARIO',
     fallback: 'La posición programada es una estimación; no confirma que el autobús haya llegado o pasado una parada. Tu viaje elegido no cambia.',
     source: 'Fuente: GTFS-RT de NJ Transit, retransmitido por Dale. Se consulta aproximadamente cada 30 segundos con la app visible; los reportes pueden ser anteriores.',
-    age: (n: number) => `Último reporte del autobús: hace ${n} segundos`,
+    age: (n: number) => `Último reporte del autobús: hace ${n} ${n === 1 ? 'segundo' : 'segundos'}`,
     prediction: (time: string) => `NJ Transit prevé la salida a ${time}`,
-    predictionAge: (n: number) => `Predicción actualizada hace ${n} segundos`,
+    predictionAge: (n: number) => `Predicción actualizada hace ${n} ${n === 1 ? 'segundo' : 'segundos'}`,
     predictionPast: 'Esa estimación ya pasó. No confirma que el autobús haya llegado; consulta alternativas si no está.',
     predictionMissing: 'No hay una predicción actual de salida para esta parada. Usa el horario programado como respaldo.',
     skipped: 'NJ Transit indica que este viaje no para en tu parada de subida. Consulta otra opción; el autobús elegido no cambió.',

@@ -37,9 +37,15 @@ export function setLeavePlan(list: Favorite[], id: string, dir: 'out' | 'back', 
   });
 }
 
+const sameTrip = (a: Favorite, b: Favorite) => a.fromStopId === b.fromStopId && a.toStopId === b.toStopId
+  && a.routeIds.length === b.routeIds.length && a.routeIds.every((r) => b.routeIds.includes(r));
+/** A trip already saved (same stops and routes) is not added twice. A saved trip whose stops were
+ * changed keeps its old id, so a new trip whose id collides gets a fresh one instead of being dropped. */
 export function addFavorite(list: Favorite[], f: Favorite): Favorite[] {
-  if (list.some((x) => x.id === f.id)) return list;
-  return [...list, f];
+  if (list.some((x) => sameTrip(x, f))) return list;
+  let id = f.id;
+  for (let n = 2; list.some((x) => x.id === id); n++) id = `${f.id}~${n}`;
+  return [...list, { ...f, id }];
 }
 
 export function removeFavorite(list: Favorite[], id: string): Favorite[] {
