@@ -91,6 +91,9 @@ for (const lang of ['en', 'es'] as const) test(`route distance is compact, sourc
 test('missing exact-feed geometry never displays a straight-line or scheduled substitute', async ({ page }) => {
   const state = await setup(page, 'en', true);
   await expect(page.locator('.deps .dep-reason').first()).toBeVisible();
+  // The rows can render before the geometry request goes out; wait for it, then check nothing was drawn from it.
+  await expect.poll(() => state.geometryCalls).toBe(1);
+  await page.waitForLoadState('networkidle');
   await expect(page.locator('.route-distance')).toHaveCount(0);
   expect(state.geometryCalls).toBe(1);
 });

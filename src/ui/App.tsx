@@ -432,7 +432,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             {t.busLock.resume} · {activeLock.dep.route.shortName} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
           </button>
         </aside>}
-        {liveBus && activeLock && lockOnScreen && <LiveBusStatus ds={ds} state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
+        {liveBus && activeLock && lockOnScreen && <LiveBusStatus ds={ds} state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} lockVehicleId={activeLock.session.lock.vehicleId} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'penn' && <PennGuide t={t} demo={ds.meta.demo} model={journey} railOnly={screen.railOnly} />}
         {screen.name === 'home' && (
           <Home ctx={ctx} favorites={favorites} count={settings.count} setFavorites={setFavorites} reversedIds={reversedIds} toggleReversed={toggleReversed}
@@ -829,7 +829,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
                       {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
                     </span>
                   </button>
-                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined && <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
+                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
+                    : live.reportedAt !== undefined && <span className="dep-source">{t.live.rows.reportAge(Math.max(0, Math.floor((now - live.reportedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
                 </li>;
               })}
             </ul>
