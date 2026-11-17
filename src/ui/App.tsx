@@ -55,6 +55,8 @@ import { departureEvidence, departureKey, requestFor, type DepartureEvidence } f
 import { upcomingCandidates, selectUpcoming, type UpcomingSet } from '../domain/upcoming';
 import { LastReturnCard } from './LastReturnCard';
 import { PastReports } from './PastReports';
+import { LockedAlertsSetting } from './LockedAlertsSetting';
+import { useLockedRideAlerts } from './lockedRideAlerts';
 
 type Theme = 'system' | 'light' | 'dark';
 interface Settings { lang: Lang; theme: Theme; count: 3 | 5; skin: Skin; liveMotion: boolean; bilingualButtons: boolean; rotateSlogans: boolean }
@@ -310,13 +312,14 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
 function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; journey: JourneyModel }) {
   const tz = ds.meta.timezone;
   const [activeLock, setActiveLock] = useState<ActiveLock | undefined>();
-  /** A lock saved on this phone before a refresh or close, offered back (never resumed silently). */
-  const [resumable, setResumable] = useState<SavedLock<Leg> | undefined>();
   const [demoAdvanceMs, setDemoAdvanceMs] = useState(0);
   const [keepAwake, setKeepAwake] = useState(true);
   // Every 10 s at least, so a leave-by countdown is never a minute optimistic for long (issue #54).
   const now = useNow(tz, activeLock ? 1000 : 10_000);
   const lockNow = now + (ds.meta.demo ? demoAdvanceMs : 0);
+  /** A lock saved on this phone before a refresh or close, offered back (never resumed silently). */
+  // Read at once (not after the first render), so a locked-phone ride saved with it is kept until the rider decides.
+  const [resumable, setResumable] = useState<SavedLock<Leg> | undefined>(() => loadLock<Leg>(store, ds, now));
   const [settings, setSettings] = useSettings();
   const [favorites, setFavorites] = useState<Favorite[]>(() => loadFavorites(store));
   const commuteChanges = useCommuteChanges(LIVE_API, ds, favorites, now, fromCache, store);
@@ -397,6 +400,10 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
     savedArrival.current = key; if (saveLastArrival(store, value)) setLastArrival(value);
   }, [activeLock?.session.destinationArrival, ds.meta.demo]);
   const liveBus = useLiveBus(ds, activeLock?.session, LIVE_API, lockNow, lockEvent);
+  // Locked-phone stop alerts (#176 step C): the server ride follows this lock and ends with it.
+  useLockedRideAlerts({ api: LIVE_API, demo: !!ds.meta.demo, realtime: liveMode && ds.meta.realtime?.provider === 'njt-bus-g2', lang: settings.lang,
+    session: activeLock?.session, alightIndex: activeLock ? activeLock.dep.pattern.stopIds.indexOf(activeLock.leg.toStopId, activeLock.dep.stopIndex + 1) : -1,
+    heldSessionId: resumable?.session.id });
   useEffect(() => {
     setActiveLock((current) => {
       if (!current) return current;
@@ -1220,6 +1227,9 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       <h1>{t.settings}</h1>
       <label className="lock-toggle"><input type="checkbox" checked={settings.liveMotion} onChange={e => setSettings({ ...settings, liveMotion: e.currentTarget.checked })} />{t.live.motion}</label>
       <p className="small muted">{t.live.motionNote}</p>
+      <h2>{t.lockedAlerts.settingsHeading}</h2>
+      <p className="small muted">{t.lockedAlerts.settingsNote}</p>
+      <LockedAlertsSetting t={t} />
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
       <h2>{t.bilingualButtons.title}</h2>
