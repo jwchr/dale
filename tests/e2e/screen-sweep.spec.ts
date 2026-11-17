@@ -14,6 +14,8 @@ type Screen = { name: string; open: (page: Page, lang: 'en' | 'es') => Promise<v
 async function start(page: Page, lang: 'en' | 'es') {
   await page.addInitScript((l) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: l, skin: 'clean', theme: 'light' })), lang);
   await page.goto('/?printed=1&now=2026-11-04T07:50');
+  // The home photo loads after the page; wait for it so the check sees the finished screen.
+  await page.waitForLoadState('networkidle');
   await page.addStyleTag({ content: FONT });
 }
 

@@ -144,6 +144,19 @@ describe('favorites', () => {
     expect(list.map((x) => x.label)).toEqual(['a', 'Work']);
     expect(addFavorite(list, f('a'))).toBe(list);
   });
+  it('re-saves a trip whose old id now belongs to a changed favorite', () => {
+    // A saved trip D2>PABT had its stops changed to D1 but kept its id; saving D2>PABT again must work.
+    const changed = { ...f('D2>PABT'), fromStopId: 'D1' };
+    const fresh = { ...f('D2>PABT'), fromStopId: 'D2' };
+    const list = addFavorite([changed], fresh);
+    expect(list.map((x) => [x.id, x.fromStopId])).toEqual([['D2>PABT', 'D1'], ['D2>PABT~2', 'D2']]);
+    // The same stops and routes are never saved twice, whatever the id.
+    expect(addFavorite(list, { ...fresh, id: 'other' })).toBe(list);
+    // Repeated route ids never make different route sets look the same.
+    const repeated = [{ ...f('r'), routeIds: ['R1', 'R1'] }];
+    expect(addFavorite(repeated, { ...f('s'), routeIds: ['R1', 'R2'] })).toHaveLength(2);
+    expect(addFavorite(repeated, { ...f('t'), routeIds: ['R1'] })).toBe(repeated);
+  });
   it('drops damaged entries individually, retaining valid commutes, order and leave plans', () => {
     const first = { ...f('a'), fromStopId: 'a-stop-not-in-this-schedule', leave: { out: { walkMin: 4, cushionMin: 2 }, back: { walkMin: 'bad' } } };
     const last = { ...f('c'), label: '', routeIds: ['a-route-not-in-this-schedule'], leave: 12 };
