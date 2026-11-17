@@ -6,7 +6,7 @@ export const VAPID_SUBJECT = 'https://jwchr.github.io/dale/';
 /** Seconds the push service may hold an undelivered push. A late stop alert is dropped, not delivered late. */
 export const PUSH_TTL_SECONDS = 60;
 const JWT_LIFETIME_SECONDS = 12 * 3600;
-const PUSH_TIMEOUT_MS = 10_000;
+export const PUSH_TIMEOUT_MS = 10_000;
 
 /** ok: accepted (not shown); gone: 404/410, the subscription no longer exists; retry: network error, 429 or 5xx. */
 export type PushResult = 'ok' | 'gone' | 'retry' | 'failed';

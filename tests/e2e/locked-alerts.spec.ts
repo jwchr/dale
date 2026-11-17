@@ -112,14 +112,17 @@ function packet(): LiveBusSnapshot {
     updatedAt: NOW - 20_000, predictions: [], skippedStops: [] };
 }
 
+/** The pinned app clock, in New York wall time, for the same instant as NOW (page.clock.install keeps timers on it). */
+const PINNED = '/?live=1&now=2026-11-04T07:20';
+
 async function openSettings(page: Page, lang: Lang) {
-  await page.goto('/?live=1');
+  await page.goto(PINNED);
   await page.getByRole('button', { name: strings[lang].settings, exact: true }).click();
 }
 
-async function board(page: Page, lang: Lang) {
+async function board(page: Page, lang: Lang, open = true) {
   const t = strings[lang];
-  await page.goto('/?live=1');
+  if (open) await page.goto(PINNED);
   await page.getByRole('button', { name: /7:20/ }).first().click();
   await page.getByRole('button', { name: t.lockBus, exact: true }).click();
   await expect(page.getByTestId('live-bus-status')).toContainText(/GPS/);
@@ -319,6 +322,64 @@ test('a delete still saved when Dale opens again is retried then', async ({ page
   await openSettings(page, 'en');
   await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=got_off`]);
   await expect.poll(async () => (await saved(page)).pending).toEqual([]);
+});
+
+test('turning alerts off while a ride is starting abandons it: unsubscribed, record and server ride deleted, never activated', async ({ page }) => {
+  const s = strings.en.lockedAlerts;
+  const server = await setup(page, { enabled: true, granted: true });
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>((r) => { release = r; }), registering = new Promise<void>((r) => { started = r; });
+  await page.route(API + '/v1/ride-alerts', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    server.posts.push(route.request().postDataJSON() as Record<string, unknown>);
+    started(); await gate;
+    return route.fulfill({ status: 201, json: { v: 1, id: RIDE, expiresAt: NOW + 3_600_000 }, headers: cors });
+  });
+  const ride = await board(page, 'en');
+  await registering;
+  await ride.getByRole('checkbox', { name: s.title }).uncheck();
+  release();
+  await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
+  expect(server.activations).toBe(0);
+  expect(server.posts).toHaveLength(1);
+  expect((await log(page)).at(-1)).toBe('unsubscribe https://fcm.googleapis.com/fcm/send/ride-1');
+  expect(await swRecord(page)).toBeNull();
+  await expect.poll(() => saved(page)).toEqual({ enabled: false, code: CODE, pending: [] });
+  await expect(ride.getByRole('checkbox', { name: s.title })).not.toBeChecked();
+});
+
+test('alerts turned off in another tab are never turned back on or used for a ride here', async ({ page, context }) => {
+  const s = strings.en.lockedAlerts;
+  const server = await setup(page, { enabled: true, granted: true });
+  await page.goto(PINNED);
+  const other = await context.newPage();
+  await setup(other, { enabled: true, granted: true });
+  await openSettings(other, 'en');
+  await other.getByRole('checkbox', { name: s.title }).uncheck();
+  await expect.poll(() => saved(page)).toEqual({ enabled: false, code: CODE, pending: [] });
+  // This tab boards without reloading: it follows the other tab's choice, starts no ride and saves nothing back.
+  const ride = await board(page, 'en', false);
+  await expect(ride.getByRole('checkbox', { name: s.title })).not.toBeChecked();
+  await ride.getByRole('button', { name: strings.en.ride.gotOff }).click();
+  expect(server.posts).toEqual([]);
+  expect(await saved(page)).toEqual({ enabled: false, code: CODE, pending: [] });
+  expect(await saved(other)).toEqual({ enabled: false, code: CODE, pending: [] });
+});
+
+test('opening the demo leaves a saved real ride alone; ending the real lock still ends it', async ({ page }) => {
+  const server = await setup(page, { enabled: true, granted: true });
+  const ride = { id: RIDE, apiBase: API, key: 'saved-ride', sessionId: 'real-session', createdAt: NOW - 60_000, activated: true };
+  await page.addInitScript((value) => { if (!sessionStorage.getItem('test-ride')) { sessionStorage.setItem('test-ride', '1'); localStorage.setItem('arriba.rideAlerts.v1', value); } },
+    JSON.stringify({ enabled: true, code: CODE, ride, pending: [] }));
+  await page.goto('/?demo&now=2026-11-04T07:20');
+  await expect(page.locator('.demo-banner').first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(server.deletes).toEqual([]);
+  expect((await saved(page)).ride).toEqual(ride);
+  // Back in the real app with no lock to offer back: the ride ends.
+  await page.goto(PINNED);
+  await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
+  await expect.poll(async () => (await saved(page)).ride).toBeUndefined();
 });
 
 for (const lang of ['en', 'es'] as const) test(`the consent fits a narrow phone at 200% text, works by keyboard and passes accessibility (${lang})`, async ({ page }) => {

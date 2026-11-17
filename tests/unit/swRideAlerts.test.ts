@@ -2,7 +2,7 @@
 // against a stand-in ride record, push subscription, Dale server and notification tray.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGIN = 'https://jwchr.github.io';
 const API = 'https://dale-live.test.workers.dev';
@@ -12,7 +12,7 @@ const source = readFileSync(join(__dirname, '../../public/sw.js'), 'utf8');
 
 interface Shown { title: string; options: { body: string; tag: string; renotify: boolean; silent: boolean; lang?: string } }
 interface Io {
-  read: () => Promise<unknown>; write: (r: unknown) => Promise<void>; subscription: () => Promise<{ endpoint: string } | null>;
+  read: () => Promise<unknown>; update: (change: (r: unknown) => unknown) => Promise<void>; subscription: () => Promise<{ endpoint: string } | null>;
   fetch: (url: string, init?: RequestInit) => Promise<Response>; show: (title: string, options: Shown['options']) => Promise<void>; now: () => number;
 }
 type Handler = (e: { waitUntil: (p: Promise<unknown>) => void; notification?: { close: () => void } }) => void;
@@ -25,6 +25,11 @@ let clock: number;
 let log: string[];
 let shown: Shown[];
 let server: (url: string, init?: RequestInit) => Promise<Response>;
+/** Runs inside the stand-in transaction, before its read: what the page changed just before the worker's update. */
+let beforeUpdate: (() => void) | undefined;
+/** Runs once the stand-in transaction has written. */
+let afterWrite: (() => void) | undefined;
+let failWrite: boolean;
 let clients: { matchAll: () => Promise<{ url: string; focus: () => Promise<void> }[]>; openWindow: (u: string) => Promise<void> };
 
 const T0 = Date.parse('2026-11-17T12:00:00Z');
@@ -37,7 +42,7 @@ const stage = (stageName: string, rank: number, body: string, observedAt = clock
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 beforeEach(() => {
-  handlers = {}; log = []; shown = []; clock = T0;
+  handlers = {}; log = []; shown = []; clock = T0; beforeUpdate = undefined; afterWrite = undefined; failWrite = false;
   record = makeRecord();
   endpoint = 'https://fcm.googleapis.com/fcm/send/new';
   server = async () => json(stage('three', 1, '3 stops to Port Authority'));
@@ -50,7 +55,15 @@ beforeEach(() => {
   const exported = new Function('self', 'caches', 'fetch', `${source}\nreturn { rideIo };`)(self, {}, () => Promise.reject(new Error('unused'))) as { rideIo: Io };
   io = exported.rideIo;
   io.read = async () => { log.push('read'); return record ? structuredClone(record) : undefined; };
-  io.write = async (r) => { log.push('write'); record = structuredClone(r) as Record<string, unknown>; };
+  // One readwrite transaction: read, decide and write with nothing in between, as in IndexedDB.
+  io.update = async (change) => {
+    beforeUpdate?.();
+    const next = change(record ? structuredClone(record) : undefined);
+    if (!next) return;
+    if (failWrite) throw new DOMException('Storage full', 'QuotaExceededError');
+    log.push('write'); record = structuredClone(next) as Record<string, unknown>;
+    afterWrite?.();
+  };
   io.subscription = async () => (endpoint ? { endpoint } : null);
   io.fetch = (url, init) => { log.push(`${init?.method ?? 'GET'} ${url.replace(API, '')}${init?.body ? ` ${String(init.body)}` : ''}`); return server(url, init); };
   io.show = async (title, options) => { log.push('show'); shown.push({ title, options }); };
@@ -188,6 +201,74 @@ describe('locked-phone stop alerts in the service worker', () => {
     await push();
     expect(shown.map((s) => s.options.body)).toEqual(['Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.']);
     expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+  });
+
+  it('a new stage or notice whose marker cannot be saved is shown silently and not acknowledged', async () => {
+    failWrite = true;
+    await push();
+    expect(shown[0]!.options).toMatchObject({ body: '3 stops to Port Authority', silent: true, renotify: false });
+    expect(record).toMatchObject({ highestShown: 0 });
+    server = async (url) => url.endsWith('/latest') ? json({ v: 1, kind: 'service_change', title: 'Dale: your stop', body: 'Stops on this trip changed. Open Dale.' }) : json({ v: 1 });
+    await push();
+    expect(shown[1]!.options).toMatchObject({ body: 'Stops on this trip changed. Open Dale.', silent: true, renotify: false });
+    expect(record).toMatchObject({ noticeShown: false });
+    expect(requests().filter((r) => r.startsWith('POST'))).toEqual([]);
+  });
+
+  it('a position that is over 2 minutes old once the write is done shows "can\'t check", puts the marker back and acknowledges nothing', async () => {
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority', clock - 100_000)) : json({ v: 1 });
+    afterWrite = () => { afterWrite = undefined; clock += 30_000; }; // the write took 30 s
+    await push();
+    expect(shown).toEqual([{ title: 'Dale: your stop', options: expect.objectContaining({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true }) }]);
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    expect(record).toMatchObject({ highestShown: 0 });
+    expect(record!.shown).toBeUndefined();
+    // So the stage still sounds once a fresh answer arrives.
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority')) : json({ v: 1 });
+    await push();
+    expect(shown[1]!.options).toMatchObject({ body: '2 stops to Port Authority', silent: false });
+  });
+
+  it('never restores or shows a ride the page ended or replaced between the worker\'s read and its write', async () => {
+    beforeUpdate = () => { beforeUpdate = undefined; record = undefined; }; // the rider got off
+    await push();
+    expect(record).toBeUndefined();
+    expect(shown.map((s) => s.options.body)).toEqual(['Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.']);
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    // The page saved the next ride instead: ride A's line is never shown or saved over it.
+    server = async (url) => url.includes(NEW_RIDE) ? json(stage('three', 1, 'NEW RIDE: 3 stops to go')) : json(stage('one', 3, 'OLD RIDE: next stop is yours.'));
+    record = makeRecord();
+    beforeUpdate = () => { beforeUpdate = undefined; record = makeRecord({ rideId: NEW_RIDE }); };
+    await push();
+    expect(shown.slice(1).map((s) => s.options.body)).toEqual(['NEW RIDE: 3 stops to go']);
+    expect(record).toMatchObject({ rideId: NEW_RIDE, highestShown: 1 });
+    expect(requests().filter((r) => r.includes('/ack'))).toEqual([`POST /v1/ride-alerts/${NEW_RIDE}/ack {"stage":"three"}`]);
+  });
+
+  describe('stalled requests', () => {
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); });
+    afterEach(() => { vi.useRealTimers(); });
+    it('a stalled acknowledgement or cleanup is given up after the same timeout as the check, and later pushes go on', async () => {
+      const stall = new Promise<Response>(() => {});
+      server = async (url, init) => init?.method ? stall : json(stage('three', 1, '3 stops to Port Authority'));
+      const first = push();
+      let done = false; void first.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(19_000);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(done).toBe(true);
+      expect(requests().at(-1)).toBe(`POST /v1/ride-alerts/${RIDE}/ack {"stage":"three"}`);
+      // The cleanup delete for a ride that is not this browser's current one stalls the same way.
+      endpoint = 'https://fcm.googleapis.com/fcm/send/other';
+      const second = push(), third = push();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await second;
+      expect(requests().at(-1)).toBe(`DELETE /v1/ride-alerts/${RIDE}`);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await third;
+      expect(shown.map((s) => s.options.body)).toEqual(['3 stops to Port Authority',
+        'Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.', 'Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.']);
+    });
   });
 
   it('a tapped notification focuses an open Dale, or opens it', async () => {

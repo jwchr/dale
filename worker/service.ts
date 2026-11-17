@@ -83,6 +83,22 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private rideWake(): number | null {
       try { return this.rides?.nextWake(this.saved.pollAt + POLL_MS) ?? null; } catch { return null; }
     }
+    /**
+     * When the next history run is due, by the same rule as with no ride: the earliest due time asked for since
+     * the last history run. A later call can only keep or bring it forward, so fixing it before a ride's pushes
+     * means slow pushes never make it later. Stored while a ride is active, so a restart keeps it.
+     */
+    private async planHistory(rideAt: number | null): Promise<number | null> {
+      if (!this.journal || this.env.HISTORY_COLLECTION !== 'enabled') return null;
+      const due = this.journal.status(clock()).nextAttemptAt, desired = due === null ? null : Math.max(clock() + 1000, due);
+      const history = desired === null ? this.historyAt : this.historyAt === null ? desired : Math.min(this.historyAt, desired);
+      this.historyAt = history;
+      if (rideAt !== null && (this.saved.historyAt ?? null) !== history) {
+        this.saved.historyAt = history ?? undefined;
+        await this.ctx.storage.put('state-v1', this.saved);
+      }
+      return history;
+    }
     private async arm(ridesChanged = false) {
       const collecting = !!this.journal && this.env.HISTORY_COLLECTION === 'enabled', rideAt = this.rideWake();
       if (!this.ctx.storage.getAlarm || !this.ctx.storage.setAlarm) return;
@@ -91,17 +107,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (ridesChanged && this.ctx.storage.deleteAlarm && await this.ctx.storage.getAlarm() !== null) await this.ctx.storage.deleteAlarm();
         return;
       }
-      let history: number | null = null;
-      if (collecting) {
-        // The same rule as with no ride: the earliest due time asked for since the last history run.
-        const due = this.journal!.status(clock()).nextAttemptAt, desired = due === null ? null : Math.max(clock() + 1000, due);
-        history = desired === null ? this.historyAt : this.historyAt === null ? desired : Math.min(this.historyAt, desired);
-        this.historyAt = history;
-        if (rideAt !== null && (this.saved.historyAt ?? null) !== history) {
-          this.saved.historyAt = history ?? undefined;
-          await this.ctx.storage.put('state-v1', this.saved);
-        }
-      }
+      const history = await this.planHistory(rideAt);
       // A ride check due within one poll before the history run waits for it, so a ride poll never takes
       // the history run's turn at the global pace.
       let next = rideAt;
@@ -148,14 +154,20 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         }
       }
       finally {
-        // Ride checks never throw into collection; they piggyback on the poll above when it ran.
-        if (rideAt !== null) await this.watchRides();
+        // Ride checks never throw into collection; they piggyback on the poll above when it ran. The next
+        // history run is fixed first, so the time a ride's pushes take never moves it, and the rides stop
+        // starting new checks once it is due (the rest are checked first at the next alarm).
+        if (rideAt !== null) {
+          let deadline: number | null = null;
+          try { deadline = await this.planHistory(rideAt); } catch { /* arm below retries and throws if storage is failing */ }
+          await this.watchRides(deadline);
+        }
         // Normal feed failures are persisted gaps. Unexpected storage/alarm errors
         // still throw so the platform's bounded retries remain available.
         await this.arm(rideAt !== null);
       }
     }
-    private async watchRides() {
+    private async watchRides(deadline: number | null) {
       const rides = this.rides;
       if (!rides) return;
       try {
@@ -164,7 +176,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         // Within one poll of the history run, the ride waits for that run's poll (see arm) and checks the latest data.
         const now = clock(), history = this.env.HISTORY_COLLECTION === 'enabled' ? this.historyAt : null;
         if (history === null || history <= now || history - now >= POLL_MS) await this.poll(true, true);
-        await rides.watch(this.env);
+        await rides.watch(this.env, deadline);
       } catch { /* A failed ride check is retried on the next alarm; it never reveals a ride. */ }
     }
     /** The /v1/live answer for one trip instance and optional locked vehicle, from the latest poll. */

@@ -319,11 +319,25 @@ export class RideAlerts {
   /** In memory only: when each ride's push was last accepted (a repeat of the same stage is not written) and last not accepted. */
   private readonly pushedAt = new Map<string, number>();
   private readonly failedAt = new Map<string, number>();
+  /**
+   * In memory only: each active ride's lock and position history as of its last check, so every position the
+   * guide accepted counts until the ride ends, exactly as on the phone, even between the bounded writes. The
+   * stored row is only the fallback after a restart. Dropped when the ride ends.
+   */
+  private readonly sessions = new Map<string, BusSession>();
+  /** In memory only: when each ride was last checked, so a check cut short by the history run's deadline resumes with the rides it skipped. */
+  private readonly checkedAt = new Map<string, number>();
   constructor(storage: RideStorage, ds: Dataset, private readonly host: RideHost, private readonly clock: () => number, private readonly fetchImpl: typeof fetch) {
     this.store = new RideStore(storage);
     this.rules = createRideRules(ds);
   }
   nextWake(pollDue: number) { return this.store.nextWake(pollDue); }
+  /** The ride's session now: the one kept in memory since its last check, or the stored one after a restart. */
+  private session(row: RideRow): BusSession | undefined {
+    const kept = this.sessions.get(row.id);
+    return kept && kept.lock.tripInstanceId === tripInstanceId(row.trip, row.date) && kept.lock.vehicleId === row.vehicle ? kept : this.rules.session(row);
+  }
+  private forget(id: string) { for (const map of [this.sessions, this.checkedAt, this.pushedAt, this.failedAt]) map.delete(id); }
   activeCount() { return this.store.count('active'); }
 
   async handle(request: Request, env: RideEnv): Promise<Response> {
@@ -340,6 +354,7 @@ export class RideAlerts {
     if (request.method === 'DELETE' && !action) {
       if (row && row.state !== 'ended') {
         this.store.end(id, url.searchParams.get('reason') === 'got_off' ? 'got_off' : 'unlocked', now);
+        this.forget(id);
         await this.host.arm(true);
       }
       return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
@@ -390,7 +405,7 @@ export class RideAlerts {
   /** Recomputed at request time from the latest poll, never replayed. Nothing is written. */
   private latest(row: RideRow, now: number): Response {
     const snapshot = this.host.snapshot(row.trip, row.date, row.vehicle, now);
-    const restored = this.rules.session(row);
+    const restored = this.session(row);
     const t = strings[row.lang].ride, title = t.notifyTitle;
     if (!restored) return json({ v: 1, kind: 'uncertain', title, body: t.lockedPush.cantCheck });
     const state = this.rules.current(row, this.rules.apply(restored, snapshot, now), now);
@@ -408,28 +423,35 @@ export class RideAlerts {
    * per check at most, and the lock and history only when the sent stage, notice, lock status, service-change flag
    * or expiry changed, otherwise at most every 2 minutes. A repeat of the same stage is not written.
    */
-  async watch(env: RideEnv): Promise<void> {
-    const vapid = await loadVapid(env.VAPID_PRIVATE_KEY), ids = this.store.ids('active');
-    for (const map of [this.pushedAt, this.failedAt]) for (const id of map.keys()) if (!ids.includes(id)) map.delete(id);
-    for (const id of ids) {
+  async watch(env: RideEnv, deadline: number | null = null): Promise<void> {
+    const vapid = await loadVapid(env.VAPID_PRIVATE_KEY), active = this.store.ids('active');
+    for (const map of [this.sessions, this.checkedAt, this.pushedAt, this.failedAt]) for (const id of map.keys()) if (!active.includes(id)) map.delete(id);
+    // Rides checked longest ago go first, so a check stopped at the deadline resumes where it left off. Each ride
+    // is still checked (and pushed) one at a time, in alarm order, so its own stages stay in order.
+    const ids = [...active].sort((a, b) => (this.checkedAt.get(a) ?? 0) - (this.checkedAt.get(b) ?? 0));
+    for (const [index, id] of ids.entries()) {
+      // Pushes never hold up the history run: once it is due, the remaining rides wait for the next alarm.
+      if (index > 0 && deadline !== null && this.clock() >= deadline) break;
       const row = this.store.get(id), now = this.clock();
       if (!row || row.state !== 'active') continue;
-      const restored = this.rules.session(row);
-      if (!restored) { this.store.end(id, 'expired', now); continue; }
+      this.checkedAt.set(id, now);
+      const restored = this.session(row);
+      if (!restored) { this.store.end(id, 'expired', now); this.forget(id); continue; }
       const snapshot = this.host.snapshot(row.trip, row.date, row.vehicle, now);
       const s = this.rules.apply(restored, snapshot, now);
+      this.sessions.set(id, s);
       const serviceChange = row.serviceChange || !!s.stopChanges?.indices.length;
       // Expiry only moves later, so one gap in the feed cannot end a late bus's ride early; the 3-hour cap still holds.
       const expiresAt = Math.min(row.createdAt + RIDE_CAP_MS, Math.max(row.expiresAt, this.rules.expiry(row, s, snapshot, now)));
-      if (expiresAt <= now) { this.store.end(id, 'expired', now); continue; }
+      if (expiresAt <= now) { this.store.end(id, 'expired', now); this.forget(id); continue; }
       const lastPushAt = Math.max(row.lastPushAt ?? 0, this.pushedAt.get(id) ?? 0) || null;
       const action = decideRide({ ...row, lastPushAt, failAt: this.failedAt.get(id) ?? null }, now, this.rules.current({ ...row, serviceChange }, s, now));
-      if (action && 'end' in action) { this.store.end(id, action.end, now); continue; }
+      if (action && 'end' in action) { this.store.end(id, action.end, now); this.forget(id); continue; }
       const patch: RidePatch = {};
       if (action && vapid) {
         const result = await sendPush(vapid, row.endpoint, id, now, this.fetchImpl), at = this.clock();
         // 404/410: the phone dropped this subscription (unlocked, got off or turned the setting off).
-        if (result === 'gone') { this.store.end(id, 'unlocked', at); continue; }
+        if (result === 'gone') { this.store.end(id, 'unlocked', at); this.forget(id); continue; }
         if (result === 'ok') {
           // Accepted, not shown: the stage is recorded as sent; only the phone's ack marks it shown.
           this.failedAt.delete(id); this.pushedAt.set(id, at);
@@ -440,7 +462,7 @@ export class RideAlerts {
           // Not accepted: nothing is recorded as sent, so it stays due for the next check.
           this.failedAt.set(id, at);
           if (result === 'failed') {
-            if (row.failures + 1 >= MAX_PUSH_FAILURES) { this.store.end(id, 'push_failed', at); continue; }
+            if (row.failures + 1 >= MAX_PUSH_FAILURES) { this.store.end(id, 'push_failed', at); this.forget(id); continue; }
             patch.failures = row.failures + 1;
           }
         }

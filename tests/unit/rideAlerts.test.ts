@@ -8,7 +8,7 @@ import {
 } from '../../worker/ride-alerts';
 import { HistoryArchive } from '../../worker/history-archive';
 import { HistoryJournal } from '../../worker/history-journal';
-import { fromBase64Url, loadVapid, sendPush, toBase64Url, PUSH_TTL_SECONDS, VAPID_SUBJECT } from '../../worker/web-push';
+import { fromBase64Url, loadVapid, sendPush, toBase64Url, PUSH_TIMEOUT_MS, PUSH_TTL_SECONDS, VAPID_SUBJECT } from '../../worker/web-push';
 import { liveDataset, NOW, binaryFeed, descriptor } from '../helpers/liveBus';
 import { createBusSession, reduceBusSession, type BusSession } from '../../src/domain/busLock';
 import { rideGuide } from '../../src/domain/rideGuide';
@@ -46,7 +46,7 @@ async function harness(options: { collection?: boolean; archive?: boolean; keys?
   const db = new DatabaseSync(':memory:'); databases.push(db);
   let now = NOW, alarmAt: number | null = null, full = false, rideWrites = 0;
   const saved = new Map<string, unknown>(), calls: { endpoint: string; at: number }[] = [], pushes: { url: string; headers: Headers; bytes: number; at: number }[] = [];
-  let pushStatus: number | 'offline' = 201;
+  let pushStatus: number | 'offline' = 201, pushDelay = 0;
   const feed: FeedState = { stop: 0, lonShift: 0, age: 1, vehicleId: 'bus-A', skipped: [] };
   const storage = {
     ...(options.sql === false ? {} : {
@@ -70,6 +70,7 @@ async function harness(options: { collection?: boolean; archive?: boolean; keys?
     if (!url.startsWith('https://pcsdata.njtransit.com/')) {
       const body = init?.body instanceof Uint8Array ? init.body.byteLength : init?.body == null ? 0 : -1;
       pushes.push({ url, headers: new Headers(init?.headers), bytes: body, at: now });
+      now += pushDelay; // a slow push service: the alarm's clock moves on while it waits
       if (pushStatus === 'offline') throw new TypeError('network');
       return new Response(null, { status: pushStatus });
     }
@@ -102,6 +103,8 @@ async function harness(options: { collection?: boolean; archive?: boolean; keys?
     /** Makes storage report the history size limit, as in the collector's storage-limit state. */
     setFull: (value: boolean) => { full = value; },
     setPush: (status: number | 'offline') => { pushStatus = status; },
+    /** Each push takes this long (at most the 10-second push timeout in production). */
+    setPushDelay: (ms: number) => { pushDelay = ms; },
     restart: () => { h.object = new Feed(ctx, env); },
     alarm: async () => { alarmAt = null; await h.object.alarm(); },
     api: (path: string, init: RequestInit = {}) => router.fetch(new Request(BASE + path, init), env),
@@ -303,6 +306,35 @@ describe('ride checks', () => {
     }
     expect(seen).toEqual(['riding', 'riding', 'uncertain', 'three', 'uncertain', 'three', 'two', 'uncertain', 'two', 'one', 'request', 'uncertain', 'request', 'service_change', 'service_change']);
   });
+
+  it.each([['no save in between', 30_000], ['a save and a restart in between', 150_000]] as const)(
+    'judges a later jump with every position it accepted, as the app does (%s)', async (_, gap) => {
+      const h = await harness();
+      const id = await h.start();
+      const dep = departuresOn(ds, { stopId: 'L0', date: '20261104' }).find((d) => d.tripId === 'T1')!;
+      let app: BusSession = createBusSession(dep, NOW - 60_000);
+      const appStep = (stop: number) => {
+        const now = h.now(), p = at(stop);
+        app = reduceBusSession(app, { type: 'feed_status', tripInstanceId: INSTANCE, state: 'ok', now });
+        app = reduceBusSession(app, { type: 'observation', source: 'official', receivedAt: now, obs: { tripInstanceId: INSTANCE, vehicleId: 'bus-A', observedAt: now - 1000, lat: p.latitude, lon: p.longitude } });
+        const g = rideGuide(ds, dep.pattern.stopIds, 0, 5, app.lock, now, app.history);
+        return g.basis === 'gps' ? g.stage : 'reason' in g ? g.reason : g.basis;
+      };
+      await h.step(0); appStep(0);
+      // Accepted at stop 1. With no save in between it is only in memory; otherwise it is also stored.
+      await h.step(1, gap); appStep(1);
+      const stored = JSON.parse(String(h.db.prepare('SELECT session FROM dale_ride_alerts WHERE id=?').get(id)!.session)) as { history: { observedAt: number }[] };
+      expect(stored.history.some((p) => p.observedAt === h.now() - 1000)).toBe(gap > 30_000);
+      if (gap > 30_000) h.restart(); // after a restart the stored row is the fallback
+      // Two stops in 30 seconds: an impossible jump from stop 1, though not from stop 0 a minute earlier.
+      await h.step(3); expect(appStep(3)).toBe('inconsistent');
+      expect((await h.latest(id)).body.kind).toBe('uncertain');
+      expect(pushCount(h)).toBe(0);
+      // The bus then really is there: both count from it.
+      await h.step(3); expect(appStep(3)).toBe('two');
+      expect((await h.latest(id)).body).toMatchObject({ kind: 'stage', stage: 'two' });
+      expect(pushCount(h)).toBe(1);
+    });
 
   it('builds the stage line in the ride\'s language from the app\'s own strings', async () => {
     const h = await harness();
@@ -599,8 +631,11 @@ describe('history collection with rides', () => {
     const collection = (await (await h.api('/v1/collection')).json()).collection;
     return { calls: h.calls, alarmAt: h.alarmAt(), observations: collection.observations, batches: collection.batches, pushes: h.pushes.length };
   }
-  it.each([['collecting normally', false, 20 * 60_000], ['waiting at the storage limit', true, 150 * 60_000]] as const)(
-    'runs history attempts, archive flush and prune at the same times with and without a ride (%s)', async (_, full, span) => {
+  it.each([
+    ['collecting normally', false, 20 * 60_000, false], ['waiting at the storage limit', true, 150 * 60_000, false],
+    ['collecting normally, slow pushes', false, 20 * 60_000, true], ['waiting at the storage limit, slow pushes', true, 150 * 60_000, true],
+  ] as const)(
+    'runs history attempts, archive flush and prune at the same times with and without a ride (%s)', async (_, full, span, slow) => {
       async function timing(withRide: boolean) {
         const flushes: number[] = [], prunes: number[] = [], attempts: number[] = [];
         const begin = HistoryJournal.prototype.beginAttempt;
@@ -614,11 +649,16 @@ describe('history collection with rides', () => {
           await h.api('/v1/collection');
           h.setFull(full);
           h.feed.stop = 0.5;
+          if (slow) {
+            // A stage that is due and a push service that keeps answering 503 after the full 10-second timeout:
+            // the ride keeps pushing again (about once a minute) for the whole span.
+            h.feed.stop = 2; h.setPush(503); h.setPushDelay(PUSH_TIMEOUT_MS);
+          }
           if (withRide) await h.start();
           const end = h.now() + span;
           while (h.now() < end) { h.advance(5000); if (h.alarmAt() !== null && h.alarmAt()! <= h.now()) await h.alarm(); }
           const polls = h.calls.filter((c) => c.endpoint === 'getVehiclePositions').length, active = (await h.health()).rideAlerts.active;
-          return { flushes, prunes, attempts, polls, active };
+          return { flushes, prunes, attempts, polls, active, pushes: h.pushes.length };
         } finally { vi.restoreAllMocks(); }
       }
       const plain = await timing(false), riding = await timing(true);
@@ -626,6 +666,7 @@ describe('history collection with rides', () => {
       expect(riding.prunes).toEqual(plain.prunes);
       expect(riding.attempts).toEqual(plain.attempts);
       expect(riding.active).toBe(1);
+      if (slow) expect(riding.pushes).toBeGreaterThanOrEqual(span / 60_000);
       if (full) {
         // Once an hour, as with no ride, while the ride kept polling every 30 seconds.
         expect(plain.attempts).toEqual([]);

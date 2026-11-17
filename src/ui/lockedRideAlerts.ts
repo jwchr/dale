@@ -36,7 +36,17 @@ export interface LockedInput {
 }
 
 const storage = (): Storage | undefined => { try { return window.localStorage; } catch { return undefined; } };
-let saved: SavedRideAlerts = (() => { try { return parseSavedRideAlerts(storage()?.getItem(STORAGE)); } catch { return parseSavedRideAlerts(null); } })();
+/** Set when this browser refused a save: the state is then kept for this visit only, so the stale stored copy is not read back. */
+let memoryOnly = false;
+/**
+ * The persisted state, read fresh: another tab may have changed it (turned alerts off, ended the ride). Every
+ * decision and every save starts from it, so this tab never restores a state another tab changed.
+ */
+function stored(fallback: SavedRideAlerts): SavedRideAlerts {
+  if (memoryOnly) return fallback;
+  try { const s = storage(); return s ? parseSavedRideAlerts(s.getItem(STORAGE)) : fallback; } catch { return fallback; }
+}
+let saved: SavedRideAlerts = stored(parseSavedRideAlerts(null));
 let input: LockedInput = { demo: false, realtime: false, lang: 'en', alightIndex: -1 };
 let note: LockedNote | undefined;
 /** A ride that failed to start is not retried by itself; the rider can try again. */
@@ -62,10 +72,21 @@ function emit() {
   view = next;
   for (const l of listeners) l();
 }
-function persist(next: SavedRideAlerts) {
-  saved = next;
-  try { storage()?.setItem(STORAGE, JSON.stringify(saved)); } catch { /* kept for this visit only */ }
+/** Applies a change to the freshly read state and saves it. */
+function persist(change: (current: SavedRideAlerts) => SavedRideAlerts) {
+  saved = change(stored(saved));
+  try { storage()?.setItem(STORAGE, JSON.stringify(saved)); memoryOnly = false; } catch { memoryOnly = true; /* kept for this visit only */ }
   emit();
+}
+/** Picks up a change another tab saved. */
+function reload() {
+  const next = stored(saved);
+  if (JSON.stringify(next) !== JSON.stringify(saved)) { saved = next; emit(); }
+}
+/** The ride this tab should have now, from the freshly read state: none while alerts are off or in the demo. */
+function wanted(): WantedRide | undefined {
+  reload();
+  return saved.enabled && saved.code && contextOf(input) === 'ok' ? wantedRide(input.session, input.alightIndex, input.lang) : undefined;
 }
 
 let running = false, again = false;
@@ -81,11 +102,14 @@ function later(ms: number) { clearTimeout(timer); timer = setTimeout(kick, ms); 
 async function step() {
   await flushPending();
   const api = input.api;
-  const want = saved.enabled && saved.code && contextOf(input) === 'ok' ? wantedRide(input.session, input.alightIndex, input.lang) : undefined;
+  const want = wanted();
   const ride = saved.ride;
   if (ride) {
     if (want && want.key === ride.key) { if (!ride.activated) await activate(); return; }
     if (!want && saved.enabled && ride.sessionId === input.heldSessionId) return;
+    // The demo has no real lock to compare with: a real ride saved on this phone is left alone, unless the
+    // rider turned the setting off.
+    if (input.demo && saved.enabled) return;
     await endRide(endReason(input.session, ride.sessionId));
   }
   if (cleanupWanted && !saved.ride) { cleanupWanted = false; await unsubscribePush(); await deleteRideRecord(); }
@@ -95,22 +119,38 @@ async function step() {
 async function register(want: WantedRide, api: string) {
   registering = true; note = undefined; emit();
   const fail = (n: LockedNote) => { note = n; blockedKey = want.key; };
+  // Rechecked after every wait: alerts turned off (here or in another tab) or a different ride wanted means
+  // this start is abandoned and whatever it made so far is removed. The next step starts the right ride.
+  const stale = () => wanted()?.key !== want.key;
   try {
     const support = pushSupport();
     if (support !== 'supported') return fail(support === 'iphone-install' ? 'iphone' : 'unsupported');
     if (notifyPermission() !== 'granted') return fail('blocked');
     const config = await fetchRideAlertConfig(api);
+    if (stale()) return;
     if (config === 'network') return fail('failed');
     if (!config.available || !config.publicKey) return fail('unavailable');
     const sub = await subscribeFresh(config.publicKey);
+    if (stale()) { if (sub) await unsubscribePush(); return; }
     if (!sub) return fail('failed');
-    const lang = want.lang;
-    const res = await registerRide(api, { code: saved.code!, endpoint: sub.endpoint, trip: want.trip, date: want.date, vehicle: want.vehicle, board: want.board, alight: want.alight, lang });
+    const lang = want.lang, code = saved.code!;
+    const res = await registerRide(api, { code, endpoint: sub.endpoint, trip: want.trip, date: want.date, vehicle: want.vehicle, board: want.board, alight: want.alight, lang });
     const out = registerOutcome(res.status === 'network' ? 0 : res.status, res.body);
     if (out.kind !== 'ok') {
       await unsubscribePush();
-      if (out.kind === 'code') { const { code: _wrong, ...rest } = saved; persist(rest); note = 'code'; return; }
+      if (out.kind === 'code') {
+        persist((s) => { if (s.code !== code) return s; const { code: _wrong, ...rest } = s; return rest; });
+        if (!saved.code) note = 'code';
+        return;
+      }
+      if (stale()) return;
       return fail(out.kind);
+    }
+    if (stale()) {
+      await unsubscribePush();
+      await deleteRideRecord();
+      await deleteOnServer(out.id, api, 'unlocked');
+      return;
     }
     // Order matters (create, record, save, activate): a ride saved on this phone can be activated, so the
     // service worker's record is written first. Without it the worker could not check a push, so the ride
@@ -120,14 +160,14 @@ async function register(want: WantedRide, api: string) {
     const written = await writeRideRecord(rideRecord(out.id, sub.endpoint, api, lang, {
       cantCheck: { title: t.noteTitle, body: t.cantCheck }, ended: { title: t.endedTitle, body: t.ended },
     }));
-    if (!written) {
-      fail('storage');
+    if (!written || stale()) {
+      if (!written) fail('storage');
       await unsubscribePush();
       await deleteRideRecord();
       await deleteOnServer(out.id, api, 'unlocked');
       return;
     }
-    persist({ ...saved, ride: { id: out.id, apiBase: api, key: want.key, sessionId: want.sessionId, createdAt, activated: false } });
+    persist((s) => ({ ...s, ride: { id: out.id, apiBase: api, key: want.key, sessionId: want.sessionId, createdAt, activated: false } }));
     activateAttempt = 0; nextActivateAt = 0;
     await activate();
   } finally { registering = false; emit(); }
@@ -139,15 +179,20 @@ async function activate() {
   if (!ride || ride.activated || Date.now() < nextActivateAt) return;
   // Never activate a ride without its service-worker record (a start that was cut short, or a record the
   // browser lost): delete it on the server instead. The rider can try again.
-  if (await readRideRecordId() !== ride.id) {
-    if (saved.ride?.id !== ride.id) return;
+  const recordId = await readRideRecordId();
+  reload();
+  if (saved.ride?.id !== ride.id) return;
+  // Turned off (here or in another tab) or no longer wanted meanwhile: never activated; the next step ends it.
+  if (wanted()?.key !== ride.key) { again = true; return; }
+  if (recordId !== ride.id) {
     note = 'storage'; blockedKey = ride.key;
     await endRide('unlocked');
     return;
   }
   const out = activateOutcome(await activateRide(ride.apiBase, ride.id));
+  reload();
   if (saved.ride?.id !== ride.id) return;
-  if (out === 'active') { persist({ ...saved, ride: { ...ride, activated: true } }); return; }
+  if (out === 'active') { persist((s) => (s.ride?.id === ride.id ? { ...s, ride: { ...s.ride, activated: true } } : s)); return; }
   const delay = out === 'retry' ? activationRetryDelay(ride.createdAt, Date.now(), activateAttempt++) : undefined;
   if (delay === undefined) { note = 'failed'; blockedKey = ride.key; await endRide('unlocked'); return; }
   nextActivateAt = Date.now() + delay;
@@ -156,28 +201,30 @@ async function activate() {
 
 /** Step 8: unsubscribe first, then the record, then the server; a delete that fails is kept and retried. */
 async function endRide(reason: EndReason) {
+  reload();
   const ride = saved.ride;
   if (!ride) return;
   await unsubscribePush();
   await deleteRideRecord();
-  await deleteOnServer(ride.id, ride.apiBase, reason, { ride: undefined });
+  await deleteOnServer(ride.id, ride.apiBase, reason);
 }
 
-/** The delete is saved on this phone (with any other change, in one write) before it is sent, and retried if it fails. */
-async function deleteOnServer(id: string, apiBase: string, reason: EndReason, change: Partial<SavedRideAlerts> = {}) {
-  persist({ ...saved, ...change, pending: addPendingDelete(saved.pending, { id, apiBase, reason, since: Date.now() }) });
-  if (deleteDone(await deleteRide(apiBase, id, reason))) persist({ ...saved, pending: saved.pending.filter((p) => p.id !== id) });
+/** The delete is saved on this phone (with the ride removed, in one write) before it is sent, and retried if it fails. */
+async function deleteOnServer(id: string, apiBase: string, reason: EndReason) {
+  persist((s) => ({ ...s, ride: s.ride?.id === id ? undefined : s.ride, pending: addPendingDelete(s.pending, { id, apiBase, reason, since: Date.now() }) }));
+  if (deleteDone(await deleteRide(apiBase, id, reason))) persist((s) => ({ ...s, pending: s.pending.filter((p) => p.id !== id) }));
   else nextPendingAt = Date.now() + PENDING_RETRY_MS;
 }
 
 async function flushPending() {
+  reload();
   const now = Date.now();
   const live = livePendingDeletes(saved.pending, now);
-  if (live.length !== saved.pending.length) persist({ ...saved, pending: live });
+  if (live.length !== saved.pending.length) persist((s) => ({ ...s, pending: livePendingDeletes(s.pending, now) }));
   if (!live.length || now < nextPendingAt || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
   nextPendingAt = now + PENDING_RETRY_MS;
   for (const p of live) {
-    if (deleteDone(await deleteRide(p.apiBase, p.id, p.reason))) persist({ ...saved, pending: saved.pending.filter((x) => x.id !== p.id) });
+    if (deleteDone(await deleteRide(p.apiBase, p.id, p.reason))) persist((s) => ({ ...s, pending: s.pending.filter((x) => x.id !== p.id) }));
   }
   if (saved.pending.length) later(PENDING_RETRY_MS);
 }
@@ -187,9 +234,12 @@ export function useLockedRideAlerts(next: LockedInput): void {
   useEffect(() => { input = next; emit(); kick(); });
   useEffect(() => {
     const retry = () => { nextPendingAt = 0; kick(); };
+    // Another tab changed the setting or the ride (the same storage event the settings use): adopt it now.
+    const sync = (event: StorageEvent) => { if (event.key === STORAGE || event.key === null) { reload(); kick(); } };
     retry();
     window.addEventListener('online', retry);
-    return () => window.removeEventListener('online', retry);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener('online', retry); window.removeEventListener('storage', sync); };
   }, []);
 }
 
@@ -207,7 +257,7 @@ export async function turnOnLockedAlerts(code: string): Promise<boolean> {
   const config = input.api ? await fetchRideAlertConfig(input.api) : 'network';
   if (config === 'network' || !config.available) return show('unavailable');
   note = undefined; blockedKey = undefined;
-  persist({ ...saved, enabled: true, code });
+  persist((s) => ({ ...s, enabled: true, code }));
   kick();
   return true;
 }
@@ -215,13 +265,13 @@ export async function turnOnLockedAlerts(code: string): Promise<boolean> {
 /** A new code after the server refused the saved one. */
 export function setHouseholdCode(code: string): void {
   note = undefined; blockedKey = undefined;
-  persist({ ...saved, code });
+  persist((s) => ({ ...s, code }));
   kick();
 }
 
 export function turnOffLockedAlerts(): void {
   note = undefined; blockedKey = undefined; cleanupWanted = true;
-  persist({ ...saved, enabled: false });
+  persist((s) => ({ ...s, enabled: false }));
   kick();
 }
 
