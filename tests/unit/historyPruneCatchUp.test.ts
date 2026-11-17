@@ -32,5 +32,8 @@ describe('hot history cleanup after a long archive outage', () => {
     // Every deleted row was archived and read back first; only the hot window (720 polls) remains.
     expect(db.prepare('SELECT COUNT(*) c FROM dale_history_batches WHERE archive_receipt IS NULL').get()!.c).toBeLessThanOrEqual(1);
     expect(rows()).toBeLessThanOrEqual(722);
+    // ...and cleanup never ate into it: every poll from the last 6 hours is still there.
+    const last = t - 30_000;
+    expect(Number(db.prepare('SELECT COUNT(*) c FROM dale_history_batches WHERE attempt>?').get(last - 6 * 3600_000)!.c)).toBeGreaterThanOrEqual(719);
   }, 120_000);
 });
