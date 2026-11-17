@@ -32,7 +32,9 @@ export function observedArrivals(samples: readonly VehicleObservation[]): Observ
       let notBefore: number | undefined;
       for (let j = i - 1; j >= 0; j--) {
         const earlier = list[j]!;
-        if (earlier.stopCall?.stopIndex !== call.stopIndex && earlier.observedAt < list[i]!.observedAt) { notBefore = earlier.observedAt; break; }
+        // Only an explicit stop call elsewhere (or approaching this stop) proves the bus had not arrived; a sample
+        // without one is unknown, so it is skipped rather than used as a lower bound.
+        if (earlier.stopCall && earlier.observedAt < list[i]!.observedAt) { notBefore = earlier.observedAt; break; }
       }
       out.push({ tripInstanceId: trip, stopIndex: call.stopIndex, stopId: call.stopId, observedAt: list[i]!.observedAt, ...(notBefore !== undefined ? { notBefore } : {}) });
     }
@@ -76,9 +78,17 @@ export function quantile(sorted: readonly number[], q: number): number {
   return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (at - lo);
 }
 
+/** A real calendar date in YYYY-MM-DD form; rejects shapes like 2026-02-30 that Date.UTC would roll over. */
+function realDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toISOString().slice(0, 10) === value;
+}
+
 /** Score each baseline on every sample, chronologically: only strictly earlier service days inform a prediction. */
 export function backtest(samples: readonly DelaySample[]): BaselineScore[] {
-  const valid = samples.filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s.serviceDate) && Number.isFinite(s.scheduledAt) && Number.isFinite(s.observedAt));
+  const valid = samples.filter(s => realDate(s.serviceDate) && Number.isFinite(s.scheduledAt) && Number.isFinite(s.observedAt));
   const byKey = new Map<string, { day: number; delay: number }[]>();
   for (const s of valid) {
     const list = byKey.get(s.key) ?? [];

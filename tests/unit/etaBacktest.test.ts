@@ -11,7 +11,8 @@ describe('observedArrivals', () => {
   it('takes the first explicit stop call and bounds it by the previous other sample', () => {
     const got = observedArrivals([obs(3000, 2), obs(1000), obs(4000, 2), obs(2000, 1), obs(5000)]);
     expect(got).toEqual([
-      { tripInstanceId: 'T1@2026-11-02', stopIndex: 1, stopId: 'S1', observedAt: 2000, notBefore: 1000 },
+      // The 1000 sample has no stop status, so it does not bound the first arrival.
+      { tripInstanceId: 'T1@2026-11-02', stopIndex: 1, stopId: 'S1', observedAt: 2000 },
       { tripInstanceId: 'T1@2026-11-02', stopIndex: 2, stopId: 'S2', observedAt: 3000, notBefore: 2000 },
     ]);
   });
@@ -61,7 +62,7 @@ describe('backtest', () => {
     expect(all!.predicted).toBeGreaterThan(rolling!.predicted);
   });
   it('drops malformed samples and returns null metrics when nothing is predicted', () => {
-    const scores = backtest([{ key: 'k', serviceDate: 'bad', scheduledAt: 0, observedAt: 0 }]);
+    const scores = backtest([{ key: 'k', serviceDate: 'bad', scheduledAt: 0, observedAt: 0 }, ...Array.from({ length: 6 }, () => ({ key: 'k', serviceDate: '2026-02-30', scheduledAt: 0, observedAt: 0 }))]);
     expect(scores.every(s => s.predicted === 0 && s.mae === null && s.coverage80 === null)).toBe(true);
   });
 });
