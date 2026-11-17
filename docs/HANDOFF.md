@@ -46,4 +46,5 @@ Updated 2026-11-17. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - DST: check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before March 14, 2027 (Codex's synthetic check found no converter mismatch, but agency encoding is unverified).
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends (still active on 2026-11-15).
 - The builder's sandbox cannot delete branches (HTTP 403, rechecked 2026-11-16), so merged branches pile up. `scripts/branch-cleanup.mjs` is ready; its workflow returns in its own pull request (GitHub Support ticket, request ID 4007:33BC50:227B926:26A3EEF:6AF5A77C).
+- Main's test run after #178 (`3af9066`) failed once in the two local-Worker unit tests (`workerRuntime`: "Invalid trip"; `historyRuntime`: one count off). The same tests passed on that PR, on #180 and in 10 clean local runs, so main had no Pages deploy for #178 until #180 merged. Cause not found; recheck if it repeats.
 - The builder's sandbox blocks github.io, so "confirm Pages after merge" needs a browser outside it or an environment network change.
