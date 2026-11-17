@@ -3,7 +3,7 @@
 Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/dale/. Rules: `CLAUDE.md` ("How we work"). History lives in git and the GitHub issues, not here.
 
 ## Built and live
-- Public app: main after #155 (this pull request). The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
+- Public app: main after #171 (#155 owner polish); Pages publish succeeded 2026-11-16 at `446ce6e`. The builder's sandbox cannot open github.io, so the live page itself has not been viewed from here.
 - Nov 16 merges (Codex's weekend work, reviewed and merged by the builder): big-text saved-commute name banner never strands one letter (#156); Find a stop starts with towns and still searches stops directly (#157); all-day timetable scrolls inside its own box on narrow phones (#161); Resume/Forget buttons fit at large text (#169); schedule-change notices on saved trips, kept until dismissed (#162, #151); optional "Check NJ Transit directly" MyBus website and text-draft handoff on the locked-bus card and the load-error screen (#164, #96); optional rotating opening slogans, Jeff's eight verbatim (#165); optional bilingual labels under the main buttons (#167); optional personal home photo kept only in the browser, re-encoded so location metadata is dropped (#168); five Hackensack Tour guide cards (#166); tests for picker accessibility, offline use and English/Spanish key completeness (#158, #159, #160); audit doc pointer (#163). Settings saved in one open tab are no longer undone by another tab (#167, race fix in #155).
 - Owner polish (#155): no picture-style menu on the stop sign (always the automatic New Jersey season), change link beside the stop number, capital LED boxes, corner CHANGE tag, alternating home cards (lighter first), black source notes, one Save trip button pinned at the bottom, ON TIME under NEXT, ride map keeps the route ahead in view. Port Authority stops stay separate (owner decision).
 - Stop sign photo (#152, D69): the real NJ Transit sign with this stop's routes and number.
@@ -18,18 +18,21 @@ Updated 2026-11-16. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Phone test on Jeff's and Diego's phones: install, save a commute, reverse it, open a trip from Port Authority, use it offline; also try the new optional settings (slogans, bilingual buttons, home photo) and a MyBus text draft without sending.
 - Whether the app should stay publicly reachable or be limited to the household.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority.
-- Optional: protect `main` on GitHub.
+- Optional: protect `main` on GitHub. Do not make the `test` check required as things stand: docs-only pull requests, drafts included, never start the workflow (D70), so a required `test` check would stay pending forever and block them. To require a check, first add an always-running gate job that passes for docs-only changes, and require that gate instead of `test`. A draft pull request that does start the workflow reports the skipped `test` job as passed.
 
 ## Next
 1. Weekly rollover before 2026-11-23 (plan around Nov 20): tell the owner first, `qualify-enabled`, then `rollover-enabled` with the pins above.
 2. #154 once the owner answers; then route distance part 2, the fix chosen from its counts (never straight-line distance).
 3. Docs cleanup: `docs/HISTORY_COLLECTION.md` and `docs/RAIL_API_CHECK.md` still describe the old separate merge/operator role; align only that language with `CLAUDE.md`.
 4. Re-add `.github/workflows/branch-cleanup.yml` once GitHub Support answers.
-5. Later: rest of #106 (rider stop photos), #113, #103, stop alerts, gate cards, train timetables (#80, last).
+5. Later: rest of #106 (rider stop photos), rest of #99 (optional on-device GPS tour content and the optional five-second town Welcome cards with an off setting), #113, #103, stop alerts, gate cards, train timetables (#80, last).
 
 ## Known problems
 - Safari/iPhone is not qualified: Codex's WebKit runs hit test-setup limits (offline reload, keyboard scrolling) and existing route-strip overflow at 305 px / 200% text. Needs a real iPhone check.
 - Tour guide: the "brown Belleville stone" detail on the Johnson Public Library card comes from the library's history page, which the builder's sandbox cannot open; the other new facts were confirmed by web search.
+- Settings are saved as one whole record. Since #167/#171 a tab adopts and never writes back another tab's saves, but truly simultaneous saves from two tabs, or a save made in the same instant another tab opens, can still overwrite one setting (#171 review r4593163990).
+- Home photo: an already-open tab keeps showing the previous photo until refresh if the browser does not deliver the change notice (#168).
+- MyBus on iPhone opens Messages to 69287 and asks the rider to paste the copied stop code (Apple documents no prefilled body); Android gets a prefilled draft. This differs from the "prefilled draft" wording in #96; the owner has been told.
 - When several merges land at once, an older Pages deploy can fail with a collision while the newest succeeds (seen 2026-11-16 on `a95f315`); harmless.
 - DST: check how NJ Transit's GTFS encodes 00:00-02:59 on clock-change dates before March 14, 2027 (Codex's synthetic check found no converter mismatch, but agency encoding is unverified).
 - The Port Authority gate card shows NJ Transit's construction advisory 2176177; remove it when the advisory ends (still active on 2026-11-15).
