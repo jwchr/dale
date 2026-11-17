@@ -8,6 +8,8 @@ import type { Dataset, Departure } from './types';
 import { tripTimeAt } from './schedule';
 
 export const LOCK_KEY = 'arriba.lock.v1';
+/** Where live mode keeps its lock (App's storageKey adds `.g2` for live GTFS stops); locked-phone rides only come from it. */
+export const LIVE_LOCK_KEY = `${LOCK_KEY}.g2`;
 /** A lock is offered back until this long after its trip's scheduled end. */
 export const RESUME_AFTER_END_MS = 2 * 3600_000;
 
@@ -41,6 +43,21 @@ export function loadLock<L>(store: Store, ds: Dataset, now: number): SavedLock<L
   } catch { /* Corrupt nested state must not prevent the app from opening. */ }
   forgetLock(store);
   return undefined;
+}
+
+/**
+ * The session id of the lock saved on this phone, read straight from storage so every tab sees the same
+ * answer: undefined once it was unlocked, ended, left, corrupt, or kept long past its trip's end. Unlike
+ * `loadLock` it needs no schedule and never forgets anything; it only says whether that lock still exists.
+ */
+export function savedLockSessionId(store: Store, now: number, key = LOCK_KEY): string | undefined {
+  try {
+    const saved = JSON.parse(store?.getItem(key) ?? 'null') as Partial<SavedLock<unknown>> | null;
+    const session = saved?.session, end = saved?.dep?.arrivesEnd;
+    if (!saved || saved.v !== 1 || !session || typeof session.id !== 'string' || session.phase === 'left' || session.phase === 'ended') return undefined;
+    if (typeof end !== 'number' || !Number.isFinite(end) || now > end + RESUME_AFTER_END_MS) return undefined;
+    return session.id;
+  } catch { return undefined; }
 }
 
 export function forgetLock(store: Store): void {

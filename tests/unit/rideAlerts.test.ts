@@ -608,6 +608,18 @@ describe('ride expiry', () => {
     expect((await h.latest(id)).status).toBe(404);
     expect(h.db.prepare('SELECT COUNT(*) AS n FROM dale_ride_alerts').get()!.n).toBe(0);
   });
+  it('forgets the last ride\'s lock, stops and bus history in memory when the cleanup before a check expires it', async () => {
+    const h = await harness();
+    const id = await h.start();
+    await h.step(1);
+    const memory = () => (h.object as unknown as { rides: Record<'sessions' | 'checkedAt' | 'pushedAt' | 'failedAt', Map<string, unknown>> }).rides;
+    expect(memory().sessions.has(id)).toBe(true);
+    // Past its expiry before the next alarm: the cleanup ends it, and no ride is left to check.
+    h.advance(RIDE_CAP_MS);
+    await h.alarm();
+    expect(await h.latest(id)).toEqual({ status: 410, body: { v: 1, kind: 'ended', reason: 'expired' } });
+    for (const map of ['sessions', 'checkedAt', 'pushedAt', 'failedAt'] as const) expect(memory()[map].size).toBe(0);
+  });
   it('never keeps a ride past 3 hours from creation', async () => {
     const h = await harness();
     const id = await h.start();

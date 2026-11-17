@@ -209,7 +209,8 @@ for (const lang of ['en', 'es'] as const) test(`boarding registers a fresh ride,
   await ride.getByRole('button', { name: strings[lang].ride.gotOff }).click();
   await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=got_off`]);
   // Unsubscribed first, then the record deleted, then the server told.
-  expect(atDelete).toEqual([['unsubscribe https://fcm.googleapis.com/fcm/send/earlier', 'subscribe true 65', 'unsubscribe https://fcm.googleapis.com/fcm/send/ride-1'], null]);
+  // Polled: the delete is counted as it arrives, before the stand-in server has read the phone's state.
+  await expect.poll(() => atDelete).toEqual([['unsubscribe https://fcm.googleapis.com/fcm/send/earlier', 'subscribe true 65', 'unsubscribe https://fcm.googleapis.com/fcm/send/ride-1'], null]);
   await expect.poll(() => saved(page)).toEqual({ enabled: true, code: CODE, pending: [] });
 });
 
@@ -364,6 +365,51 @@ test('alerts turned off in another tab are never turned back on or used for a ri
   expect(server.posts).toEqual([]);
   expect(await saved(page)).toEqual({ enabled: false, code: CODE, pending: [] });
   expect(await saved(other)).toEqual({ enabled: false, code: CODE, pending: [] });
+});
+
+test('an idle second tab told of the ride leaves it alone; unlocking in the riding tab still ends it', async ({ page, context }) => {
+  const s = strings.en.lockedAlerts;
+  const server = await setup(page, { enabled: true, granted: true });
+  const other = await context.newPage();
+  const otherServer = await setup(other, { enabled: true, granted: true });
+  await other.goto(PINNED);
+  const ride = await board(page, 'en');
+  await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.on);
+  // The idle tab has no lock of its own and none offered back: it got the ride through the storage event only.
+  await expect.poll(async () => (await saved(other)).ride?.id).toBe(RIDE);
+  await other.evaluate(() => window.dispatchEvent(new Event('online')));
+  await other.waitForTimeout(500);
+  expect(server.deletes).toEqual([]);
+  expect(otherServer.deletes).toEqual([]);
+  expect((await log(other)).filter((l) => l.startsWith('unsubscribe'))).toEqual([]);
+  expect(await swRecord(page)).toMatchObject({ rideId: RIDE });
+  expect((await saved(page)).ride).toMatchObject({ id: RIDE, activated: true });
+  // The riding tab unlocks: the ride ends, and the idle tab follows without restoring it. Now that the lock
+  // really ended, the idle tab may send the same delete too; the server treats a repeat as done.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: strings.en.unlockBus }).click();
+  await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=unlocked`]);
+  expect((await log(page)).at(-1)).toBe('unsubscribe https://fcm.googleapis.com/fcm/send/ride-1');
+  expect(await swRecord(page)).toBeNull();
+  await expect.poll(() => saved(page)).toEqual({ enabled: true, code: CODE, pending: [] });
+  await expect.poll(() => saved(other)).toEqual({ enabled: true, code: CODE, pending: [] });
+  expect(new Set([...server.deletes, ...otherServer.deletes])).toEqual(new Set([`/v1/ride-alerts/${RIDE}?reason=unlocked`]));
+});
+
+test('a delete that fails is retried a minute later by itself, with no other change or network event', async ({ page }) => {
+  const s = strings.en.lockedAlerts;
+  const server = await setup(page, { enabled: true, granted: true });
+  const ride = await board(page, 'en');
+  await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.on);
+  let fail = true;
+  server.remove = (route) => fail ? route.fulfill({ status: 503, headers: cors }) : route.fulfill({ status: 204, headers: cors });
+  await ride.getByRole('button', { name: strings.en.ride.gotOff }).click();
+  await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=got_off`]);
+  await expect.poll(async () => (await saved(page)).pending).toEqual([expect.objectContaining({ id: RIDE, reason: 'got_off' })]);
+  fail = false;
+  await page.clock.fastForward(61_000);
+  await expect.poll(() => server.deletes).toHaveLength(2);
+  await expect.poll(async () => (await saved(page)).pending).toEqual([]);
 });
 
 test('opening the demo leaves a saved real ride alone; ending the real lock still ends it', async ({ page }) => {

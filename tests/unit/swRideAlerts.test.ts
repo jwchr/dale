@@ -229,6 +229,36 @@ describe('locked-phone stop alerts in the service worker', () => {
     expect(shown[1]!.options).toMatchObject({ body: '2 stops to Port Authority', silent: false });
   });
 
+  it('a position that is stale once a failed marker write is over shows "can\'t check", never the stage text', async () => {
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority', clock - 100_000)) : json({ v: 1 });
+    const update = io.update;
+    // The marker transaction fails, and takes 30 s doing so.
+    io.update = async (change) => { change(record ? structuredClone(record) : undefined); clock += 30_000; throw new DOMException('Storage full', 'QuotaExceededError'); };
+    await push();
+    expect(shown).toEqual([{ title: 'Dale: your stop', options: expect.objectContaining({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true }) }]);
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    // Nothing was saved, so nothing is rolled back over the record.
+    expect(log.filter((l) => l === 'write')).toEqual([]);
+    expect(record).toMatchObject({ highestShown: 0 });
+    io.update = update;
+  });
+
+  it('a stale position whose marker put-back fails once is put back on the second try, so the stage still sounds later', async () => {
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority', clock - 100_000)) : json({ v: 1 });
+    afterWrite = () => { afterWrite = undefined; clock += 30_000; }; // the write took 30 s
+    const update = io.update;
+    let calls = 0;
+    io.update = async (change) => { calls++; if (calls === 2) throw new DOMException('Transaction aborted', 'AbortError'); return update(change); };
+    await push();
+    expect(calls).toBe(3);
+    expect(shown[0]!.options).toMatchObject({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true });
+    expect(record).toMatchObject({ highestShown: 0 });
+    io.update = update;
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority')) : json({ v: 1 });
+    await push();
+    expect(shown[1]!.options).toMatchObject({ body: '2 stops to Port Authority', silent: false });
+  });
+
   it('never restores or shows a ride the page ended or replaced between the worker\'s read and its write', async () => {
     beforeUpdate = () => { beforeUpdate = undefined; record = undefined; }; // the rider got off
     await push();

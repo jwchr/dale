@@ -171,7 +171,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const rides = this.rides;
       if (!rides) return;
       try {
-        rides.store.purge(clock());
+        rides.purge(clock());
         if (rides.activeCount() === 0) return;
         // Within one poll of the history run, the ride waits for that run's poll (see arm) and checks the latest data.
         const now = clock(), history = this.env.HISTORY_COLLECTION === 'enabled' ? this.historyAt : null;

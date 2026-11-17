@@ -7,6 +7,7 @@ import {
   activateOutcome, activationRetryDelay, addPendingDelete, deleteDone, endReason, livePendingDeletes, parseSavedRideAlerts,
   registerOutcome, rideRecord, wantedRide, type EndReason, type SavedRideAlerts, type WantedRide,
 } from '../domain/lockedAlerts';
+import { LIVE_LOCK_KEY, savedLockSessionId } from '../domain/lockStore';
 import { strings, type Lang } from './i18n';
 import {
   activateRide, deleteRide, deleteRideRecord, fetchRideAlertConfig, pushSupport, readRideRecordId, registerRide, subscribeFresh, unsubscribePush,
@@ -55,6 +56,8 @@ let registering = false;
 let cleanupWanted = false;
 let nextActivateAt = 0, activateAttempt = 0, nextPendingAt = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** Its own wake-up for saved deletes, so an activation retry never replaces it (or it the activation retry). */
+let pendingTimer: ReturnType<typeof setTimeout> | undefined;
 
 const listeners = new Set<() => void>();
 let view: LockedView = computeView();
@@ -98,6 +101,7 @@ function kick() {
   })();
 }
 function later(ms: number) { clearTimeout(timer); timer = setTimeout(kick, ms); }
+function laterPending(ms: number) { clearTimeout(pendingTimer); pendingTimer = setTimeout(kick, ms); }
 
 async function step() {
   await flushPending();
@@ -107,6 +111,11 @@ async function step() {
   if (ride) {
     if (want && want.key === ride.key) { if (!ride.activated) await activate(); return; }
     if (!want && saved.enabled && ride.sessionId === input.heldSessionId) return;
+    // A tab that does not hold the ride's lock (an idle second tab told of the ride by the storage event) ends it
+    // only once that lock has really ended: the live lock saved on this phone (whatever mode this tab shows), read
+    // fresh, is gone or a different one. The tab holding the lock ends the ride as before ("I got off", unlock, or
+    // no longer wanted there).
+    if (!want && saved.enabled && input.session?.id !== ride.sessionId && savedLockSessionId(storage(), Date.now(), LIVE_LOCK_KEY) === ride.sessionId) return;
     // The demo has no real lock to compare with: a real ride saved on this phone is left alone, unless the
     // rider turned the setting off.
     if (input.demo && saved.enabled) return;
@@ -213,7 +222,7 @@ async function endRide(reason: EndReason) {
 async function deleteOnServer(id: string, apiBase: string, reason: EndReason) {
   persist((s) => ({ ...s, ride: s.ride?.id === id ? undefined : s.ride, pending: addPendingDelete(s.pending, { id, apiBase, reason, since: Date.now() }) }));
   if (deleteDone(await deleteRide(apiBase, id, reason))) persist((s) => ({ ...s, pending: s.pending.filter((p) => p.id !== id) }));
-  else nextPendingAt = Date.now() + PENDING_RETRY_MS;
+  else { nextPendingAt = Date.now() + PENDING_RETRY_MS; laterPending(PENDING_RETRY_MS); }
 }
 
 async function flushPending() {
@@ -226,7 +235,7 @@ async function flushPending() {
   for (const p of live) {
     if (deleteDone(await deleteRide(p.apiBase, p.id, p.reason))) persist((s) => ({ ...s, pending: s.pending.filter((x) => x.id !== p.id) }));
   }
-  if (saved.pending.length) later(PENDING_RETRY_MS);
+  if (saved.pending.length) laterPending(PENDING_RETRY_MS);
 }
 
 /** Feeds the current lock into the reconciler, and retries saved deletes when Dale opens or goes online. */

@@ -301,19 +301,22 @@ async function handleRidePush(io, retried) {
     if (validRideRecord(current) && !retried) return handleRidePush(io, true);
     return showRideNote(io, RIDE_ENDED_ANY, true);
   }
-  // A new stage or notice whose marker could not be saved is shown silently and not acknowledged, so it can
-  // never sound twice; the server pushes it again.
-  if (!stored) return showRideNote(io, plan.note, true, current.lang);
-  // The bus position must still be under 2 minutes old now that the write is done (its time counts).
+  // The bus position must still be under 2 minutes old now that the write is done (its time counts). This is
+  // checked first: a stale position shows only "can't check", whether or not its marker was saved.
   if (plan.observedAt !== undefined && !(io.now() - plan.observedAt <= RIDE_MAX_AGE_MS)) {
-    // Not shown, so its marker is put back (unless something else changed it since), and nothing is acknowledged.
-    if (plan.save) {
+    // Not shown, so a marker that was saved is put back (unless something else changed it since), and nothing is
+    // acknowledged. A failed put-back is tried once more, so the stage can still sound once a fresh answer arrives.
+    if (stored && plan.save) {
       const before = current, raised = plan.save.highestShown;
-      await Promise.resolve().then(() => io.update((r) => (sameRide(r, record) && r.highestShown === raised
-        ? { ...r, highestShown: before.highestShown, shown: before.shown } : undefined))).catch(() => undefined);
+      const restore = () => Promise.resolve().then(() => io.update((r) => (sameRide(r, record) && r.highestShown === raised
+        ? { ...r, highestShown: before.highestShown, shown: before.shown } : undefined))).then(() => true, () => false);
+      if (!(await restore())) await restore();
     }
     return showRideNote(io, current.text.cantCheck, true, current.lang);
   }
+  // A new stage or notice whose marker could not be saved is shown silently and not acknowledged, so it can
+  // never sound twice; the server pushes it again.
+  if (!stored) return showRideNote(io, plan.note, true, current.lang);
   await showRideNote(io, plan.note, plan.silent, current.lang);
   if (plan.ack) await postRide(io, current, '/ack', { stage: plan.ack });
   if (plan.noticeAck) await postRide(io, current, '/notice-ack', {});

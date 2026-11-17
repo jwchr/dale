@@ -338,6 +338,12 @@ export class RideAlerts {
     return kept && kept.lock.tripInstanceId === tripInstanceId(row.trip, row.date) && kept.lock.vehicleId === row.vehicle ? kept : this.rules.session(row);
   }
   private forget(id: string) { for (const map of [this.sessions, this.checkedAt, this.pushedAt, this.failedAt]) map.delete(id); }
+  /** Drops the in-memory state (lock, stops, bus history, times) of every ride that is no longer active. */
+  private forgetInactive(active = this.store.ids('active')) {
+    for (const map of [this.sessions, this.checkedAt, this.pushedAt, this.failedAt]) for (const id of map.keys()) if (!active.includes(id)) map.delete(id);
+  }
+  /** Ends rides past their time (see RideStore.purge), and forgets in memory every ride that is not still active. */
+  purge(now: number) { this.store.purge(now); this.forgetInactive(); }
   activeCount() { return this.store.count('active'); }
 
   async handle(request: Request, env: RideEnv): Promise<Response> {
@@ -345,7 +351,7 @@ export class RideAlerts {
     const vapid = await loadVapid(env.VAPID_PRIVATE_KEY), available = !!vapid && validCodeHash(env.HOUSEHOLD_CODE_HASH);
     if (url.pathname === '/v1/ride-alerts/config' && request.method === 'GET') return json(available ? { v: 1, available: true, publicKey: vapid!.publicKey } : { v: 1, available: false });
     if (!available) return json({ v: 1, available: false }, 503);
-    this.store.purge(now);
+    this.purge(now);
     if (url.pathname === '/v1/ride-alerts' && request.method === 'POST') return this.create(request, env.HOUSEHOLD_CODE_HASH!, now);
     const match = RIDE_PATH.exec(url.pathname);
     if (!match) return json({ v: 1, error: 'unknown' }, 404);
@@ -425,7 +431,7 @@ export class RideAlerts {
    */
   async watch(env: RideEnv, deadline: number | null = null): Promise<void> {
     const vapid = await loadVapid(env.VAPID_PRIVATE_KEY), active = this.store.ids('active');
-    for (const map of [this.sessions, this.checkedAt, this.pushedAt, this.failedAt]) for (const id of map.keys()) if (!active.includes(id)) map.delete(id);
+    this.forgetInactive(active);
     // Rides checked longest ago go first, so a check stopped at the deadline resumes where it left off. Each ride
     // is still checked (and pushed) one at a time, in alarm order, so its own stages stay in order.
     const ids = [...active].sort((a, b) => (this.checkedAt.get(a) ?? 0) - (this.checkedAt.get(b) ?? 0));

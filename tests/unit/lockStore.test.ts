@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { demoDataset } from '../../src/data/demo';
 import { createBusSession, reduceBusSession } from '../../src/domain/busLock';
-import { forgetLock, loadLock, LOCK_KEY, saveLock } from '../../src/domain/lockStore';
+import { forgetLock, LIVE_LOCK_KEY, loadLock, LOCK_KEY, saveLock, savedLockSessionId } from '../../src/domain/lockStore';
 import { departuresOn } from '../../src/domain/schedule';
 import type { Dataset } from '../../src/domain/types';
 
@@ -52,6 +52,25 @@ describe('Bus Lock kept on this phone (issue #53)', () => {
     saveLock(store, ds, { dep, leg, session: waiting() }, lockedAt + 60_000);
     store.setItem(LOCK_KEY, JSON.stringify({ ...JSON.parse(store.getItem(LOCK_KEY)!), session: { ...waiting(), reports: 'x' } }));
     expect(loadLock(store, ds, lockedAt + 2 * 60_000)).toBeUndefined(); // an unknown shape is dropped
+  });
+
+  it('tells every tab which lock is saved, without a schedule and without forgetting it (locked-phone alerts)', () => {
+    const store = memory();
+    const session = waiting();
+    saveLock(store, ds, { dep, leg, session }, lockedAt + 60_000);
+    expect(savedLockSessionId(store, dep.departs)).toBe(session.id);
+    expect(savedLockSessionId(store, dep.arrivesEnd + 3 * 3600_000)).toBeUndefined(); // long past the trip
+    expect(store.m.has(LOCK_KEY)).toBe(true); // only read, never forgotten
+    expect(savedLockSessionId(store, dep.departs, LIVE_LOCK_KEY)).toBeUndefined(); // live mode keeps its own lock
+    store.setItem(LIVE_LOCK_KEY, store.getItem(LOCK_KEY)!);
+    expect(savedLockSessionId(store, dep.departs, LIVE_LOCK_KEY)).toBe(session.id);
+    forgetLock(store);
+    expect(savedLockSessionId(store, dep.departs)).toBeUndefined(); // unlocked
+    store.setItem(LOCK_KEY, JSON.stringify({ v: 1, dep, leg, session: { ...session, phase: 'left' } }));
+    expect(savedLockSessionId(store, dep.departs)).toBeUndefined(); // got off
+    store.setItem(LOCK_KEY, '{not json');
+    expect(savedLockSessionId(store, dep.departs)).toBeUndefined();
+    expect(savedLockSessionId({ getItem: () => { throw new Error('blocked'); }, setItem: () => {}, removeItem: () => {} }, dep.departs)).toBeUndefined();
   });
 
   it('never keeps the invented demo, and survives storage errors', () => {
