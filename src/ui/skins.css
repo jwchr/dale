@@ -38,7 +38,7 @@
 .highway-sign::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(155deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.02) 38%, transparent 55%); }
 
-.skin-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.skin-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; } /* clip the blurred photo's 6px bleed: one Nov 17 run saw a 305 px page 310 px wide */
 .skin-backdrop svg { display: block; }
 
 /* ---------- Scene palettes; Garden State restores the owner-confirmed green/gold reference ---------- */
