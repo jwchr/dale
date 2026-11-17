@@ -52,3 +52,11 @@ This section replaces every earlier review, merge, operator, steward, queue and 
 - CodeRabbit does not start by itself here (`.coderabbit.yaml`). Request one `@coderabbitai full review` when the pull request is ready. If a finding needs a fix that creates a new head, request one `@coderabbitai review` for that new head. Never request a second review of the same head. Usage-based CodeRabbit reviews are free only through 2026-11-22 (D71); after that date, request no CodeRabbit review until the owner gives a new instruction, and never activate a paid plan. This cutoff does not count as CodeRabbit being "unavailable" under rule 5: pull requests that still need their CodeRabbit review wait for the owner's instruction, and the builder asks him before 2026-11-22 which review path applies after it.
 - After a merge, open the public Pages site and confirm the change is there, on a narrow phone layout, in English and Spanish.
 - Worker deploys, live-feed changes and history collection are risky changes. They also keep the conditions written in `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md`.
+
+## Keep the chat small (Jeff, Nov 17, 2026)
+Reason: chats were filling to 40% in about 3 hours, and long chats use more of the weekly usage per step.
+- Run tests quietly: show only failures and the final count, never the full output.
+- Search (grep) for the lines you need instead of reading whole files.
+- Send big reading jobs (long logs, large files, big diffs, reviews) to a subagent that returns a short answer.
+- Never paste whole files, logs or diffs into the chat.
+- A fresh chat reads only its newest handoff note and its own SSOT rows to start, plus the required startup reads above (`docs/V1_CONTRACT.md`, `docs/HANDOFF.md` and the GitHub state check); older notes only if there is a gap.
