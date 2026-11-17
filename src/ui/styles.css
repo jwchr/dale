@@ -268,7 +268,7 @@ main { flex: 1; padding-bottom: 24px; }
 .last-return .return-option { margin-top: 1rem; }
 /* Ride mode (issue #34): large get-off guidance; the stage is also in the text, never color alone. */
 .ride-mode { border: 2px solid var(--brand); border-radius: var(--radius); padding: 12px; margin: 10px 0; }
-.ride-mode .ride-message { font-size: 1.05rem; font-weight: 700; }
+.ride-mode .ride-message { font-size: 1.05rem; font-weight: 700; overflow-wrap: anywhere; }
 .ride-mode[data-large] .ride-message { font-size: 1.6rem; line-height: 1.25; }
 .ride-mode[data-stage='one'], .ride-mode[data-stage='arrived'] { border-width: 4px; }
 .ride-controls { flex-wrap: wrap; }
@@ -383,7 +383,7 @@ main { flex: 1; padding-bottom: 24px; }
 
 /* Estimates remain obvious without relying on colour; shared by waiting and full-screen ride views. */
 .signal-warning { border: 3px solid #ffca60; background: #241b0c; color: #fff5df; padding: 1rem; margin: 1rem 0; border-radius: .6rem; }
-.signal-warning strong { display: block; font-size: 1.2rem; line-height: 1.4; font-weight: 900; }
+.signal-warning strong { display: block; font-size: 1.2rem; line-height: 1.4; font-weight: 900; overflow-wrap: anywhere; }
 .signal-warning p { margin: .5rem 0 0; }
 .travel-mode { display: flex; gap: 4px; padding: 4px; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); width: fit-content; max-width: 100%; }
 .travel-mode button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; min-width: 108px; padding: 7px 12px; border: 2px solid transparent; border-radius: 10px; background: transparent; color: var(--text); font-weight: 750; }

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { strings } from '../../src/ui/i18n';
 
-// Full-screen ride header with bilingual buttons off (the default): "Exit full screen" must stay on a
+// Full-screen ride view with bilingual buttons off (the default): "Exit full screen" must stay on a
 // 305/320 px phone at 200% text in both languages, and the dialog must not scroll sideways.
-for (const lang of ['en', 'es'] as const) test(`full-screen ride header fits narrow phones at 200% text (${lang})`, async ({ page }) => {
+for (const lang of ['en', 'es'] as const) test(`full-screen ride view fits narrow phones at 200% text (${lang})`, async ({ page }) => {
   const t = strings[lang];
   await page.addInitScript((l) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: l, skin: 'clean', theme: 'light' })), lang);
   await page.goto('/?now=2026-11-04T07:50&demo');
@@ -27,6 +27,17 @@ for (const lang of ['en', 'es'] as const) test(`full-screen ride header fits nar
     const box = (await exit.boundingBox())!;
     expect(box.x, `${lang} ${width}px`).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width, `${lang} ${width}px`).toBeLessThanOrEqual(width + 1);
-    expect(await ride.evaluate((d) => d.scrollWidth - d.clientWidth)).toBeLessThanOrEqual(1);
+    // Name what sticks out, so a failure says where to look.
+    const over = await ride.evaluate((d) => {
+      if (d.scrollWidth - d.clientWidth <= 1) return null;
+      const edge = d.getBoundingClientRect().right;
+      return [...d.querySelectorAll<HTMLElement>('*')].filter((el) => {
+        const r = el.getBoundingClientRect();
+        // Content inside its own sideways scroller (the route strip) is contained there and does not count.
+        for (let p = el.parentElement; p && p !== d; p = p.parentElement) if (['auto', 'scroll'].includes(getComputedStyle(p).overflowX)) return false;
+        return r.width > 0 && r.right > edge + 1 && ![...el.children].some((c) => (c as HTMLElement).getBoundingClientRect().right > edge + 1);
+      }).slice(0, 5).map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${(el.textContent ?? '').trim().slice(0, 30)}"`);
+    });
+    expect(over, `${lang} ${width}px`).toBeNull();
   }
 });
