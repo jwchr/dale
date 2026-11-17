@@ -1,10 +1,14 @@
 name: ci
-# Pull requests are tested once per head; pushes to main are tested and then published to GitHub Pages.
-# Public repository: standard GitHub-hosted runners cost nothing here. Keep the run under ~3 minutes anyway.
+# Pull requests are tested once per head when ready for review; pushes to main are tested and then published to GitHub Pages.
+# Draft pull requests and docs-only changes do not run (owner decision D70). The main-branch run stays: squash merges do not
+# guarantee the pull request head was tested on top of the latest main, and Pages publishes only after that run passes.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['docs/**', '**.md']
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md']
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
@@ -12,6 +16,7 @@ permissions:
   contents: read
 jobs:
   test:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
