@@ -3,6 +3,10 @@ import AxeBuilder from '@axe-core/playwright';
 import { strings } from '../../src/ui/i18n';
 import { liveDataset } from '../helpers/liveBus';
 
+// Saving re-encodes the photo on a canvas and writes it to IndexedDB, which is CPU-heavy: under the full
+// parallel suite one save took longer than the default 5 s (Nov 17, "readable in turnpike (en)").
+const PHOTO_SAVE_MS = 15_000;
+
 const API = 'https://dale-live.test.workers.dev';
 const DB = 'dale-home-photo-v1';
 test.use({ serviceWorkers: 'block', viewport: { width: 305, height: 780 } });
@@ -84,7 +88,7 @@ test('raster re-encoding strips synthetic EXIF and applies orientation before sa
   const length = Buffer.alloc(2); length.writeUInt16BE(exif.length + 2);
   const tagged = Buffer.concat([jpeg.subarray(0, 2), Buffer.from([255, 225]), length, exif, jpeg.subarray(2)]);
   await panel.locator('input').setInputFiles({ name: 'synthetic-exif.jpg', mimeType: 'image/jpeg', buffer: tagged });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const value = await stored(page);
   expect(value!.dimensions).toEqual([180, 120]);
   expect(value!.text).not.toContain('GPS-SYNTHETIC');
@@ -110,7 +114,7 @@ test('raster re-encoding strips synthetic EXIF and applies orientation before sa
 for (const lang of ['en', 'es'] as const) test(`empty, invalid and oversized input retain the previous photo (${lang})`, async ({ page }) => {
   await start(page, lang); const panel = page.locator('.home-photo-settings'), input = panel.locator('input');
   await input.setInputFiles({ name: 'good.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const before = await stored(page);
   for (const [mimeType, buffer, message] of [
     ['image/png', Buffer.alloc(0), 'decode'],
@@ -139,7 +143,7 @@ test('unavailable storage does not block app use or claim success', async ({ pag
 for (const lang of ['en', 'es'] as const) for (const skin of ['garden', 'turnpike', 'parkway', 'nyc', 'clean']) test(`photo settings remain readable in ${skin} (${lang})`, async ({ page }) => {
   await start(page, lang, skin); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; document.body.style.fontSize = '32px'; });
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'personal');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -150,7 +154,7 @@ for (const lang of ['en', 'es'] as const) for (const skin of ['garden', 'turnpik
 test('failed replacement and removal transactions preserve the committed photo', async ({ page }) => {
   await start(page); const panel = page.locator('.home-photo-settings'), input = panel.locator('input');
   await input.setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const before = await stored(page);
   await page.evaluate(() => {
     IDBObjectStore.prototype.put = function () { throw new DOMException('synthetic quota', 'QuotaExceededError'); };
@@ -167,9 +171,9 @@ test('failed replacement and removal transactions preserve the committed photo',
 test('a cross-tab choice during decoding cannot be overwritten by the older tab', async ({ page, context }) => {
   await start(page); const panel = page.locator('.home-photo-settings'), input = panel.locator('input');
   await input.setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const other = await context.newPage(); await start(other);
-  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   await page.evaluate(() => {
     const original = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
@@ -180,7 +184,7 @@ test('a cross-tab choice during decoding cannot be overwritten by the older tab'
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.busy);
   await expect.poll(() => page.evaluate(() => typeof (window as any).finishSyntheticEncode)).toBe('function');
   await other.locator('.home-photo-settings input').setInputFiles({ name: 'latest.png', mimeType: 'image/png', buffer: await fixture(other, '#eeeeee') });
-  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const latest = await stored(other);
   await page.evaluate(() => (window as any).finishSyntheticEncode());
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.conflict);
@@ -202,7 +206,7 @@ test('large raster is resized and every personal object URL is released on remov
     c.getContext('2d')!.fillRect(0, 0, 3000, 1500); return c.toDataURL('image/png').split(',')[1]!;
   }), 'base64');
   await panel.locator('input').setInputFiles({ name: 'large-synthetic.png', mimeType: 'image/png', buffer: bytes });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   expect((await stored(page))!.dimensions).toEqual([2048, 1024]);
   await panel.getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.removed);
@@ -212,7 +216,7 @@ test('large raster is resized and every personal object URL is released on remov
 test('request success followed by transaction abort never claims a saved replacement', async ({ page }) => {
   await start(page); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const before = await stored(page);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
@@ -229,7 +233,7 @@ test('request success followed by transaction abort never claims a saved replace
 test('unsupported decoder and canvas refusal keep the original saved choice', async ({ page }) => {
   await start(page); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const before = await stored(page), second = await fixture(page, '#22cc33');
   await page.evaluate(() => {
     (window as any).originalBitmap = window.createImageBitmap;
@@ -247,10 +251,10 @@ test('cross-tab delete refuses to remove a newer photo when change notifications
   await context.addInitScript(() => { Object.defineProperty(window, 'BroadcastChannel', { value: undefined }); });
   await start(page); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const other = await context.newPage(); await start(other);
   await other.locator('.home-photo-settings input').setInputFiles({ name: 'newer.png', mimeType: 'image/png', buffer: await fixture(other, '#aa8877') });
-  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const latest = await stored(other);
   // Trigger the ordinary native handler without a foreground refresh repairing the intentionally stale tab first.
   await panel.getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).evaluate((button: HTMLButtonElement) => button.click());
@@ -262,7 +266,7 @@ test('cross-tab delete refuses to remove a newer photo when change notifications
 test('malformed stored records fail closed without deleting them or blocking trips', async ({ page }) => {
   await start(page); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   await page.evaluate(async name => {
     const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open(name, 1); r.onsuccess = () => resolve(r.result); });
     await new Promise<void>((resolve, reject) => {
@@ -294,7 +298,7 @@ test('a newer removal supersedes an older pending first photo selection', async 
   const other = await context.newPage(); await start(other);
   const otherPanel = other.locator('.home-photo-settings');
   await otherPanel.locator('input').setInputFiles({ name: 'newer.png', mimeType: 'image/png', buffer: await fixture(other, '#ff3300') });
-  await expect(otherPanel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(otherPanel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   await otherPanel.getByRole('button', { name: strings.en.homePhoto.remove, exact: true }).click();
   await expect(otherPanel.getByRole('status')).toHaveText(strings.en.homePhoto.removed);
   await page.evaluate(() => (window as any).releaseFirstPhoto());
@@ -307,9 +311,9 @@ test('a newer removal supersedes an older pending first photo selection', async 
 test('a cross-tab removal during failed decoding clears the old preview and keeps the failure message', async ({ page, context }) => {
   await start(page); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await fixture(page) });
-  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   const other = await context.newPage(); await start(other);
-  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved);
+  await expect(other.locator('.home-photo-settings').getByRole('status')).toHaveText(strings.en.homePhoto.saved, { timeout: PHOTO_SAVE_MS });
   await page.evaluate(() => { window.createImageBitmap = () => new Promise((_resolve, reject) => { (window as any).rejectPhotoDecode = () => reject(new DOMException('synthetic bad raster', 'InvalidStateError')); }); });
   await panel.locator('input').setInputFiles({ name: 'corrupt.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]) });
   await expect.poll(() => page.evaluate(() => typeof (window as any).rejectPhotoDecode)).toBe('function');
