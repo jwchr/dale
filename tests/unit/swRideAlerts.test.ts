@@ -203,6 +203,32 @@ describe('locked-phone stop alerts in the service worker', () => {
     expect(requests().some((r) => r.includes('/ack'))).toBe(false);
   });
 
+  it('a ride the page ended or replaced after the worker\'s transaction, before display, is not shown or acknowledged', async () => {
+    afterWrite = () => { afterWrite = undefined; record = undefined; }; // the rider got off right after the save
+    await push();
+    expect(shown.map((s) => s.options.body)).toEqual(['Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.']);
+    expect(shown[0]!.options).toMatchObject({ silent: true, renotify: false });
+    expect(record).toBeUndefined();
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    // Replaced by the next ride instead: the old ride's line is not shown, and the new ride's record is untouched.
+    record = makeRecord();
+    afterWrite = () => { afterWrite = undefined; record = makeRecord({ rideId: NEW_RIDE }); };
+    await push();
+    expect(shown.slice(1).map((s) => s.options.body)).toEqual(['Your Dale stop alert has ended. / Tu alerta de parada de Dale terminó.']);
+    expect(record).toMatchObject({ rideId: NEW_RIDE, highestShown: 0 });
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+  });
+
+  it('a record that cannot be read again before display shows "can\'t check", puts the marker back and acknowledges nothing', async () => {
+    const read = io.read;
+    afterWrite = () => { afterWrite = undefined; io.read = async () => { throw new DOMException('Read failed', 'UnknownError'); }; };
+    await push();
+    expect(shown[0]!.options).toMatchObject({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true });
+    expect(record).toMatchObject({ highestShown: 0 });
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    io.read = read;
+  });
+
   it('a new stage or notice whose marker cannot be saved is shown silently and not acknowledged', async () => {
     failWrite = true;
     await push();

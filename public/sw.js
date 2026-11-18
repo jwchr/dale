@@ -150,9 +150,9 @@ function networkFirst(req, url) {
 // A push carries no data. The worker reads the ride record the app saved (IndexedDB `dale-ride-alerts`),
 // checks it belongs to this browser's current push address, asks Dale's server for the ride's answer now,
 // and shows it under one notification tag. Pushes are handled one at a time, and the record is read again,
-// compared and updated in one readwrite transaction just before anything is shown, so a slow or out-of-order
-// answer never replaces or sounds over a newer stage, and a ride the page ended or replaced meanwhile is never
-// restored. Only a stage that was saved here is acknowledged to the server; a stage or notice whose marker
+// compared and updated in one readwrite transaction, so a slow or out-of-order answer never replaces or sounds
+// over a newer stage, and a ride the page ended or replaced meanwhile is never written back. The record is read
+// once more right before showing, so a ride ended or replaced by then is not shown or acknowledged. Only a stage that was saved here is acknowledged to the server; a stage or notice whose marker
 // could not be saved is shown silently. Every request to Dale's server is bounded by RIDE_FETCH_TIMEOUT_MS.
 // tests/unit/swRideAlerts.test.ts runs these handlers with stand-ins.
 const RIDE_TAG = 'dale-ride-alert';
@@ -302,16 +302,24 @@ async function handleRidePush(io, retried) {
     return showRideNote(io, RIDE_ENDED_ANY, true);
   }
   // The bus position must still be under 2 minutes old now that the write is done (its time counts). This is
-  // checked first: a stale position shows only "can't check", whether or not its marker was saved.
-  if (plan.observedAt !== undefined && !(io.now() - plan.observedAt <= RIDE_MAX_AGE_MS)) {
-    // Not shown, so a marker that was saved is put back (unless something else changed it since), and nothing is
-    // acknowledged. A failed put-back is tried once more, so the stage can still sound once a fresh answer arrives.
-    if (stored && plan.save) {
-      const before = current, raised = plan.save.highestShown;
-      const restore = () => Promise.resolve().then(() => io.update((r) => (sameRide(r, record) && r.highestShown === raised
-        ? { ...r, highestShown: before.highestShown, shown: before.shown } : undefined))).then(() => true, () => false);
-      if (!(await restore())) await restore();
-    }
+  // checked first: a stale position shows only "can't check", whether the marker was saved or not.
+  const stale = plan.observedAt !== undefined && !(io.now() - plan.observedAt <= RIDE_MAX_AGE_MS);
+  // A marker that was saved but whose line is not shown is put back (unless something else changed it since), and
+  // nothing is acknowledged. A failed put-back is tried once more, so the stage can still sound once a fresh answer arrives.
+  const putBack = async () => {
+    if (!stored || !plan.save) return;
+    const before = current, raised = plan.save.highestShown;
+    const restore = () => Promise.resolve().then(() => io.update((r) => (sameRide(r, record) && r.highestShown === raised
+      ? { ...r, highestShown: before.highestShown, shown: before.shown } : undefined))).then(() => true, () => false);
+    if (!(await restore())) await restore();
+  };
+  if (stale) await putBack();
+  // Read the record once more just before showing: if the page ended or replaced this ride after the transaction,
+  // nothing about it is shown or acknowledged (as with no matching record). If it cannot be read, nothing is claimed.
+  const still = await Promise.resolve().then(io.read).then((r) => sameRide(r, record), () => undefined);
+  if (still === false) return showRideNote(io, RIDE_ENDED_ANY, true);
+  if (stale || still === undefined) {
+    if (!stale) await putBack();
     return showRideNote(io, current.text.cantCheck, true, current.lang);
   }
   // A new stage or notice whose marker could not be saved is shown silently and not acknowledged, so it can
