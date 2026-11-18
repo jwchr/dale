@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain ESM operational script without type declarations
-import { checkRailApi, runRailConnectionCheck } from '../../scripts/check-rail-api.mjs';
+import { checkRailApi, runRailConnectionCheck, shapeFailures } from '../../scripts/check-rail-api.mjs';
 // @ts-expect-error plain ESM operational script without type declarations
 import { runConnectionCheck } from '../../scripts/check-bus-api.mjs';
 
@@ -113,6 +113,24 @@ describe('bounded reviewed-main rail verification', () => {
   it.each([{}, { STATION_2CHAR: 'AS', STATIONNAME: 'Anderson Street', ITEMS: [{}] }, { STATION_2CHAR: 'AS', STATIONNAME: 'Anderson Street', ITEMS: Array(20).fill(row) }])('does not qualify malformed/mismatched station schema: %j', async value => {
     const normal = fixture(); const fetchImpl = vi.fn(async (url: string, init: RequestInit) => url.endsWith('19Rec') ? json(value) : normal(url, init));
     expect((await checkRailApi(credentials, fetchImpl)).stations.anderson.status).toBe('unexpected-schema');
+  });
+  it('names which shape test failed with field names and counts only, never values', async () => {
+    const anderson = { code: 'AS', name: 'Anderson Street' };
+    expect(shapeFailures([], anderson)).toEqual({ failed: ['top-level-array'] });
+    expect(shapeFailures({ STATION_2CHAR: 'AS', STATIONNAME: 'Hackensack secret name', ITEMS: Array(20).fill(row) }, anderson))
+      .toEqual({ failed: ['station-name-echo', 'items-over-19'], topKeys: ['ITEMS', 'STATIONNAME', 'STATION_2CHAR'], itemCount: 20,
+        rowKeys: ['GPSTIME', 'LAST_MODIFIED', 'LINECODE', 'SCHED_DEP_DATE', 'TRAIN_ID'] });
+    expect(shapeFailures({ STATION_2CHAR: 'AS', STATIONNAME: 'Anderson Street', ITEMS: [{ TRAIN_ID: 1234, SCHED_DEP_DATE: '' }, { 'odd key!': 'secret value' }, 'secret row'] }, anderson).failed)
+      .toEqual(['row-not-object', 'TRAIN_ID-missing:1', 'TRAIN_ID-not-string:1', 'SCHED_DEP_DATE-missing:1', 'SCHED_DEP_DATE-blank-or-over-128:1']);
+    expect(shapeFailures({ STATION: 'AS' }, anderson)).toEqual({ failed: ['station-code-echo', 'station-name-echo', 'items-missing'], topKeys: ['STATION'], itemCount: null, rowKeys: [] });
+    // The logged result carries the diagnosis and none of the station's values.
+    const normal = fixture(); const output: string[] = [];
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => url.endsWith('19Rec') && (init.body as FormData).get('station') === 'NY'
+      ? json({ STATION_2CHAR: 'NY', STATIONNAME: 'New York Penn Station', ITEMS: [{ TRAIN_ID: 'secret-train-77', SCHED_DEP_DATE: 'x'.repeat(200), 'odd key!': 1 }] }) : normal(url, init));
+    expect(await runRailConnectionCheck(env, fetchImpl, (s: string) => output.push(s))).toBe(1);
+    const ny = JSON.parse(output[0]!).stations['new-york-penn'];
+    expect(ny).toEqual({ status: 'unexpected-schema', failed: ['SCHED_DEP_DATE-blank-or-over-128:1'], topKeys: ['ITEMS', 'STATIONNAME', 'STATION_2CHAR'], itemCount: 1, rowKeys: ['SCHED_DEP_DATE', 'TRAIN_ID'] });
+    for (const leak of ['secret-train-77', 'xxxx', 'odd key']) expect(output.join('\n')).not.toContain(leak);
   });
   it('bounds malformed/oversized authentication and station bodies without logging echoes', async () => {
     for (const body of [credentials.password + token, JSON.stringify({ Authenticated: 'True', UserToken: 'x'.repeat(17000) })]) {
