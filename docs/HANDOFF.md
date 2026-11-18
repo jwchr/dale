@@ -19,7 +19,7 @@ Updated 2026-11-18. Repository `jwchr/dale`; public app https://jwchr.github.io/
 ## Waiting on the owner
 - Live train data (#80; owner decision 2026-11-16: NJ Transit's live rail feed first, printed timetables only as the labeled backup). The Nov 17 9:00 PM ET check (run 44220075470) authenticated both rail products for the first time; Essex Street returned 4 Pascack Valley rows; Anderson Street, both Secaucus levels and New York Penn failed the shape test for an unknown reason. The next check reports which test failed (field names only) and needs Jeff's new yes, at most one per 24 hours (`docs/RAIL_API_CHECK.md`).
 - Printed Pascack Valley timetable (effective 2026-11-15) and the Secaucus to New York Penn trains, for the train backup; the owner will supply them later.
-- Rider-shared GPS (#105): the first of three choices, household only (recommended) or any Dale rider. Garden State look (#101): the four mock-ups from the design chat.
+- Rider-shared GPS (#105): any Dale rider chosen Nov 17; four smaller choices remain (report lifetime, open-app only, optional Turnstile check, privacy-notice contact), asked one at a time once the design merges. Garden State look (#101): the four mock-ups from the design chat.
 - Before 2026-11-22: which review path applies once CodeRabbit's free usage ends (D71).
 - Phone test on Jeff's and Diego's phones: install, save a commute, reverse it, open a trip from Port Authority, use it offline; also try the new optional settings (slogans, bilingual buttons, home photo) and a MyBus text draft without sending.
 - Whether the app should stay publicly reachable or be limited to the household.
