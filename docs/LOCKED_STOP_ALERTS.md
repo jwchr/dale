@@ -55,7 +55,8 @@ All answers are JSON with `cache-control: no-store`. Writes need Dale's own page
 
 ## Owner step
 
-- VAPID needs a P-256 key pair. The builder generates it outside the repository and never commits or prints the private key.
+- VAPID needs a P-256 key pair. Jeff makes it, with the household code and its hash, on the key page `public/owner-keys.html` (published as `owner-keys.html` beside the app). The page runs only in his browser; its Content-Security-Policy blocks every network request, and nothing is saved. The builder never sees, commits or prints the private key or the code.
+- Order: the weekly rollover first, then the secrets. Adding a secret in the Cloudflare dashboard ends with Deploy, which makes a new Worker version, so the next rollover's `expected_worker_version` comes from a fresh `qualify-enabled` run. The deploy script accepts these two names only as secrets, and deploys keep existing secrets.
 - Jeff stores the private key as a Cloudflare secret, `VAPID_PRIVATE_KEY`: the private key as a P-256 JWK (JSON with `kty`, `crv`, `x`, `y` and `d`), with step-by-step help. The public key is not secret; the Worker derives it from that key and serves it at `GET /v1/ride-alerts/config`, so nothing key-related is in the repository.
 - The household code's hash is a second Worker secret, `HOUSEHOLD_CODE_HASH`: the lowercase hex SHA-256 of the household code after normalizing it (trimmed, upper case, spaces and hyphens removed), the same code as `docs/RIDER_GPS.md`.
 - If either secret is missing or malformed, every ride-alert route answers "not available" and the app keeps steps A and B only.
