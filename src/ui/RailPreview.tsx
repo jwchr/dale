@@ -5,8 +5,14 @@ import { railExamples, type RailDay, type RailDirection, type RailStation } from
 import type { StationChoice } from '../domain/journeyGuide';
 import { formatTime12 } from '../domain/time';
 import type { Strings } from './i18n';
+import { LiveRailBoard } from './LiveRailBoard';
+import type { LiveRailBoard as Board } from '../domain/railLive';
 
-export function RailPreview({ station, direction, t }: { station: StationChoice; direction: RailDirection; t: Strings }) {
+export function RailPreview({ station, direction, t, live, lang = 'en', now = Date.now() }: {
+  station: StationChoice; direction: RailDirection; t: Strings;
+  /** Live boards from the Worker; undefined while checking or when live trains are off. */
+  live?: Board[]; lang?: 'en' | 'es'; now?: number;
+}) {
   const [day, setDay] = useState<RailDay>('weekday');
   const id = useId();
   const r = t.rail;
@@ -14,9 +20,9 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
   const name = (s: RailStation) => s === 'secaucus' ? 'Secaucus Junction' : s === 'penn' ? 'New York Penn' : t.journey.stations[s];
   // These clocks intentionally have no connection to today's date or the live bus clock.
   const time = (minute: number) => formatTime12(Date.UTC(2000, 0, 1, 0, minute), 'UTC', 'en');
-  return <section className="card rail-preview" aria-labelledby={`${id}-title`}>
-    <div className="rail-heading"><h2 id={`${id}-title`}>{r.title}</h2><span className="badge-sched">{r.sample}</span></div>
-    <p className="small rail-notice">{r.notice}</p>
+  const l = r.live, ok = live?.filter((b): b is Board & { state: 'ok' } => b.state === 'ok') ?? [];
+  const missing = live?.filter((b) => b.state !== 'ok') ?? [];
+  const sample = <>
     <label htmlFor={`${id}-day`}>{r.day}</label><select id={`${id}-day`} value={day} onChange={e => setDay(e.target.value as RailDay)}>
       <option value="weekday">{r.weekday}</option><option value="weekend">{r.weekend}</option>
     </select>
@@ -43,6 +49,18 @@ export function RailPreview({ station, direction, t }: { station: StationChoice;
       })}
     </ul>
     <p className="rail-info-strip">{r.transfer}</p>
-    <details className="small rail-source"><summary>{r.source}</summary><p>{r.availability}</p><p>{r.sourceText}</p><p>{r.transferNote}</p></details>
+  </>;
+  return <section className="card rail-preview" aria-labelledby={`${id}-title`}>
+    <div className="rail-heading"><h2 id={`${id}-title`}>{r.title}</h2><span className={ok.length ? 'badge-live' : 'badge-sched'}>{ok.length ? l.badge : r.sample}</span></div>
+    {ok.length ? <>
+      {ok.map((board) => <LiveRailBoard key={board.station} board={board} t={t} lang={lang} now={now} />)}
+      {missing.map((board) => <p key={board.station} className="small rail-notice">{l.unavailableOne(l.stations[board.station])}</p>)}
+      <details className="rail-sample"><summary>{l.sample}</summary>{sample}</details>
+    </> : <>
+      <p className="small rail-notice">{r.notice}</p>
+      {live && <p className="small rail-notice rail-live-off">{l.unavailable}</p>}
+      {sample}
+    </>}
+    <details className="small rail-source"><summary>{r.source}</summary>{ok.length > 0 ? <p>{l.source}</p> : <p>{r.availability}</p>}<p>{r.sourceText}</p><p>{r.transferNote}</p></details>
   </section>;
 }
