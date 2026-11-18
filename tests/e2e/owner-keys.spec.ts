@@ -12,8 +12,10 @@ test('makes a household code, its hash and a VAPID key the Worker accepts, witho
   await expect(page.getByRole('heading', { name: 'Dale owner keys' })).toBeVisible();
   await page.getByRole('button', { name: 'Make new keys' }).click();
 
+  // Generation is asynchronous: wait for the outputs instead of reading them right after the click.
+  await expect(page.locator('#code')).toHaveText(/^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/);
+  await expect(page.locator('#key')).toHaveText(/^\{.*\}$/);
   const code = (await page.locator('#code').textContent())!;
-  expect(code).toMatch(/^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/);
   const normalized = normalizeHouseholdCode(code);
   expect(validHouseholdCode(normalized)).toBe(true);
   // The hash is what the Worker compares against: SHA-256 of the code as the app normalizes it.
@@ -34,8 +36,9 @@ test('makes a household code, its hash and a VAPID key the Worker accepts, witho
 
   // A second press makes a completely new set.
   await page.getByRole('button', { name: 'Make new keys' }).click();
-  expect(await page.locator('#code').textContent()).not.toBe(code);
-  expect(await page.locator('#key').textContent()).not.toBe(key);
+  await expect(page.locator('#code')).not.toHaveText(code);
+  await expect(page.locator('#key')).not.toHaveText(key);
+  await expect(page.locator('#hash')).not.toHaveText(createHash('sha256').update(normalized).digest('hex'));
   expect(requests).toEqual([]);
 });
 
@@ -47,6 +50,7 @@ test('reads in Spanish and fits a narrow phone at large text', async ({ page }) 
   await expect(page.locator('html')).toHaveAttribute('lang', 'es');
   await page.getByRole('button', { name: 'Crear claves nuevas' }).click();
   await expect(page.getByRole('heading', { name: 'Código del hogar' })).toBeVisible();
+  await expect(page.locator('#key')).toHaveText(/^\{.*\}$/);
   await expect(page.getByRole('button', { name: 'Copiar' })).toHaveCount(2);
   // Compared with the 320 px set above: on a phone, overflow widens the window itself, so innerWidth is no check.
   const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth,
