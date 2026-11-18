@@ -12,6 +12,8 @@ export const RAIL_SOURCE = 'NJ Transit RailData';
 export const RAIL_STATIONS: Readonly<Record<string, string>> = { AS: 'PV', EX: 'PV', TS: 'PV', SE: '', NY: '' };
 /** One agency request per station per minute at most: five stations stay under 7,200 a day, below the 40,000 limit. */
 export const RAIL_BOARD_MS = 60_000;
+/** After NJ Transit says the limit is reached, every station waits this long before asking again. */
+export const RAIL_PAUSE_MS = 15 * 60_000;
 /** NJ Transit allows 10 token requests a day and recommends one. Dale uses at most 3, an hour apart, so the manual
  * rail check keeps room for its own (docs/RAIL_API_CHECK.md). */
 export const RAIL_MINTS_PER_DAY = 3;
@@ -155,12 +157,12 @@ async function railRequest(method: string, fields: Record<string, string>, fetch
 }
 
 export interface RailStorage { get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<void> }
-interface RailSaved { token?: { value: string; at: number }; mints: number[] }
+interface RailSaved { token?: { value: string; at: number }; mints: number[]; pausedUntil?: number }
 const RAIL_KEY = 'rail-v1';
 
 /** Serves one cached board per station. Token requests are counted in storage before they are sent, so a restart cannot overspend. */
 export class RailBoards {
-  private saved?: RailSaved;
+  private saved?: Promise<RailSaved>;
   private boards = new Map<string, { at: number; board: RailBoard }>();
   private loading = new Map<string, Promise<RailBoard>>();
   private minting?: Promise<string>;
@@ -184,21 +186,24 @@ export class RailBoards {
     return { tokenRequests24h: saved.mints.filter((at) => now - at < DAY_MS).length, hasToken: !!saved.token };
   }
 
-  private async state(): Promise<RailSaved> {
-    if (!this.saved) {
-      const stored = await this.storage.get<RailSaved>(RAIL_KEY);
-      this.saved = {
-        mints: Array.isArray(stored?.mints) ? stored.mints.filter(Number.isFinite) : [],
-        ...(stored?.token && typeof stored.token.value === 'string' && Number.isFinite(stored.token.at) ? { token: stored.token } : {}),
-      };
-    }
+  /** One shared load, so concurrent first requests all work on the same saved object. A failed read is retried next time. */
+  private state(): Promise<RailSaved> {
+    this.saved ??= this.storage.get<RailSaved>(RAIL_KEY).then((stored) => ({
+      mints: Array.isArray(stored?.mints) ? stored.mints.filter(Number.isFinite) : [],
+      ...(stored?.token && typeof stored.token.value === 'string' && Number.isFinite(stored.token.at) ? { token: stored.token } : {}),
+      ...(Number.isFinite(stored?.pausedUntil) ? { pausedUntil: stored!.pausedUntil } : {}),
+    }), (error) => { this.saved = undefined; throw error; });
     return this.saved;
   }
 
   private async load(station: string): Promise<RailBoard> {
     let board: RailBoard;
-    try { board = await this.fetchBoard(station); }
-    catch (error) {
+    try {
+      const saved = await this.state();
+      // While paused after a rate limit, no station asks NJ Transit at all.
+      if (this.clock() < (saved.pausedUntil ?? 0)) throw new RailError('rate-limited');
+      board = await this.fetchBoard(station);
+    } catch (error) {
       const reason = error instanceof RailError ? error.code : 'unexpected-response';
       board = { v: 1, source: RAIL_SOURCE, station, state: 'unavailable', reason, receivedAt: null, departures: [], skippedRows: 0 };
     }
@@ -216,6 +221,8 @@ export class RailBoards {
     } catch (error) {
       // Only while it is still the stored token, so a newer one from another station is kept.
       if (error instanceof RailError && error.code === 'access-denied' && saved.token?.value === token) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
+      // A rate limit pauses every station, and survives a restart. The token is kept: replacing it would spend the daily allowance.
+      if (error instanceof RailError && error.code === 'rate-limited') { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
       throw error;
     }
   }
