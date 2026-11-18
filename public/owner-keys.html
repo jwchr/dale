@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<!-- Nothing on this page can reach the network: everything is made in this browser and shown only here. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Dale owner keys</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --muted: #555; --box: #f3f3f3; --line: #ccc; --accent: #0a5c36; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121212; --fg: #eee; --muted: #aaa; --box: #1e1e1e; --line: #444; --accent: #6fcf97; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 1rem/1.45 system-ui, sans-serif; max-width: 44rem; margin-inline: auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+  h2 { font-size: 1.1rem; margin: 1.25rem 0 .25rem; }
+  p, li { margin: .35rem 0; }
+  .muted { color: var(--muted); }
+  button { font: inherit; min-height: 44px; padding: .5rem 1rem; border-radius: 8px; border: 1px solid var(--line); background: var(--box); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  .value { display: block; width: 100%; margin: .25rem 0 .5rem; padding: .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--box); color: var(--fg);
+    font: .95rem/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; resize: none; }
+  .code { font-size: 1.5rem; letter-spacing: .08em; text-align: center; }
+  .warn { border-left: 4px solid #c0392b; padding-left: .75rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="row" style="justify-content: flex-end">
+  <button type="button" id="lang" lang="es">Español</button>
+</div>
+<h1 data-t="title"></h1>
+<p data-t="intro"></p>
+<p class="warn" data-t="private"></p>
+<div class="row"><button type="button" class="primary" id="make" data-t="make"></button></div>
+<p id="unsupported" class="warn" role="alert" data-t="unsupported" hidden></p>
+
+<section id="result" hidden aria-live="polite">
+  <h2 data-t="codeHead"></h2>
+  <p data-t="codeHelp"></p>
+  <output id="code" class="value code"></output>
+
+  <h2>HOUSEHOLD_CODE_HASH</h2>
+  <p data-t="hashHelp"></p>
+  <output id="hash" class="value"></output>
+  <div class="row"><button type="button" data-copy="hash" data-t="copy"></button><span class="muted" data-done="hash" role="status"></span></div>
+
+  <h2>VAPID_PRIVATE_KEY</h2>
+  <p data-t="keyHelp"></p>
+  <output id="key" class="value"></output>
+  <div class="row"><button type="button" data-copy="key" data-t="copy"></button><span class="muted" data-done="key" role="status"></span></div>
+
+  <h2 data-t="stepsHead"></h2>
+  <ol>
+    <li data-t="step1"></li>
+    <li data-t="step2"></li>
+    <li data-t="step3"></li>
+    <li data-t="step4"></li>
+  </ol>
+  <p class="muted" data-t="again"></p>
+</section>
+
+<script>
+'use strict';
+const TEXT = {
+  en: {
+    title: 'Dale owner keys',
+    intro: 'This page makes the household code and the two secret values that turn on stop alerts while the phone is locked.',
+    private: 'Everything is made here in this browser. Nothing is sent anywhere or saved. Do not paste these values into a chat, email or message.',
+    make: 'Make new keys',
+    unsupported: 'This browser cannot make the keys. Try a current version of Chrome, Safari, Edge or Firefox.',
+    codeHead: 'Household code',
+    codeHelp: 'Write this down and keep it. You will type it once on each household phone in Dale, Settings, "Alerts when my phone is locked".',
+    hashHelp: 'Secret value 1. It is a fingerprint of the household code, not the code itself.',
+    keyHelp: 'Secret value 2. Copy all of it, including the curly brackets.',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Copy did not work. Select the text and copy it by hand.',
+    stepsHead: 'Then, in Cloudflare',
+    step1: 'Open the Cloudflare dashboard and the Worker named dale-live. Do these steps only when Claude has said the timing is right: Deploy in step 3 updates the live server.',
+    step2: 'Open Settings, then Variables and Secrets, and select Add. Choose the type Secret, name it HOUSEHOLD_CODE_HASH and paste secret value 1.',
+    step3: 'Select Add variable. Choose the type Secret, name it VAPID_PRIVATE_KEY and paste secret value 2. Then select Deploy.',
+    step4: 'Close this page. Making new keys later replaces these: every phone then needs the new code.',
+    again: 'Pressing the button again makes a completely new set.',
+  },
+  es: {
+    title: 'Claves del dueño de Dale',
+    intro: 'Esta página crea el código del hogar y los dos valores secretos que activan los avisos de parada con el teléfono bloqueado.',
+    private: 'Todo se crea aquí, en este navegador. Nada se envía ni se guarda. No pegues estos valores en un chat, correo ni mensaje.',
+    make: 'Crear claves nuevas',
+    unsupported: 'Este navegador no puede crear las claves. Prueba una versión actual de Chrome, Safari, Edge o Firefox.',
+    codeHead: 'Código del hogar',
+    codeHelp: 'Anótalo y guárdalo. Lo escribirás una vez en cada teléfono del hogar en Dale, Ajustes, "Alertas con el teléfono bloqueado".',
+    hashHelp: 'Valor secreto 1. Es una huella del código del hogar, no el código.',
+    keyHelp: 'Valor secreto 2. Cópialo completo, con las llaves.',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    copyFailed: 'No se pudo copiar. Selecciona el texto y cópialo a mano.',
+    stepsHead: 'Después, en Cloudflare',
+    step1: 'Abre el panel de Cloudflare y el Worker llamado dale-live. Haz estos pasos solo cuando Claude diga que es el momento: Deploy en el paso 3 actualiza el servidor en vivo.',
+    step2: 'Abre Settings, luego Variables and Secrets, y selecciona Add. Elige el tipo Secret, llámalo HOUSEHOLD_CODE_HASH y pega el valor secreto 1.',
+    step3: 'Selecciona Add variable. Elige el tipo Secret, llámalo VAPID_PRIVATE_KEY y pega el valor secreto 2. Luego selecciona Deploy.',
+    step4: 'Cierra esta página. Crear claves nuevas después reemplaza estas: cada teléfono necesitará el código nuevo.',
+    again: 'Al pulsar el botón otra vez se crea un juego completamente nuevo.',
+  },
+};
+let lang = 'en';
+function render() {
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = TEXT[lang][el.dataset.t];
+  const other = lang === 'en' ? 'es' : 'en';
+  const button = document.getElementById('lang');
+  button.textContent = other === 'es' ? 'Español' : 'English';
+  button.lang = other;
+  for (const el of document.querySelectorAll('[data-done]')) el.textContent = '';
+}
+document.getElementById('lang').addEventListener('click', () => { lang = lang === 'en' ? 'es' : 'en'; render(); });
+
+// 32 letters and digits without I, O, 0 and 1, so 16 of them carry 80 random bits (docs/RIDER_GPS.md).
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function householdCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const chars = [...bytes].map((b) => ALPHABET[b & 31]).join('');
+  return chars.match(/.{4}/g).join('-');
+}
+// The same normalization as the app and the Worker: trimmed, upper case, spaces and hyphens removed.
+const normalize = (raw) => raw.trim().toUpperCase().replace(/[\s\-‐-―]/g, '');
+async function sha256Hex(text) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...digest].map((n) => n.toString(16).padStart(2, '0')).join('');
+}
+async function vapidKey() {
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, d: jwk.d });
+}
+
+document.getElementById('make').addEventListener('click', async () => {
+  try {
+    const code = householdCode();
+    const [hash, key] = await Promise.all([sha256Hex(normalize(code)), vapidKey()]);
+    document.getElementById('code').textContent = code;
+    document.getElementById('hash').textContent = hash;
+    document.getElementById('key').textContent = key;
+    for (const el of document.querySelectorAll('[data-done]')) el.textContent = '';
+    document.getElementById('result').hidden = false;
+    document.getElementById('unsupported').hidden = true;
+    document.getElementById('code').scrollIntoView({ block: 'center' });
+  } catch {
+    document.getElementById('result').hidden = true;
+    document.getElementById('unsupported').hidden = false;
+  }
+});
+
+for (const button of document.querySelectorAll('[data-copy]')) {
+  button.addEventListener('click', async () => {
+    const id = button.dataset.copy, done = document.querySelector(`[data-done="${id}"]`);
+    try { await navigator.clipboard.writeText(document.getElementById(id).textContent); done.textContent = TEXT[lang].copied; }
+    catch { done.textContent = TEXT[lang].copyFailed; }
+  });
+}
+render();
+</script>
+</body>
+</html>
