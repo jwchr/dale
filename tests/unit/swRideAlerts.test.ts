@@ -229,6 +229,31 @@ describe('locked-phone stop alerts in the service worker', () => {
     io.read = read;
   });
 
+  it('a service change whose record cannot be read again before display puts the notice marker back, so it still sounds later', async () => {
+    const read = io.read;
+    server = async (url) => url.endsWith('/latest') ? json({ v: 1, kind: 'service_change', title: 'Dale: your stop', body: 'Stops on this trip changed. Open Dale.' }) : json({ v: 1 });
+    afterWrite = () => { afterWrite = undefined; io.read = async () => { throw new DOMException('Read failed', 'UnknownError'); }; };
+    await push();
+    expect(shown[0]!.options).toMatchObject({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true });
+    expect(record).toMatchObject({ noticeShown: false });
+    expect(requests().some((r) => r.includes('/notice-ack'))).toBe(false);
+    io.read = read;
+    await push();
+    expect(shown[1]!.options).toMatchObject({ body: 'Stops on this trip changed. Open Dale.', silent: false, renotify: true });
+    expect(record).toMatchObject({ noticeShown: true });
+  });
+
+  it('a position that turns over 2 minutes old during the last read before display shows "can\'t check" and puts the marker back', async () => {
+    const read = io.read;
+    server = async (url) => url.endsWith('/latest') ? json(stage('two', 2, '2 stops to Port Authority', clock - 119_000)) : json({ v: 1 });
+    afterWrite = () => { afterWrite = undefined; io.read = async () => { clock += 2_000; return read(); }; }; // the read took 2 s
+    await push();
+    expect(shown[0]!.options).toMatchObject({ body: 'Dale can’t check your bus right now. Open Dale.', silent: true });
+    expect(record).toMatchObject({ highestShown: 0 });
+    expect(requests().some((r) => r.includes('/ack'))).toBe(false);
+    io.read = read;
+  });
+
   it('a new stage or notice whose marker cannot be saved is shown silently and not acknowledged', async () => {
     failWrite = true;
     await push();

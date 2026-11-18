@@ -303,14 +303,21 @@ async function handleRidePush(io, retried) {
   }
   // The bus position must still be under 2 minutes old now that the write is done (its time counts). This is
   // checked first: a stale position shows only "can't check", whether the marker was saved or not.
-  const stale = plan.observedAt !== undefined && !(io.now() - plan.observedAt <= RIDE_MAX_AGE_MS);
+  const staleNow = () => plan.observedAt !== undefined && !(io.now() - plan.observedAt <= RIDE_MAX_AGE_MS);
+  const stale = staleNow();
   // A marker that was saved but whose line is not shown is put back (unless something else changed it since), and
-  // nothing is acknowledged. A failed put-back is tried once more, so the stage can still sound once a fresh answer arrives.
+  // nothing is acknowledged. Every saved marker is put back (the stage and the service-change notice alike), so a
+  // stage or notice can still sound once a fresh answer arrives. A failed put-back is tried once more.
   const putBack = async () => {
     if (!stored || !plan.save) return;
-    const before = current, raised = plan.save.highestShown;
-    const restore = () => Promise.resolve().then(() => io.update((r) => (sameRide(r, record) && r.highestShown === raised
-      ? { ...r, highestShown: before.highestShown, shown: before.shown } : undefined))).then(() => true, () => false);
+    const before = current, saved = plan.save;
+    const markers = ['highestShown', 'noticeShown'].filter((k) => k in saved);
+    const restore = () => Promise.resolve().then(() => io.update((r) => {
+      if (!sameRide(r, record) || !markers.every((k) => r[k] === saved[k])) return undefined;
+      const back = {};
+      for (const k of Object.keys(saved)) back[k] = before[k];
+      return { ...r, ...back };
+    })).then(() => true, () => false);
     if (!(await restore())) await restore();
   };
   if (stale) await putBack();
@@ -318,7 +325,8 @@ async function handleRidePush(io, retried) {
   // nothing about it is shown or acknowledged (as with no matching record). If it cannot be read, nothing is claimed.
   const still = await Promise.resolve().then(io.read).then((r) => sameRide(r, record), () => undefined);
   if (still === false) return showRideNote(io, RIDE_ENDED_ANY, true);
-  if (stale || still === undefined) {
+  // The position's age is checked again after that read, which also takes time.
+  if (stale || still === undefined || staleNow()) {
     if (!stale) await putBack();
     return showRideNote(io, current.text.cantCheck, true, current.lang);
   }
