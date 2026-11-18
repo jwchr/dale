@@ -1,9 +1,9 @@
 // Live train departures from NJ Transit RailData (#80). Fixed official host, five fixed stations, one shared token.
 // Field names and types follow the production schema (raildata.njtransit.com/swagger/RailData/swagger.json):
-// every field is a nullable string. The date layout and the New York time zone are not stated there; they follow
+// the scalar fields Dale reads are nullable strings; ITEMS, STATIONMSGS, CAPACITY and STOPS are nullable arrays. The date layout and the New York time zone are not stated there; they follow
 // the open-source jtarrio/raildata client (Apache-2.0) and are checked by parsing, never assumed: a row whose time
 // does not parse is dropped and counted. See docs/RAIL_LIVE.md.
-import { zonedWallTime } from '../src/domain/time';
+import { tzOffsetMinutes } from '../src/domain/time';
 import type { Credentials } from './njt-client';
 
 export const RAIL_HOST = 'https://raildata.njtransit.com';
@@ -59,13 +59,17 @@ export function parseRailTime(value: unknown): number | undefined {
   const check = new Date(Date.UTC(year, month - 1, day));
   if (check.getUTCDate() !== day || check.getUTCMonth() !== month - 1) return;
   const hour = (hour12 % 12) + (m[7] === 'PM' ? 12 : 0);
-  return zonedWallTime(year, month, day, hour, minute, TIME_ZONE) + second * 1000;
+  // Only a wall time that names exactly one instant: a time skipped in spring or repeated in fall is not guessed.
+  const wall = Date.UTC(year, month - 1, day, hour, minute, second);
+  const fits = [wall + 4 * 3600_000, wall + 5 * 3600_000].filter((t) => t + tzOffsetMinutes(t, TIME_ZONE) * 60_000 === wall);
+  return fits.length === 1 ? fits[0] : undefined;
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 /** Plain, bounded display text: entities decoded, tags and control characters removed, spacing collapsed. */
 export function railText(value: unknown, max = 64): string | null {
-  if (typeof value !== 'string') return null;
+  // Bounded before any pattern runs, so a hostile field cannot make cleanup slow.
+  if (typeof value !== 'string' || value.length > max * 8) return null;
   const text = value
     .replace(/<[^>]*>/g, ' ')
     .replace(/&#(\d{1,7});|&#x([0-9a-f]{1,6});|&([a-z]{2,6});/gi, (all, dec, hex, name) => {
@@ -110,9 +114,9 @@ async function railRequest(method: string, fields: Record<string, string>, fetch
     const response = await fetchImpl(`${RAIL_HOST}/api/TrainData/${method}`, {
       method: 'POST', body, headers: { accept: 'application/json' }, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
     });
-    if (response.status === 401 || response.status === 403) throw new RailError('access-denied');
-    if (response.status === 429) throw new RailError('rate-limited');
-    if (!response.ok || !response.body) throw new RailError(response.ok ? 'unexpected-response' : 'http-error');
+    const statusFailure: RailFailure | undefined = response.status === 401 || response.status === 403 ? 'access-denied'
+      : response.status === 429 ? 'rate-limited' : response.ok ? undefined : 'http-error';
+    if (!response.body) throw new RailError(statusFailure ?? 'unexpected-response');
     const reader = response.body.getReader(), chunks: Uint8Array[] = [];
     let size = 0;
     try {
@@ -126,8 +130,12 @@ async function railRequest(method: string, fields: Record<string, string>, fetch
     const bytes = new Uint8Array(size); let at = 0;
     for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
     let value: unknown;
-    try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError('unexpected-response'); }
-    if (object(value) && typeof value.errorMessage === 'string') throw new RailError(/daily usage limit/i.test(value.errorMessage) ? 'rate-limited' : 'api-error');
+    try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError(statusFailure ?? 'unexpected-response'); }
+    // NJ Transit's guide shows "Invalid token." as a body without naming an HTTP status, so the body decides.
+    if (object(value) && typeof value.errorMessage === 'string') {
+      throw new RailError(/invalid token/i.test(value.errorMessage) ? 'access-denied' : /daily usage limit/i.test(value.errorMessage) ? 'rate-limited' : statusFailure ?? 'api-error');
+    }
+    if (statusFailure) throw new RailError(statusFailure);
     return value;
   } catch (error) {
     if (error instanceof RailError) throw error;
@@ -188,31 +196,28 @@ export class RailBoards {
     return board;
   }
 
+  /** Exactly one schedule request per call. A refused token is dropped; the next minute may mint a new one. */
   private async fetchBoard(station: string): Promise<RailBoard> {
-    const ask = async (token: string) => normalizeRailBoard(
-      await railRequest('getTrainSchedule19Rec', { token, station, line: RAIL_STATIONS[station]! }, this.fetchImpl), station, this.clock());
     const saved = await this.state();
-    const fresh = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : undefined;
-    if (fresh) {
-      try { return await ask(fresh); }
-      catch (error) {
-        if (!(error instanceof RailError) || error.code !== 'access-denied') throw error;
-        // A refused token is dropped, then replaced once if the daily allowance and the hourly gap allow.
-        if (saved.token?.value === fresh) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
-      }
+    const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
+    try {
+      return normalizeRailBoard(await railRequest('getTrainSchedule19Rec', { token, station, line: RAIL_STATIONS[station]! }, this.fetchImpl), station, this.clock());
+    } catch (error) {
+      // Only while it is still the stored token, so a newer one from another station is kept.
+      if (error instanceof RailError && error.code === 'access-denied' && saved.token?.value === token) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
+      throw error;
     }
-    return ask(await this.token(fresh));
   }
 
   /** A new token, shared by concurrent callers. Never more than RAIL_MINTS_PER_DAY a day or one an hour. */
-  private token(refused?: string): Promise<string> {
-    if (!this.minting) this.minting = this.mint(refused).finally(() => { this.minting = undefined; });
+  private token(): Promise<string> {
+    if (!this.minting) this.minting = this.mint().finally(() => { this.minting = undefined; });
     return this.minting;
   }
 
-  private async mint(refused?: string): Promise<string> {
+  private async mint(): Promise<string> {
     const saved = await this.state(), now = this.clock();
-    if (saved.token && saved.token.value !== refused && now - saved.token.at < TOKEN_REFRESH_MS) return saved.token.value;
+    if (saved.token && now - saved.token.at < TOKEN_REFRESH_MS) return saved.token.value;
     if (!this.env.NJT_API_USERNAME?.trim() || !this.env.NJT_API_PASSWORD?.trim()) throw new RailError('configuration-missing');
     saved.mints = saved.mints.filter((at) => now - at < DAY_MS);
     const last = Math.max(0, ...saved.mints);

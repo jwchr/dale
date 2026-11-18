@@ -18,6 +18,13 @@ describe('parseRailTime', () => {
     expect(new Date(parseRailTime('01-Jul-2026 12:05:09 AM')!).toISOString()).toBe('2026-07-01T04:05:09.000Z');
     expect(new Date(parseRailTime('01-Jul-2026 12:00:00 PM')!).toISOString()).toBe('2026-07-01T16:00:00.000Z');
   });
+  it('never guesses a time skipped in spring or repeated in fall', () => {
+    expect(parseRailTime('08-Mar-2026 02:30:00 AM')).toBeUndefined();
+    expect(parseRailTime('01-Nov-2026 01:30:00 AM')).toBeUndefined();
+    expect(new Date(parseRailTime('01-Nov-2026 12:30:00 AM')!).toISOString()).toBe('2026-11-01T04:30:00.000Z');
+    expect(new Date(parseRailTime('01-Nov-2026 02:30:00 AM')!).toISOString()).toBe('2026-11-01T07:30:00.000Z');
+    expect(new Date(parseRailTime('08-Mar-2026 03:30:00 AM')!).toISOString()).toBe('2026-03-08T07:30:00.000Z');
+  });
   it('rejects anything that is not exactly the documented shape and a real date', () => {
     for (const bad of [undefined, 1, '', '2026-11-18 21:15', '31-Feb-2026 01:00:00 AM', '18-Foo-2026 01:00:00 AM', '18-Nov-2026 13:00:00 PM', '18-Nov-2026 00:10:00 AM', '18-Nov-2026 09:60:00 PM'])
       expect(parseRailTime(bad)).toBeUndefined();
@@ -32,6 +39,7 @@ describe('railText', () => {
     expect(railText(' ')).toBeNull();
     expect(railText('x'.repeat(65))).toBeNull();
     expect(railText(5)).toBeNull();
+    expect(railText('<'.repeat(100_000))).toBeNull();
   });
 });
 
@@ -134,14 +142,20 @@ describe('RailBoards', () => {
     });
     const rail = h.make();
     expect((await rail.board('EX')).state).toBe('ok');
+    // A refused token costs that minute: one schedule request, the token dropped, no second request.
     refuse = true; h.advance(2 * 3600_000);
+    const before = h.calls.length;
+    expect(await rail.board('EX')).toMatchObject({ state: 'unavailable', reason: 'access-denied' });
+    expect(h.calls.slice(before)).toEqual(['getTrainSchedule19Rec']);
+    expect((h.store.get('rail-v1') as { token?: unknown }).token).toBeUndefined();
+    h.advance(RAIL_BOARD_MS);
     expect((await rail.board('EX')).state).toBe('ok');
     expect(tokens).toBe(2);
     h.advance(RAIL_BOARD_MS); down = true;
     expect(await rail.board('EX')).toMatchObject({ state: 'unavailable', reason: 'http-error' });
-    const before = h.calls.length; down = false;
+    const cached = h.calls.length; down = false;
     expect((await rail.board('EX')).state).toBe('unavailable');
-    expect(h.calls.length).toBe(before);
+    expect(h.calls.length).toBe(cached);
   });
 
   it('reports agency errors by safe code only', async () => {
@@ -152,6 +166,11 @@ describe('RailBoards', () => {
       const out = await h.make().board('EX');
       expect(out).toMatchObject({ state: 'unavailable', reason });
       expect(JSON.stringify(out)).not.toMatch(/secret|user x|html/);
+    }
+    for (const status of [200, 500]) {
+      const h = harness((m) => m === 'getToken' ? tokenOk() : json({ errorMessage: 'Invalid token.' }, status));
+      expect(await h.make().board('EX')).toMatchObject({ reason: 'access-denied' });
+      expect((h.store.get('rail-v1') as { token?: unknown }).token).toBeUndefined();
     }
     const denied = harness((m) => m === 'getToken' ? json({ Authenticated: 'False' }) : json({}));
     expect(await denied.make().board('EX')).toMatchObject({ reason: 'access-denied' });

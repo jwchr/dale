@@ -3,8 +3,8 @@
 Owner decision 2026-11-16: NJ Transit's live rail feed first; printed timetables only as the labeled backup.
 
 ## Source
-- Production host `https://raildata.njtransit.com`, method `getTrainSchedule19Rec` (next departures at one station). Field names and types come from the production schema `https://raildata.njtransit.com/swagger/RailData/swagger.json` (fetched 2026-11-18): every field is a nullable string.
-- The schema does not state the time layout or zone. Dale reads `DD-Mon-YYYY hh:mm:ss AM/PM` in New York time, the layout the open-source `jtarrio/raildata` Go client (Apache-2.0, v0.0.8) parses. A row whose time does not match is dropped and counted (`skippedRows`), never guessed. The first real answers confirm or refute this; until then it is unverified.
+- Production host `https://raildata.njtransit.com`, method `getTrainSchedule19Rec` (next departures at one station). Field names and types come from the production schema `https://raildata.njtransit.com/swagger/RailData/swagger.json` (fetched 2026-11-18): the scalar fields Dale reads are nullable strings; `ITEMS`, `STATIONMSGS`, `CAPACITY` and `STOPS` are nullable arrays.
+- The schema does not state the time layout or zone. Dale reads `DD-Mon-YYYY hh:mm:ss AM/PM` in New York time, the layout the open-source `jtarrio/raildata` Go client (Apache-2.0, v0.0.8) parses. A row whose time does not match, or names a clock time skipped in spring or repeated in fall, is dropped and counted (`skippedRows`), never guessed. The first real answers confirm or refute this; until then it is unverified.
 - The same client's samples show the response's `STATIONNAME` is a short form (New York Penn Station answers "New York"). Dale matches only `STATION_2CHAR`. This is the likely reason four stations failed the Nov 17 check, which required the full name; the Nov 18 check names the failed test.
 
 ## Stations
@@ -12,11 +12,14 @@ Anderson Street (AS) and Essex Street (EX) with line PV, Secaucus Lower Level (T
 
 ## Limits
 - At most one agency request per station per minute, shared by every rider (cached in the one Durable Object): five stations stay under 7,200 a day, below NJ Transit's 40,000.
-- A failed answer is also kept for the minute, so a broken feed is never hammered.
+- A failed answer is also kept for the minute, so a broken feed is never hammered. A refused token costs that station its minute: one schedule request, the token dropped, no immediate retry.
+- The per-station minute lives in the object's memory. A restart (for example a deployment) can allow one extra request per station; persisting every attempt would cost a storage write per station per minute on the Free plan, so it is not done.
 - Token requests: NJ Transit allows 10 a day and recommends one. The Worker reuses one token for up to 23 hours and requests at most 3 a day, at least an hour apart. Each request is counted in storage before it is sent. The manual rail check (`docs/RAIL_API_CHECK.md`) uses the same account, so it keeps room for its own.
-- Agency bodies, messages, headers and tokens never leave `rail.ts`; failures are reported by fixed codes only.
+- Agency bodies, messages, headers and tokens never leave `rail.ts`; failures are reported by fixed codes only. An `Invalid token.` body counts as a refused token whatever its HTTP status.
+- Each answer is `state: "ok"` with `receivedAt` (Dale's receipt time), or `state: "unavailable"` with a fixed `reason` and `receivedAt: null`.
 
 ## What a rider sees
 - Only what NJ Transit sends: train number, line, destination, scheduled time, track only when NJ Transit names one, NJ Transit's own status words, its delay in seconds and when it last changed the row. GPS, car capacity, colors and messages are dropped.
-- Every answer carries Dale's receipt time. NJ Transit's row times are local clock strings with no stated freshness, so the app shows the answer's age and says when live trains are unavailable. No connection is ever guaranteed.
+- NJ Transit's row times are local clock strings with no stated freshness, so the Train screen (next pull request) shows each answer's age and says when live trains are unavailable.
+- An empty board is shown as "NJ Transit lists no departures here right now", which stays true if NJ Transit has replaced its board with a service message; Dale does not show agency message text. No connection is ever guaranteed.
 - Not live until the Worker is deployed (owner told first).
