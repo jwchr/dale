@@ -20,6 +20,7 @@ Anderson Street (AS) and Essex Street (EX) with line PV, Secaucus Lower Level (T
 
 ## What a rider sees
 - Only what NJ Transit sends: train number, line, destination, scheduled time, track only when NJ Transit names one, NJ Transit's own status words, its delay in seconds and when it last changed the row. GPS, car capacity, colors and messages are dropped.
-- NJ Transit's row times are local clock strings with no stated freshness, so the Train screen (next pull request) shows each answer's age and says when live trains are unavailable.
-- An empty board is shown as "NJ Transit lists no departures here right now", which stays true if NJ Transit has replaced its board with a service message; Dale does not show agency message text. No connection is ever guaranteed.
+- NJ Transit's row times are local clock strings with no stated freshness, so the Train screen (next pull request) shows the age of each answer that has a receipt time and says when live trains are unavailable.
+- A board NJ Transit has replaced with a fullscreen station message (`STATIONMSGS` entry with `MSG_TYPE` "fullscreen" and empty `ITEMS`, per RailData V2.1 section 7 as quoted in review) is `unavailable` with reason `service-message`, not an empty board. Dale never shows agency message text.
+- Secaucus Lower Level (TS) tracks 1 to 4 are shown as signed for riders (G, F, H, E), per RailData V2.1 Appendix II as quoted in review and the `jtarrio/raildata` SpecialTracks table. No other station is translated. No connection is ever guaranteed.
 - Not live until the Worker is deployed (owner told first).

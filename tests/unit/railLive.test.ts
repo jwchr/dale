@@ -64,6 +64,17 @@ describe('normalizeRailBoard', () => {
     expect(out.skippedRows).toBe(4);
     expect(out.departures.map((d) => [d.trainId, d.track, d.status, d.secondsLate])).toEqual([['1620', null, null, 120], ['1622', '3', 'BOARDING', null]]);
   });
+  it('shows Secaucus lower-level tracks as signed, only at TS', () => {
+    const rows = [row({ TRACK: '4' }), row({ TRAIN_ID: '1622', TRACK: '2' })];
+    expect(normalizeRailBoard(board(rows, 'TS'), 'TS', 1).departures.map((d) => d.track)).toEqual(['E', 'F']);
+    expect(normalizeRailBoard(board(rows, 'SE'), 'SE', 1).departures.map((d) => d.track)).toEqual(['4', '2']);
+  });
+  it('treats a fullscreen station message with no rows as a service message, not an empty board', () => {
+    const msg = { MSG_TYPE: 'fullscreen', MSG_TEXT: 'secret alert text' };
+    expect(() => normalizeRailBoard({ ...board([]), STATIONMSGS: [msg] }, 'EX', 1)).toThrow('service-message');
+    expect(normalizeRailBoard({ ...board([row()]), STATIONMSGS: [msg] }, 'EX', 1).departures).toHaveLength(1);
+    expect(normalizeRailBoard({ ...board([]), STATIONMSGS: [{ MSG_TYPE: 'banner' }] }, 'EX', 1).departures).toEqual([]);
+  });
   it('reads at most 40 rows', () => {
     const out = normalizeRailBoard(board(Array.from({ length: 45 }, (_, i) => row({ TRAIN_ID: String(i) }))), 'EX', 1);
     expect([out.departures.length, out.skippedRows]).toEqual([40, 5]);
@@ -115,12 +126,13 @@ describe('RailBoards', () => {
   });
 
   it('counts a token request before sending it and never exceeds the daily allowance or the hourly gap', async () => {
-    let minted = 0;
-    const h = harness((m, f) => { if (m === 'getToken') { minted++; return tokenOk(minted); } return json({}, 401); });
+    let minted = 0, countedBeforeSend: number[] = [];
+    const h = harness((m) => { if (m === 'getToken') { countedBeforeSend.push((h.store.get('rail-v1') as { mints: number[] }).mints.length); minted++; return tokenOk(minted); } return json({}, 401); });
     const rail = h.make();
     const first = await rail.board('EX');
     expect(first).toMatchObject({ state: 'unavailable', reason: 'access-denied', departures: [], receivedAt: null });
-    expect((h.store.get('rail-v1') as { mints: number[] }).mints).toHaveLength(1);
+    // The request was counted in storage before it was sent.
+    expect(countedBeforeSend).toEqual([1]);
     h.advance(RAIL_BOARD_MS);
     // Within the hour a refused token is dropped but not replaced.
     expect(await rail.board('EX')).toMatchObject({ reason: 'token-limit' });

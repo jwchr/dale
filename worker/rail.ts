@@ -33,7 +33,10 @@ export interface RailDeparture {
   /** When NJ Transit last changed this row (epoch ms), or null. */
   updatedAt: number | null;
 }
-export type RailFailure = 'configuration-missing' | 'token-limit' | 'access-denied' | 'rate-limited' | 'http-error'
+/** Secaucus lower-level tracks as signed for riders: NJ Transit RailData V2.1 Appendix II (as quoted in review) and the
+ * jtarrio/raildata client's SpecialTracks table agree. Applied to TS only, never to SE. */
+const TS_SIGNED_TRACKS: Readonly<Record<string, string>> = { '1': 'G', '2': 'F', '3': 'H', '4': 'E' };
+export type RailFailure = 'service-message' | 'configuration-missing' | 'token-limit' | 'access-denied' | 'rate-limited' | 'http-error'
   | 'timed-out' | 'network-error' | 'response-too-large' | 'unexpected-response' | 'unexpected-schema' | 'api-error';
 export interface RailBoard {
   v: 1; source: typeof RAIL_SOURCE; station: string;
@@ -82,12 +85,17 @@ export function railText(value: unknown, max = 64): string | null {
   return text && text.length <= max ? text : null;
 }
 
+const signedTrack = (station: string, track: string | null) => track && station === 'TS' ? TS_SIGNED_TRACKS[track] ?? track : track;
+
 /** One getTrainSchedule19Rec answer, reduced to what the Train screen shows. GPS, capacity, colors and messages are dropped. */
 export function normalizeRailBoard(value: unknown, station: string, receivedAt: number): RailBoard {
   // The response's station name is a short form ("New York" for New York Penn Station), so only the code must match.
   if (!object(value) || value.STATION_2CHAR !== station || !('ITEMS' in value)) throw new RailError('unexpected-schema');
   const items = value.ITEMS === null ? [] : value.ITEMS;
   if (!Array.isArray(items)) throw new RailError('unexpected-schema');
+  // A fullscreen station message replaces the board and leaves ITEMS empty: that is not "no trains". Its text is never shown.
+  if (!items.length && Array.isArray(value.STATIONMSGS)
+    && value.STATIONMSGS.some((m) => object(m) && typeof m.MSG_TYPE === 'string' && m.MSG_TYPE.trim().toLowerCase() === 'fullscreen')) throw new RailError('service-message');
   const departures: RailDeparture[] = [];
   let skippedRows = Math.max(0, items.length - MAX_ROWS);
   for (const row of items.slice(0, MAX_ROWS)) {
@@ -97,7 +105,7 @@ export function normalizeRailBoard(value: unknown, station: string, receivedAt: 
     const late = typeof row.SEC_LATE === 'string' && /^-?\d{1,6}$/.test(row.SEC_LATE.trim()) ? Number(row.SEC_LATE.trim()) : null;
     departures.push({
       trainId, line: railText(row.LINE, 40), lineCode: railText(row.LINECODE, 4), destination: railText(row.DESTINATION),
-      scheduledAt, track: railText(row.TRACK, 8), status: railText(row.STATUS, 40), secondsLate: late,
+      scheduledAt, track: signedTrack(station, railText(row.TRACK, 8)), status: railText(row.STATUS, 40), secondsLate: late,
       updatedAt: parseRailTime(row.LAST_MODIFIED) ?? null,
     });
   }
