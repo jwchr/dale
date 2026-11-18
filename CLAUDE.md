@@ -60,3 +60,11 @@ Reason: chats were filling to 40% in about 3 hours, and long chats use more of t
 - Send big reading jobs (long logs, large files, big diffs, reviews) to a subagent that returns a short answer.
 - Never paste whole files, logs or diffs into the chat.
 - A fresh chat reads only its newest handoff note and its own SSOT rows to start, plus the required startup reads above (`docs/V1_CONTRACT.md`, `docs/HANDOFF.md` and the GitHub state check); older notes only if there is a gap.
+
+## Reviews (Jeff, Nov 18, 2026)
+These have been the rules since the beginning.
+- All reviews go to CodeRabbit.
+- Safety, security, finance-sensitive or complex pull requests go to Codex instead. Start it by commenting `@codex review` on the pull request.
+- If Codex is unavailable, the review goes to Argon (Gemini 4 Argon) through the API.
+- If the Argon API is unavailable, the review goes to Jeff to give to Argon by hand: write the full review request to `Review-<PR number>-for-Gemini.txt`, hand him that file in the chat, and keep working.
+- This adds to rule 5 above: complex pull requests count as risky, and handing the file to Jeff is the last step when Codex and the Argon API are both unavailable.
