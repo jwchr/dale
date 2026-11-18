@@ -12,6 +12,7 @@ Anderson Street (AS) and Essex Street (EX) with line PV, Secaucus Lower Level (T
 
 ## Limits
 - At most one agency request per station per minute, shared by every rider (cached in the one Durable Object): five stations stay under 7,200 a day, below NJ Transit's 40,000.
+- Rows sent but none readable are `unavailable` (`unexpected-schema`), never shown as "no departures". A 401 or 403 clears the token without reading the body.
 - A failed answer is also kept for the minute, so a broken feed is never hammered. A refused token costs that station its minute: one schedule request, the token dropped, no immediate retry.
 - The per-station minute lives in the object's memory. A restart (for example a deployment) can allow one extra request per station; persisting every attempt would cost a storage write per station per minute on the Free plan, so it is not done.
 - Token requests: NJ Transit allows 10 a day and recommends one. The Worker reuses one token for up to 23 hours and requests at most 3 a day, at least an hour apart. Each request is counted in storage before it is sent. The manual rail check (`docs/RAIL_API_CHECK.md`) uses the same account, so it keeps room for its own.

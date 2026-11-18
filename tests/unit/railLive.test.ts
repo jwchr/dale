@@ -40,6 +40,8 @@ describe('railText', () => {
     expect(railText('x'.repeat(65))).toBeNull();
     expect(railText(5)).toBeNull();
     expect(railText('<'.repeat(100_000))).toBeNull();
+    expect(railText(' '.repeat(511) + 'NY')).toBeNull();
+    expect(railText(' '.repeat(510) + 'NY')).toBe('NY');
   });
 });
 
@@ -68,6 +70,10 @@ describe('normalizeRailBoard', () => {
     const rows = [row({ TRACK: '4' }), row({ TRAIN_ID: '1622', TRACK: '2' })];
     expect(normalizeRailBoard(board(rows, 'TS'), 'TS', 1).departures.map((d) => d.track)).toEqual(['E', 'F']);
     expect(normalizeRailBoard(board(rows, 'SE'), 'SE', 1).departures.map((d) => d.track)).toEqual(['4', '2']);
+    expect(normalizeRailBoard(board([row({ TRACK: 'valueOf' })], 'TS'), 'TS', 1).departures[0]!.track).toBe('valueOf');
+  });
+  it('refuses a board whose rows were all unreadable, rather than showing no trains', () => {
+    expect(() => normalizeRailBoard(board([row({ SCHED_DEP_DATE: 'soon' }), 'junk']), 'EX', 1)).toThrow('unexpected-schema');
   });
   it('treats a fullscreen station message with no rows as a service message, not an empty board', () => {
     const msg = { MSG_TYPE: 'fullscreen', MSG_TEXT: 'secret alert text' };
@@ -184,6 +190,10 @@ describe('RailBoards', () => {
       expect(await h.make().board('EX')).toMatchObject({ reason: 'access-denied' });
       expect((h.store.get('rail-v1') as { token?: unknown }).token).toBeUndefined();
     }
+    const broken = new ReadableStream({ pull(c) { c.error(new Error('cut')); } });
+    const cut = harness((m) => m === 'getToken' ? tokenOk() : new Response(broken, { status: 401 }));
+    expect(await cut.make().board('EX')).toMatchObject({ reason: 'access-denied' });
+    expect((cut.store.get('rail-v1') as { token?: unknown }).token).toBeUndefined();
     const denied = harness((m) => m === 'getToken' ? json({ Authenticated: 'False' }) : json({}));
     expect(await denied.make().board('EX')).toMatchObject({ reason: 'access-denied' });
   });

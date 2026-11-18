@@ -85,7 +85,7 @@ export function railText(value: unknown, max = 64): string | null {
   return text && text.length <= max ? text : null;
 }
 
-const signedTrack = (station: string, track: string | null) => track && station === 'TS' ? TS_SIGNED_TRACKS[track] ?? track : track;
+const signedTrack = (station: string, track: string | null) => track && station === 'TS' ? (Object.hasOwn(TS_SIGNED_TRACKS, track) ? TS_SIGNED_TRACKS[track]! : track) : track;
 
 /** One getTrainSchedule19Rec answer, reduced to what the Train screen shows. GPS, capacity, colors and messages are dropped. */
 export function normalizeRailBoard(value: unknown, station: string, receivedAt: number): RailBoard {
@@ -109,6 +109,8 @@ export function normalizeRailBoard(value: unknown, station: string, receivedAt: 
       updatedAt: parseRailTime(row.LAST_MODIFIED) ?? null,
     });
   }
+  // Rows were sent but none could be read: that is not "no trains".
+  if (items.length && !departures.length) throw new RailError('unexpected-schema');
   departures.sort((a, b) => a.scheduledAt - b.scheduledAt || a.trainId.localeCompare(b.trainId));
   return { v: 1, source: RAIL_SOURCE, station, state: 'ok', receivedAt, departures, skippedRows };
 }
@@ -122,8 +124,9 @@ async function railRequest(method: string, fields: Record<string, string>, fetch
     const response = await fetchImpl(`${RAIL_HOST}/api/TrainData/${method}`, {
       method: 'POST', body, headers: { accept: 'application/json' }, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
     });
-    const statusFailure: RailFailure | undefined = response.status === 401 || response.status === 403 ? 'access-denied'
-      : response.status === 429 ? 'rate-limited' : response.ok ? undefined : 'http-error';
+    // A refusal is final without its body, so a body that cannot be read still clears the token.
+    if (response.status === 401 || response.status === 403) { void response.body?.cancel().catch(() => {}); throw new RailError('access-denied'); }
+    const statusFailure: RailFailure | undefined = response.status === 429 ? 'rate-limited' : response.ok ? undefined : 'http-error';
     if (!response.body) throw new RailError(statusFailure ?? 'unexpected-response');
     const reader = response.body.getReader(), chunks: Uint8Array[] = [];
     let size = 0;
