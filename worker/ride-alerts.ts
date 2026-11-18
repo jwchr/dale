@@ -74,7 +74,7 @@ export function allowedEndpoint(value: unknown): value is string {
 
 export const validCodeHash = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 
-/** The household code (docs/RIDER_GPS.md), normalized, hashed and compared in constant time. */
+/** The household code (docs/LOCKED_STOP_ALERTS.md, "Household code"), normalized, hashed and compared in constant time. */
 export async function codeMatches(code: unknown, hash: string): Promise<boolean> {
   const text = typeof code === 'string' && code.length <= 128 ? code.trim().toUpperCase().replace(/[\s-]/g, '') : '';
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
