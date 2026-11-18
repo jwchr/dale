@@ -67,12 +67,37 @@ async function authenticate(product, credentials, fetchImpl) {
   return { status: 'authenticated', token: result.value.UserToken };
 }
 
-function stationSummary(value, station) {
-  if (!object(value) || value.STATION_2CHAR !== station.code || value.STATIONNAME !== station.name
-    || !Array.isArray(value.ITEMS) || value.ITEMS.length > 19
-    || !value.ITEMS.every(row => object(row) && present(row.TRAIN_ID) && present(row.SCHED_DEP_DATE))) {
-    return { status: 'unexpected-schema' };
+// Field names only (never values), so a failed shape test can be traced without exporting agency rows.
+const keyNames = value => Object.keys(value).filter(key => /^[A-Za-z0-9_]{1,40}$/.test(key)).sort().slice(0, 40);
+
+/** Which shape tests a sample failed: test names, counts and field names only. */
+export function shapeFailures(value, station) {
+  if (!object(value)) return { failed: [Array.isArray(value) ? 'top-level-array' : 'top-level-not-object'] };
+  const failed = [];
+  if (value.STATION_2CHAR !== station.code) failed.push('station-code-echo');
+  if (value.STATIONNAME !== station.name) failed.push('station-name-echo');
+  const items = value.ITEMS;
+  if (!Array.isArray(items)) failed.push(items === undefined ? 'items-missing' : 'items-not-array');
+  else {
+    if (items.length > 19) failed.push('items-over-19');
+    if (!items.every(object)) failed.push('row-not-object');
+    const rows = items.filter(object);
+    for (const field of ['TRAIN_ID', 'SCHED_DEP_DATE']) {
+      const missing = rows.filter(row => row[field] === undefined || row[field] === null).length;
+      const notString = rows.filter(row => row[field] !== undefined && row[field] !== null && typeof row[field] !== 'string').length;
+      const blankOrLong = rows.filter(row => typeof row[field] === 'string' && !present(row[field])).length;
+      if (missing) failed.push(`${field}-missing:${missing}`);
+      if (notString) failed.push(`${field}-not-string:${notString}`);
+      if (blankOrLong) failed.push(`${field}-blank-or-over-128:${blankOrLong}`);
+    }
   }
+  const rowKeys = Array.isArray(items) ? [...new Set(items.filter(object).flatMap(keyNames))].sort().slice(0, 40) : [];
+  return { failed, topKeys: keyNames(value), itemCount: Array.isArray(items) ? items.length : null, rowKeys };
+}
+
+function stationSummary(value, station) {
+  const shape = shapeFailures(value, station);
+  if (shape.failed.length) return { status: 'unexpected-schema', ...shape };
   const rows = value.ITEMS;
   return {
     status: rows.length ? 'schema-confirmed' : 'empty-at-check', rows: rows.length,
