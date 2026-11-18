@@ -48,7 +48,10 @@ test('reads in Spanish and fits a narrow phone at large text', async ({ page }) 
   await page.getByRole('button', { name: 'Crear claves nuevas' }).click();
   await expect(page.getByRole('heading', { name: 'Código del hogar' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copiar' })).toHaveCount(2);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // Compared with the 320 px set above: on a phone, overflow widens the window itself, so innerWidth is no check.
+  const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth,
+    overflowing: [...document.querySelectorAll('h1, h2, p, li, output, button')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent) }));
+  expect(widths).toEqual({ page: 320, overflowing: [] });
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('heading', { name: 'Household code' })).toBeVisible();
 });
