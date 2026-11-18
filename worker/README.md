@@ -17,3 +17,7 @@ Design: `docs/LOCKED_STOP_ALERTS.md`. Code: `ride-alerts.ts` (rules, ride table,
 Owner-set secrets, by name only: `VAPID_PRIVATE_KEY` (P-256 private JWK) and `HOUSEHOLD_CODE_HASH` (SHA-256 hex of the normalized household code). Without both, every ride route answers 503 and config says not available. Rides live in the same SQLite object; health shows only the count of active rides. With history collection off, an alarm runs only while a ride is active or pending, polls no faster than the shared 30-second pace and stops when no ride remains; with collection on, rides use the collector's own polls.
 
 Actual live readiness and real-ride acceptance must be checked separately from compilation, tests and merging. See issue #89's deployment evidence for current status.
+
+## Live trains (#80)
+
+Design and limits: `docs/RAIL_LIVE.md`. Code: `rail.ts`. `GET /v1/rail?station=AS|EX|TS|SE|NY` (no other parameters) returns that station's next departures from NJ Transit RailData, reduced to train number, line, destination, scheduled time, track, status, delay and last-change time, with Dale's receipt time. JSON, `no-store`. `/v1/status` adds `rail: { tokenRequests24h, hasToken }`, never the token.
