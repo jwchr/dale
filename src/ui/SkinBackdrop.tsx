@@ -5,16 +5,24 @@ import { useHomePhoto } from './HomePhoto';
 // and original fallback artwork only: no
 // official shields, logos or sign designs of the NJ Turnpike Authority, the Garden State Parkway,
 // the MTA, NJ Transit or the Port Authority (the NYC style avoids the MTA's sign system on purpose). Decorative, so hidden from assistive technology.
-export type Skin = 'garden' | 'turnpike' | 'parkway' | 'nyc' | 'clean';
-export const SKINS: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
+// Household (#101) is the default for new installs; a saved choice is kept as it is.
+export type Skin = 'household' | 'garden' | 'turnpike' | 'parkway' | 'nyc' | 'clean';
+export const SKINS: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean'];
+export const DEFAULT_SKIN: Skin = 'household';
+/** Street maps follow the page: dark under the night styles, light under Household and light Clean. */
+export function mapIsDark(): boolean {
+  const { skin, theme } = document.documentElement.dataset;
+  if (skin === 'household') return false;
+  return skin !== 'clean' || theme === 'dark' || (theme !== 'light' && !!matchMedia?.('(prefers-color-scheme: dark)').matches);
+}
 // Shared by loading, guide and main views; remounting one does not choose another photo.
 const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-september-sunset';
 
 export function SkinBackdrop({ skin }: { skin: Skin }) {
   const personal = useHomePhoto()?.url;
-  // NYC uses the owner-supplied night photo; other skins retain their one choice per opening.
-  // Only the selected asset is requested; no remote image service or photo rotation.
-  const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : OPENING_PHOTO;
+  // NYC uses the owner-supplied night photo and Household the daytime Great Falls (#101); other skins retain
+  // their one choice per opening. Only the selected asset is requested; no remote image service or photo rotation.
+  const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : skin === 'household' ? 'paterson-great-falls' : OPENING_PHOTO;
   const url = personal ?? (skin === 'nyc' ? rambleNightUrl : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`);
   const [readyUrl, setReadyUrl] = useState<string>();
   // Readiness belongs to this URL: a late prior-style load must never paint the wrong photo.
@@ -34,9 +42,29 @@ export function SkinBackdrop({ skin }: { skin: Skin }) {
         {skin === 'turnpike' && <Turnpike />}
         {(skin === 'parkway' || skin === 'garden') && <Parkway />}
         {skin === 'nyc' && <Skyline />}
+        {skin === 'household' && <Daylight />}
       </svg>}
     </div>
   );
+}
+
+/** Household (#101): a bright day over wooded hills and a river, shown only until the photo loads. */
+function Daylight() {
+  return <>
+    <defs>
+      <linearGradient id="hh-sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#8fb8dc" />
+        <stop offset="0.5" stopColor="#d7e4ea" />
+        <stop offset="0.62" stopColor="#f1e6cc" />
+      </linearGradient>
+    </defs>
+    <rect width="400" height="800" fill="url(#hh-sky)" />
+    <path d="M0 470 C70 440 120 455 190 438 C260 420 320 446 400 430 V800 H0Z" fill="#8a9a6a" />
+    <path d="M0 520 C80 490 150 512 230 494 C300 478 350 500 400 488 V800 H0Z" fill="#6f8a4c" />
+    <path d="M150 800 C180 690 230 620 214 540 L246 540 C262 620 250 700 290 800 Z" fill="#9cbdd3" />
+    <path d="M0 600 C90 570 140 600 200 590 C270 578 330 610 400 596 V800 H0Z" fill="#c8923a" opacity="0.55" />
+    <path d="M0 680 C100 650 170 690 250 672 C320 656 360 680 400 670 V800 H0Z" fill="#5b7340" />
+  </>;
 }
 
 /** Dusk over a divided highway: glowing horizon, an overhead sign gantry, lane lines running to it. */

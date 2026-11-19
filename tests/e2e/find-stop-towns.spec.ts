@@ -75,7 +75,7 @@ test('unverified city fields stay in the unknown-city group', async ({ page }) =
   await expect(page.locator('.find-stop-towns').getByRole('button', { name: new RegExp('^' + t.selection.unknownCity) })).toBeVisible();
 });
 
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
   test(`town choices fit narrow phones and enlarged text (${skin}, ${lang})`, async ({ page }) => {
     await setup(page, lang, cityDataset(), skin);
     await expect(page.locator('html')).toHaveAttribute('data-skin', skin);

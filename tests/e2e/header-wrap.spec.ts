@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 // DejaVu Sans is the wide fallback font on the Linux CI runner; Turnpike has the widest (boxed) wordmark.
 const favorites = [{ id: 'reference', label: 'Hackensack → New York', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }];
 test.use({ serviceWorkers: 'block' });
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) for (const screen of ['home', 'train'] as const) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) for (const screen of ['home', 'train'] as const) {
   test(`top bar keeps settings with the wordmark or Back at enlarged text (${skin}, ${lang}, ${screen})`, async ({ page }) => {
     await page.addInitScript(({ skin, lang, favorites }) => {
       localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, theme: 'light', skin }));

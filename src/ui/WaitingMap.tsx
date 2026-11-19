@@ -6,6 +6,7 @@ import { DEFAULT_TIMING } from '../domain/lock';
 import { timetablePosition } from '../domain/tripProgress';
 import { tripStopTimes } from '../domain/schedule';
 import { StreetMap } from './StreetMap';
+import { mapIsDark } from './SkinBackdrop';
 import type { MapStop } from './RouteMap';
 import type { Strings } from './i18n';
 
@@ -22,8 +23,7 @@ export function WaitingMap({ ds, session, alightIndex, now, t, estimate }: { ds:
   const from = Math.min(stops.length - 2, Math.floor(position)), fraction = position - from;
   const a = stops[from]!, b = stops[from + 1]!;
   const dot = actual ? last : estimate ? { lat: a.lat! + fraction * (b.lat! - a.lat!), lon: a.lon! + fraction * (b.lon! - a.lon!) } : undefined;
-  const dark = document.documentElement.dataset.skin !== 'clean' || document.documentElement.dataset.theme === 'dark'
-    || (document.documentElement.dataset.theme !== 'light' && matchMedia?.('(prefers-color-scheme: dark)').matches);
+  const dark = mapIsDark();
   return <div className="waiting-map">
     <button className="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t.progress.hideMap : t.progress.showMap}</button>
     {open && <>

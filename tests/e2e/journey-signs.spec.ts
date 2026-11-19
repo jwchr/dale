@@ -38,7 +38,7 @@ const renderedSignLines = (nodes: Element[]) => nodes.map(node => {
 });
 
 const API = 'https://dale-live.test.workers.dev';
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
   for (const lang of ['en', 'es'] as const) test(`paired journey signs and adjacent actions (${skin}, ${lang})`, async ({ page }) => {
     const t = strings[lang], ds = structuredClone(liveDataset);
     ds.meta.stopCities = { state: 'verified', source: 'NJ Transit GIS Department', url: STOP_CITY_SOURCE, retrievedAt: '2026-11-04T10:00:00Z' };

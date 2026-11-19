@@ -43,7 +43,7 @@ import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
 import { TravelModeSelector } from './TravelModeSelector';
 import { RiderGuide } from './RiderGuide';
 import { TicketGuide } from './TicketGuide';
-import { SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
+import { DEFAULT_SKIN, SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
 import { BusLockPanel } from './BusLockPanel';
 import { liveApiUrl } from '../domain/liveBus';
 import { loadLiveSchedule } from '../data/liveSchedule';
@@ -104,8 +104,8 @@ function sourceHref(live: boolean): string {
 const readSettings = (): Settings => {
   try {
     const s = JSON.parse(store?.getItem('arriba.settings.v1') ?? '{}') as Partial<Settings>;
-    return { bilingualButtons: s.bilingualButtons === true, rotateSlogans: s.rotateSlogans === true, lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : 'garden' };
-  } catch { return { lang: 'en', theme: 'system', count: 3, skin: 'garden', liveMotion: true, bilingualButtons: false, rotateSlogans: false }; }
+    return { bilingualButtons: s.bilingualButtons === true, rotateSlogans: s.rotateSlogans === true, lang: s.lang === 'es' ? 'es' : 'en', theme: s.theme ?? 'system', count: s.count === 5 ? 5 : 3, liveMotion: s.liveMotion !== false, skin: SKINS.includes(s.skin as Skin) ? s.skin as Skin : DEFAULT_SKIN };
+  } catch { return { lang: 'en', theme: 'system', count: 3, skin: DEFAULT_SKIN, liveMotion: true, bilingualButtons: false, rotateSlogans: false }; }
 };
 
 // One choice per page lifetime, shared by loading/retry/navigation mounts. No timers or visibility handlers.

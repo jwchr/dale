@@ -134,7 +134,7 @@ test('home keeps original distance and source time on missing feed, then rejects
   expect(state.geometryCalls).toBe(1);
 });
 
-for (const skin of ['turnpike', 'parkway', 'garden', 'nyc']) test(`distance inherits readable compact text in ${skin}`, async ({ page }) => {
+for (const skin of ['household', 'turnpike', 'parkway', 'garden', 'nyc']) test(`distance inherits readable compact text in ${skin}`, async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 }); await setup(page);
   await page.evaluate(skin => { document.documentElement.dataset.skin = skin; }, skin);
   const row = page.locator('.deps li[data-trip-instance="T1@20261104"]');

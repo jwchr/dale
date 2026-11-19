@@ -120,7 +120,7 @@ test('non-overlapping calendars show uncertainty, never a cancellation', async (
   await expect(notices(page)).not.toContainText(/cancelled|removed bus/i);
 });
 
-for (const lang of ['en','es']) for (const skin of ['turnpike','parkway','nyc','garden','clean']) {
+for (const lang of ['en','es']) for (const skin of ['household','turnpike','parkway','nyc','garden','clean']) {
   test(`${lang}/${skin}: notice fits narrow enlarged text, passes accessibility and supports native keyboard disclosure`, async ({ page }) => {
     let ds = structuredClone(liveDataset); await setup(page, () => ds, lang, skin);
     ds = next(); await page.reload(); await expect(notices(page)).toHaveCount(1);
