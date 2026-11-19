@@ -14,6 +14,7 @@ import type { Dataset } from '../domain/types';
 import type { Lang, Strings } from './i18n';
 import { SignalWarning } from './SignalWarning';
 import { StreetMap } from './StreetMap';
+import { mapIsDark } from './SkinBackdrop';
 import type { MapStop } from './RouteMap';
 
 /** Per ride session, so leaving or entering full screen keeps the taps and the GPS choice. */
@@ -169,9 +170,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             return { lat: mapStops[i]!.lat + f * (mapStops[i + 1]!.lat - mapStops[i]!.lat), lon: mapStops[i]!.lon + f * (mapStops[i + 1]!.lon - mapStops[i]!.lon) };
           };
           const dot = fix && !progress.projected ? { lat: fix.lat, lon: fix.lon } : at(progress.position);
-          const dark = document.documentElement.dataset.skin !== 'clean'
-            || document.documentElement.dataset.theme === 'dark'
-            || (document.documentElement.dataset.theme !== 'light' && matchMedia?.('(prefers-color-scheme: dark)').matches);
+          const dark = mapIsDark();
           return <>
             <StreetMap text={t.maps} stops={mapStops} bus={dot} dark={!!dark} label={p.mapLabel(nextLabel.town, stopLabel(name(alightIndex)).town)} failedText={p.mapFailed} loadingText={p.mapLoading} />
             <p className="muted small">{progress.basis === 'timetable' || progress.projected ? p.mapDotEstimate : p.mapDotSeen}</p>

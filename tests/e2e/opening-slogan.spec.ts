@@ -57,7 +57,7 @@ for (const lang of ['en', 'es'] as const) {
     expect(await page.evaluate(() => localStorage.getItem('arriba.favorites.v1'))).toBe(favoritesBefore);
   });
 
-  const skins: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
+  const skins: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean'];
   for (const skin of skins) test(`optional slogan and choices fit narrow large text (${lang}, ${skin})`, async ({ page }) => {
     await page.setViewportSize({ width: 305, height: 780 });
     await page.emulateMedia({ reducedMotion: 'reduce' });

@@ -115,7 +115,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await page.getByRole('button', { name: t.journey.busMode, exact: true }).click();
     await page.getByRole('button', { name: t.settings, exact: true }).click();
     await expect(page.getByText(t.themeCleanOnly, { exact: true })).toBeVisible();
-    for (const skin of ['clean','turnpike','nyc','parkway','garden'] as const) {
+    for (const skin of ['clean','turnpike','nyc','parkway','household','garden'] as const) {
       await page.getByRole('button', { name: t.skins[skin], exact: true }).click();
       await expect(page.locator('html')).toHaveAttribute('data-skin', skin);
       await expect(page.getByRole('button', { name: t.skins[skin], exact: true })).toHaveAttribute('aria-pressed','true');

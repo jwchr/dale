@@ -140,7 +140,7 @@ test('unavailable storage does not block app use or claim success', async ({ pag
   await expect(page.locator('.dep').first()).toBeVisible();
 });
 
-for (const lang of ['en', 'es'] as const) for (const skin of ['garden', 'turnpike', 'parkway', 'nyc', 'clean']) test(`photo settings remain readable in ${skin} (${lang})`, async ({ page }) => {
+for (const lang of ['en', 'es'] as const) for (const skin of ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean']) test(`photo settings remain readable in ${skin} (${lang})`, async ({ page }) => {
   await start(page, lang, skin); const panel = page.locator('.home-photo-settings');
   await panel.locator('input').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: await fixture(page) });
   await expect(panel.getByRole('status')).toHaveText(strings[lang].homePhoto.saved, { timeout: PHOTO_SAVE_MS });

@@ -99,7 +99,7 @@ for (const lang of ['en', 'es'] as const) {
     expect(await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'))).toBe(favorites);
   });
 
-  const skins: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
+  const skins: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean'];
   for (const skin of skins) test(`both label lines fit phone and enlarged text (${lang}, ${skin})`, async ({ page }) => {
     await setup(page, lang, true, skin);
     for (const width of [305, 320]) {

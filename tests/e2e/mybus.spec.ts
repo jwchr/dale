@@ -5,7 +5,7 @@ import { myBusStrings } from '../../src/ui/myBusStrings';
 import { LIVE_SOURCE } from '../../src/domain/liveBus';
 import type { Lang } from '../../src/ui/i18n';
 import type { Skin } from '../../src/ui/SkinBackdrop';
-const skins: readonly Skin[] = ['garden', 'turnpike', 'parkway', 'nyc', 'clean'];
+const skins: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean'];
 
 test.use({ serviceWorkers: 'block' });
 const API = 'https://dale-live.test.workers.dev';

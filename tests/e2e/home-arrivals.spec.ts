@@ -50,8 +50,10 @@ async function setup(page: Page, options: { mode?: Mode; lang?: 'en' | 'es'; now
 const current = (page: Page) => page.locator('.deps li[data-trip-instance="T1@20261104"]');
 
 // Measure real text advances by line, not merely the full-width countdown wrapper.
-const countdownBounds = (button: Element) => {
-  const badge = button.querySelector('.route-badge')!.getBoundingClientRect();
+// The countdown is centered under the route badge, or in its own minutes tile in the Household style.
+const countdownAnchor = (skin: string) => skin === 'household' ? '.dep-right' : '.route-badge';
+const countdownBounds = (button: Element, anchor = '.route-badge') => {
+  const badge = button.querySelector(anchor)!.getBoundingClientRect();
   const child = button.querySelector('.dep-min')!, rect = child.getBoundingClientRect();
   const center = (badge.left + badge.right) / 2, lines = new Map<number, { left: number; right: number }>();
   const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
@@ -228,12 +230,13 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
 });
 
 
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
   for (const lang of ['en', 'es'] as const) test(`compact departure cards retain clocks and controls (${skin}, ${lang})`, async ({ page }) => {
     const state = await setup(page, { lang, skin });
     const row = current(page), button = row.getByRole('button');
     // Rows alternate, starting with the lighter shade, so cards never blend together (owner, #155).
-    const shades = await page.locator('.deps .dep').evaluateAll(nodes => nodes.map(n => getComputedStyle(n).backgroundColor));
+    // Household draws each card's board behind the button, so its shade is on ::before.
+    const shades = await page.locator('.deps .dep').evaluateAll((nodes, skin) => nodes.map(n => getComputedStyle(n, skin === 'household' ? '::before' : null).backgroundColor), skin);
     // The Turnpike's first row keeps its green next-bus highlight; its later rows still alternate.
     if (shades.length > 1) expect(shades[0]).not.toBe(shades[1]);
     if (shades.length > 2 && skin !== 'turnpike') expect(shades[2]).toBe(shades[0]);
@@ -249,14 +252,21 @@ for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
         return { bounds: bounds.toJSON(), route: rect('.route-badge'), main: rect('.dep-main'), countdown: rect('.dep-right'), boardingColumn: rect('.boarding-clock'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
           textOutside: [...button.querySelectorAll('*')].some(node => node.getBoundingClientRect().right > bounds.right + 1) };
       });
-      if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
-      else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
+      if (skin === 'household') {
+        // Household: the times sit beside or under the route, and the minutes tile stands on its own to the right.
+        expect(geometry.route.right <= geometry.main.left + 1 || geometry.main.top >= geometry.route.bottom - 1, JSON.stringify({ width, scale, geometry })).toBe(true);
+        // The minutes tile is right of the route, or (very large text) on its own line under it.
+        expect(geometry.countdown.left >= geometry.route.right || geometry.countdown.top >= geometry.route.bottom, JSON.stringify({ width, scale, geometry })).toBe(true);
+      } else {
+        if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
+        else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
+        expect(geometry.countdown.top).toBeGreaterThanOrEqual(geometry.route.bottom);
+      }
       expect(geometry.route.height).toBeGreaterThanOrEqual(44);
-      expect(geometry.countdown.top).toBeGreaterThanOrEqual(geometry.route.bottom);
-      const textBounds = await button.evaluate(countdownBounds);
+      const textBounds = await button.evaluate(countdownBounds, countdownAnchor(skin));
       expect(textBounds.childOffset, JSON.stringify({ width, scale, textBounds })).toBeLessThan(1);
       expect(textBounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, textBounds })).toBe(true);
-      expect(Math.abs((geometry.route.left + geometry.route.right - geometry.countdown.left - geometry.countdown.right) / 2)).toBeLessThan(1);
+      if (skin !== 'household') expect(Math.abs((geometry.route.left + geometry.route.right - geometry.countdown.left - geometry.countdown.right) / 2)).toBeLessThan(1);
       if (scale <= 130) expect(geometry.route.top).toBeLessThan(geometry.boarding.bottom);
       expect(geometry.overflow).toBe(0);
       expect(geometry.textOutside).toBe(false);
@@ -365,15 +375,15 @@ for (const lang of ['en', 'es'] as const) test(`Garden live indicator remains di
   expect(colors.icon).toBe('rgb(137, 243, 172)');
 });
 
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
-  test(`short Now/Ahora countdown is centered under the route (${skin}, ${lang})`, async ({ page }) => {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
+  test(`short Now/Ahora countdown is centered ${skin === 'household' ? 'in its tile' : 'under the route'} (${skin}, ${lang})`, async ({ page }) => {
     await setup(page, { lang, skin, mode: 'due-now' });
     const row = current(page), button = row.getByRole('button');
     await expect(row.locator('.dep-min')).toHaveText(lang === 'en' ? 'Now' : 'Ahora');
     for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
-      const bounds = await button.evaluate(countdownBounds);
+      const bounds = await button.evaluate(countdownBounds, countdownAnchor(skin));
       expect(bounds.childOffset, JSON.stringify({ width, scale, bounds })).toBeLessThan(1);
       expect(bounds.glyphOffsets.length).toBeGreaterThan(0);
       expect(bounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, bounds })).toBe(true);

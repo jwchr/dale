@@ -5,7 +5,7 @@ const API = 'https://dale-live.test.workers.dev';
 
 // HANDOFF's large-text name-banner bug: an oversized word may wrap, but never strand
 // one letter on its own. Use actual glyph positions, not a CSS/string assertion.
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) {
   for (const lang of ['en', 'es']) test(`custom commute banner at large text (${skin}, ${lang})`, async ({ page }) => {
     const favorites = [{ id: 'banner', fromStopId: '2', toStopId: '3', routeIds: [], label: 'Hackensack' }];
     await page.addInitScript(({ skin, lang, favorites }) => {

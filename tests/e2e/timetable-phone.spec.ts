@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { strings } from '../../src/ui/i18n';
 test.use({ serviceWorkers: 'block' });
 
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
   test(`all-day times remain reachable on enlarged narrow phones (${skin}, ${lang})`, async ({ page }) => {
     const t = strings[lang];
     await page.addInitScript(({ skin, lang }) => localStorage.setItem('arriba.settings.v1', JSON.stringify({ skin, lang, theme: 'light' })), { skin, lang });

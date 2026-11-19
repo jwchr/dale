@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { strings } from '../../src/ui/i18n';
 
 test.use({ serviceWorkers: 'block' });
-for (const lang of ['en', 'es'] as const) for (const skin of ['garden', 'turnpike', 'parkway', 'nyc', 'clean']) test(`saved-bus actions fit enlarged phones and retain native behavior (${lang}, ${skin})`, async ({ page }) => {
+for (const lang of ['en', 'es'] as const) for (const skin of ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean']) test(`saved-bus actions fit enlarged phones and retain native behavior (${lang}, ${skin})`, async ({ page }) => {
   const t = strings[lang];
   await page.addInitScript(({ lang, skin }) => {
     if (!localStorage.getItem('arriba.settings.v1')) localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin, theme: 'light' }));

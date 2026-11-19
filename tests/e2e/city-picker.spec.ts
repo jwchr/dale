@@ -34,7 +34,7 @@ async function auditPicker(page: Page, screen: string) {
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(violations.map(v => `${screen}: ${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(' | ')}`)).toEqual([]);
 }
-for (const skin of ['turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
+for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
   test(`city then stop, explicit save/cancel and readable controls (${skin}, ${lang})`, async ({ page }) => {
     const { favorites, t } = await setup(page, lang, skin), s = t.cityPicker;
     const home = page.locator('[data-favorite-id="home"]');

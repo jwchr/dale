@@ -1,0 +1,131 @@
+/* Household style (#101), the default for new installs. Owner design reference: docs/design/mockups/01-04.
+   Warm cream frosted cards on the daytime Great Falls photo, dark green ink, gold accents, LED departure rows with
+   the minutes in their own light tile. Always the light scheme, whatever the light/dark setting (that setting is
+   for Clean): every token the dark theme sets is set again here, so a dark preference never leaks in.
+   Loaded after skins.css. Original artwork only: no NJ Transit, Port Authority, Parkway or Turnpike logos. */
+:root[data-skin='household'] {
+  --bg: #e7e1d1; --surface: #f7f4ec; --text: #26352d; --muted: #4f5d55; --line: #d3cab3; --heading: #173d2b;
+  --brand: #1f5a3a; --brand-ink: #ffffff; --brand-text: #1f5a3a; --accent: #e8a91b; --express: #8c6106;
+  --warn-bg: #fbeec8; --warn-ink: #573f00; --alert: #b3261e; --alert-fill: #b3261e; --focus: #1f5a3a;
+  --led-bg: #0c0c0a; --led-ink: #ffb627; --led-soft: #f6d48a;
+  --radius: 18px; --backdrop: none;
+  --glass: rgba(247, 244, 236, 0.94); --glass-strong: rgba(250, 248, 242, 0.97);
+  --glass-border: rgba(255, 255, 255, 0.75); --glass-edge: rgba(23, 61, 43, 0.14);
+  --glass-shadow: 0 10px 28px rgba(18, 34, 25, 0.24), 0 1px 2px rgba(18, 34, 25, 0.14);
+  --dep-alt: transparent; --dep-alt-muted: var(--led-soft);
+  color-scheme: light; background: var(--bg);
+}
+:root[data-skin='household'] body { background: transparent; }
+:root[data-skin='household'] :is(h1, h2, h3, h4):not(.rail-heading *, .rail-preview *, .top *) { color: var(--heading); letter-spacing: -0.01em; }
+:root[data-skin='household'] h1 { font-weight: 850; }
+/* Brighter and sharper than the night styles; the cards stay nearly opaque so text never sits on the photo. */
+:root[data-skin='household'] .photo-backdrop { filter: blur(1.5px) brightness(.96) saturate(1.08); }
+
+/* Header on the photo: a dark green veil keeps the white slogan readable over the brightest sky. */
+:root[data-skin='household'] .top { --text: #ffffff; --muted: #e3ede6; --focus: #ffd23f; color: #fff;
+  background: linear-gradient(180deg, rgba(9, 36, 24, 0.84), rgba(9, 36, 24, 0.72)); border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); }
+:root[data-skin='household'] .top .chip { color: var(--heading); }
+:root[data-skin='household'] .top .chip[aria-pressed='true'] { color: var(--brand-ink); border-color: #fff; }
+:root[data-skin='household'] .top-slogan { font-style: normal; font-weight: 600; text-align: start; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); }
+:root[data-skin='household'] .top-version { align-items: flex-start; text-align: start; padding-inline-start: 8px; border-inline-start: 1px solid rgba(255, 255, 255, 0.4); }
+/* The yellow "d" mark and lowercase wordmark; the accessible name stays "Dale!" on the image role. */
+:root[data-skin='household'] .wordmark { font-size: 0; letter-spacing: 0; -webkit-text-stroke: 0; color: #fff; gap: 6px; flex-shrink: 0; }
+:root[data-skin='household'] .wordmark .bang { display: none; }
+:root[data-skin='household'] .wordmark::before { content: 'd'; display: inline-grid; place-items: center; inline-size: min(2.2rem, 15cqi); block-size: min(2.2rem, 15cqi);
+  padding-block-end: .12em; border-radius: 50%; background: #f2b31f; color: var(--heading); font-size: min(1.6rem, 11cqi); font-weight: 800; line-height: 1;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.3); }
+:root[data-skin='household'] .wordmark::after { content: 'dale.'; font-size: min(1.85rem, 12.5cqi); font-weight: 900; letter-spacing: -0.035em; line-height: 1; }
+
+/* The wider "d" mark leaves less room, so on narrow bars the stamp takes its own row, as in Turnpike. */
+@container top-bar (max-width: 18.5rem) {
+  :root[data-skin='household'] .top .top-version { order: 3; flex-basis: 100%; padding-inline-start: 0; border-inline-start: 0; }
+}
+
+/* Cream cards and panels. */
+:root[data-skin='household'] .card { border-radius: var(--radius); padding: 14px; }
+:root[data-skin='household'] main > section:not(.card) { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 4px 14px 14px; box-shadow: var(--glass-shadow); }
+:root[data-skin='household'] :is(main > .row-between, main > button, main > aside, main > .home-toolbar, .foot) {
+  background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: 16px; box-shadow: var(--glass-shadow); }
+:root[data-skin='household'] main > .row-between { padding: 2px 8px; }
+:root[data-skin='household'] main > .home-toolbar { padding: 6px; }
+:root[data-skin='household'] .foot { padding: 10px 12px; margin: 0 0 16px; }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-skin='household'] :is(main > .home-toolbar, main > aside, main > button) { -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+}
+/* Small spaced capitals for the section headings the screens already have. */
+:root[data-skin='household'] main > section > h2 { font-size: .78rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; margin-block: 18px 8px; }
+
+/* Buttons: filled green for the main action, cream with a thin outline for the rest. */
+:root[data-skin='household'] button:not(.dep, .icon-btn, .ghost, .link, .link-cell, .travel-mode button) { border-color: #8a7f62; }
+:root[data-skin='household'] :is(.primary, .chip[aria-pressed='true'], .chip[data-selected='true'], .travel-mode button[aria-pressed='true']) {
+  background: var(--brand); color: var(--brand-ink); border-color: var(--brand); box-shadow: 0 2px 6px rgba(23, 61, 43, 0.28); }
+:root[data-skin='household'] .travel-mode { background: #fffdf7; border-color: #cfc6ad; }
+:root[data-skin='household'] :is(.commute-controls .chip:not([aria-pressed='true']), .find-stop) { background: #fffdf7; color: var(--heading); font-weight: 650; }
+:root[data-skin='household'] .icon-btn { color: inherit; }
+
+/* Journey signs: green road signs with a white rim; the stop names on the same LED board as the departures. */
+:root[data-skin='household'] .highway-sign { background: linear-gradient(180deg, #246a44, var(--brand)); color: #fff; border: 2px solid #fff; border-radius: 14px;
+  box-shadow: 0 0 0 2px var(--brand), 0 6px 14px rgba(18, 34, 25, 0.3); margin: 2px; }
+:root[data-skin='household'] .highway-label { background: var(--accent); color: #10261b; letter-spacing: .14em; }
+:root[data-skin='household'] .sign-change { background: var(--accent); color: #10261b; }
+:root[data-skin='household'] .commute-stop { background: var(--led-bg); color: var(--led-ink); border: 1px solid #000; border-inline-start: 4px solid var(--accent);
+  border-radius: 8px; margin-inline: 2px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6); }
+:root[data-skin='household'] .commute-sign { background: var(--led-bg); border-color: #000; border-inline-start: 4px solid var(--accent); }
+:root[data-skin='household'] .commute-reverse { background: #fffdf7; color: var(--heading); }
+
+/* Departure rows: a black LED board with an amber route number and a gold edge. */
+:root[data-skin='household'] .dep { --text: var(--led-ink); --muted: var(--led-soft); --alert: #ff8a80; color: var(--led-ink);
+  background: var(--led-bg); border: 1px solid #000; border-inline-start: 5px solid var(--accent); border-radius: 10px; box-shadow: 0 2px 6px rgba(18, 34, 25, 0.25); }
+:root[data-skin='household'] .dep .live-symbol[data-live='true'] { color: #89f3ac; }
+:root[data-skin='household'] .dep:hover { border-color: #000; border-inline-start-color: #ffc94d; }
+/* The route number is always amber on the black board, here and on every other screen; the T in 165T says express. */
+:root[data-skin='household'] .route-badge { background: var(--led-bg); color: var(--led-ink); border: 0; box-shadow: none; border-radius: 8px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; letter-spacing: .02em; text-shadow: 0 0 6px rgba(255, 170, 20, 0.45); }
+:root[data-skin='household'] .route-badge[data-express='true'] { background: var(--led-bg); color: var(--led-ink); box-shadow: none; }
+:root[data-skin='household'] .dep .dep-place { color: var(--led-soft); font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; }
+:root[data-skin='household'] .dep :is(.dep-time, .dep-arrival-time, .dep-arrival-scheduled) { color: var(--led-ink); text-shadow: 0 0 6px rgba(255, 170, 20, 0.35); }
+
+/* Home cards: the button itself is transparent; the board is drawn behind the route and times, and the minutes
+   tile stands apart on the right. Wide rows keep route, times and minutes on one line; narrower rows put the
+   times under the route; the narrowest (large text) put the tile inside the board, under the route. */
+:root[data-skin='household'] .fav .deps .dep { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'route tile' 'main tile';
+  gap: 0 6px; padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 12px; }
+:root[data-skin='household'] .fav .deps .dep::before { content: ''; grid-area: 1 / 1 / 3 / 2; align-self: stretch; background: var(--led-bg); border: 1px solid #000;
+  border-inline-start: 5px solid var(--accent); border-radius: 10px; box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(18, 34, 25, 0.28); }
+:root[data-skin='household'] .fav .deps .dep.dep-alt::before { background: #1f1d17; }
+:root[data-skin='household'] .fav .deps .dep.dep-next::before { box-shadow: inset 0 0 0 1px rgba(255, 182, 39, 0.55), inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(18, 34, 25, 0.28); }
+:root[data-skin='household'] .fav .deps .dep:hover::before { border-inline-start-color: #ffc94d; }
+:root[data-skin='household'] .fav .deps .dep > .dep-route { display: contents; }
+:root[data-skin='household'] .fav .deps .dep-route .route-badge { grid-area: route; justify-self: start; align-self: end; margin: 6px 0 0 13px;
+  min-inline-size: 0; min-block-size: 44px; padding-inline: 2px; font-size: 1.65rem; line-height: 1; }
+:root[data-skin='household'] .fav .deps .dep > .dep-main { grid-area: main; padding: 0 10px 9px 15px; }
+/* The same board color sits on the text box itself (clipped inside the padding, so the outline stays visible) so contrast checkers see the real background. */
+:root[data-skin='household'] .fav .deps .dep > .dep-main { background: var(--led-bg) content-box; }
+:root[data-skin='household'] .fav .deps .dep.dep-alt > .dep-main { background-color: #1f1d17; }
+:root[data-skin='household'] .fav .deps .dep-route .dep-right { grid-area: tile; align-self: stretch; display: grid; place-items: center; inline-size: auto;
+  min-inline-size: 3.6rem; max-inline-size: 5.2rem; padding: 6px 7px; background: #fffdf6; border: 1px solid #d6cdb5; border-radius: 12px;
+  box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(18, 34, 25, 0.16); }
+:root[data-skin='household'] .fav .deps .dep-min { color: var(--heading); font-size: .9rem; font-weight: 800; line-height: 1.15; text-align: center; overflow-wrap: normal; }
+@container (min-width: 22rem) {
+  :root[data-skin='household'] .fav .deps .dep { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'route main tile'; }
+  :root[data-skin='household'] .fav .deps .dep::before { grid-area: 1 / 1 / 2 / 3; }
+  :root[data-skin='household'] .fav .deps .dep-route .route-badge { align-self: center; margin: 0 4px 0 13px; }
+  :root[data-skin='household'] .fav .deps .dep > .dep-main { padding: 8px 10px 8px 0; }
+}
+@container (max-width: 13rem) {
+  :root[data-skin='household'] .fav .deps .dep { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'route' 'tile' 'main'; }
+  :root[data-skin='household'] .fav .deps .dep::before { grid-area: 1 / 1 / 4 / 2; }
+  :root[data-skin='household'] .fav .deps .dep-route .dep-right { justify-self: stretch; margin: 6px 10px 8px 15px; max-inline-size: none; }
+}
+
+/* Comfort and contrast fallbacks. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-skin='household'] .top { background: #173d2b; }
+  :root[data-skin='household'] :is(.card, main > section:not(.card), main > .row-between, main > button, main > aside, main > .home-toolbar, .foot) {
+    background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  :root[data-skin='household'] :is(.top, .dep, .dep-right, .highway-sign, .commute-stop, .commute-sign) { background: Canvas; color: CanvasText; border-color: CanvasText; text-shadow: none; }
+  :root[data-skin='household'] .fav .deps .dep::before, :root[data-skin='household'] .wordmark::before { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+}
