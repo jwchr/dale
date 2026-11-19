@@ -15,18 +15,21 @@ export function LiveRailBoard({ board, t, lang, now }: { board: Board & { state:
   const seen = useRef<Map<string, string> | undefined>(undefined);
   const [announce, setAnnounce] = useState('');
   useEffect(() => {
+    // Remember every departure on the board, so a train that scrolls into view between answers still has a baseline.
     const prev = seen.current, next = new Map<string, string>(), changes: string[] = [];
-    for (const d of rows) {
+    const visible = new Set(rows.map((d) => `${d.trainId}-${d.scheduledAt}`));
+    for (const d of board.departures) {
       const k = `${d.trainId}-${d.scheduledAt}`, cur = `${d.track ?? ''}|${d.status ?? ''}`;
       next.set(k, cur);
       const was = prev?.get(k);
-      if (was === undefined || was === cur) continue;
+      if (!visible.has(k) || was === undefined || was === cur) continue;
       const [track, status] = was.split('|');
       const parts = [d.track && d.track !== track ? l.trackNo(d.track) : '', d.status && d.status !== status ? d.status : ''].filter(Boolean);
       if (parts.length) changes.push(`${l.trainNo(d.trainId)}: ${parts.join(', ')}`);
     }
     seen.current = next;
-    if (changes.length) setAnnounce(changes.join('. '));
+    // Cleared on a quiet answer, so the same change posted again is announced again.
+    setAnnounce(changes.join('. '));
   }, [board.receivedAt]); // only a new answer announces
   return <section className="rail-live" aria-labelledby={`${id}-title`}>
     <h3 className="rail-board-title" id={`${id}-title`}>{l.board(l.stations[board.station])}</h3>
