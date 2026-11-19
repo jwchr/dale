@@ -1,4 +1,14 @@
 export const railEn = {
+  live: {
+    badge: 'LIVE · NJ TRANSIT', board: (station: string) => `${station} · Departures`, time: 'Time', train: 'Train', to: 'To', track: 'Track',
+    trainNo: (id: string) => `Train ${id}`, trackNo: (track: string) => `Track ${track}`, noTrack: 'Track not posted',
+    late: (min: number) => `${min} min late`, age: (min: number) => min < 1 ? 'Updated less than a minute ago' : `Updated ${min} min ago`,
+    stale: (min: number) => `Not updated for ${min} min. These times may be out of date.`,
+    empty: 'NJ Transit lists no departures here right now.', unavailableOne: (station: string) => `${station}: live times unavailable right now.`, unavailable: 'Live train times unavailable right now.',
+    sample: 'Sample timetable (examples, not current service)',
+    source: 'Times, tracks and status come from NJ Transit RailData, checked about once a minute. They can lag NJ Transit\u2019s own boards; no connection is guaranteed. Check the station board before boarding.',
+    stations: { AS: 'Anderson Street', EX: 'Essex Street', TS: 'Secaucus Junction (Pascack Valley level)', SE: 'Secaucus Junction (upper level)', NY: 'New York Penn' },
+  },
   title: 'Train times', departures: 'DEPARTURES', sample: 'Sample timetable', availability: 'Preview only · Current rail departures and live predictions are not connected.',
   notice: 'Examples only · No current train data', checklist: 'Trip checklist', help: 'Tickets & travel help', departure: 'Departs', arrival: 'Arrives', stationTime: 'Station time', via: 'Via Secaucus', duration: (minutes: number) => `${minutes} min · 1 transfer`,
   trainFrom: (train: string, station: string) => `PVL ${train} from ${station}`,
@@ -19,6 +29,16 @@ export const railEn = {
   transferNote: 'The gap between printed times is not a guaranteed connection or a recommended walking allowance. The PVL Secaucus time is a scheduled station call, not a measured arrival. Current schedules and your transfer buffer are needed before Dale can compare trains with live buses.',
 };
 export const railEs: typeof railEn = {
+  live: {
+    badge: 'EN VIVO · NJ TRANSIT', board: (station) => `${station} · Salidas`, time: 'Hora', train: 'Tren', to: 'Hacia', track: 'Vía',
+    trainNo: (id) => `Tren ${id}`, trackNo: (track) => `Vía ${track}`, noTrack: 'Vía sin anunciar',
+    late: (min) => `${min} min de retraso`, age: (min) => min < 1 ? 'Actualizado hace menos de un minuto' : `Actualizado hace ${min} min`,
+    stale: (min) => `Sin actualizar desde hace ${min} min. Estas horas pueden no estar al día.`,
+    empty: 'NJ Transit no indica salidas aquí en este momento.', unavailableOne: (station) => `${station}: horarios en vivo no disponibles ahora.`, unavailable: 'Horarios de tren en vivo no disponibles ahora.',
+    sample: 'Horario de ejemplo (ejemplos, no es el servicio actual)',
+    source: 'Las horas, vías y estados vienen de NJ Transit RailData, consultado más o menos cada minuto. Pueden ir con retraso respecto a los tableros de NJ Transit; ninguna conexión está garantizada. Revisa el tablero de la estación antes de subir.',
+    stations: { AS: 'Anderson Street', EX: 'Essex Street', TS: 'Secaucus Junction (nivel de Pascack Valley)', SE: 'Secaucus Junction (nivel superior)', NY: 'New York Penn' },
+  },
   title: 'Horarios de tren', departures: 'SALIDAS', sample: 'Horario de ejemplo', availability: 'Solo vista previa · No hay conexión a salidas actuales ni predicciones de trenes en vivo.',
   notice: 'Solo ejemplos · Sin datos actuales de trenes', checklist: 'Lista del viaje', help: 'Boletos y ayuda', departure: 'Sale', arrival: 'Llega', stationTime: 'Hora de parada', via: 'Vía Secaucus', duration: minutes => `${minutes} min · 1 transbordo`,
   trainFrom: (train, station) => `PVL ${train} desde ${station}`,

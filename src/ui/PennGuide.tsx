@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { initialChecklist, readChecklist, saveChecklist, STATIONS, type JourneyChecklist } from '../domain/journeyGuide';
 import type { Strings } from './i18n';
 import { RailPreview } from './RailPreview';
+import { useLiveRail } from './useLiveRail';
+import { railBoardsFor } from '../domain/railLive';
 
 const stationUrls = { anderson: 'https://www.njtransit.com/station/anderson-street-station', essex: 'https://www.njtransit.com/station/essex-street-station-pvl' };
 /** Lives above screen navigation, so even blocked storage cannot erase progress on a mode switch. */
@@ -26,11 +28,15 @@ export function useJourneyChecklist(demo: boolean) {
   return { state, setState, saved, selectMode };
 }
 export type JourneyModel = ReturnType<typeof useJourneyChecklist>;
-export function PennGuide({ t, demo = false, model, railOnly = false }: {
+export function PennGuide({ t, demo = false, model, railOnly = false, api, lang = 'en', now }: {
   t: Strings; demo?: boolean; model: JourneyModel; railOnly?: boolean;
+  /** Dale's Worker, for live trains; absent on screens that have no live connection. */
+  api?: string; lang?: 'en' | 'es'; now?: number;
 }) {
   const j = t.journey;
   const { state, setState, saved, selectMode } = model;
+  const clock = now ?? Date.now();
+  const live = useLiveRail(api, railBoardsFor(state.station, state.direction), clock, !demo && state.mode === 'train');
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const [focusStep, setFocusStep] = useState(false);
   useEffect(() => { if (focusStep) { stepHeading.current?.focus(); setFocusStep(false); } }, [focusStep]);
@@ -97,7 +103,7 @@ export function PennGuide({ t, demo = false, model, railOnly = false }: {
         <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
       </div></fieldset>
     </div>
-    {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} />}
+    {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} live={live} lang={lang} now={clock} />}
     {state.mode === 'train' ? <>
       <details className="card journey-checklist"><summary>{t.rail.checklist} · <span>{j.step(state.step + 1, steps.length)}</span></summary>{checklist}</details>
       <details className="card journey-help"><summary>{t.rail.help}</summary><p>{j.intro}</p><p className="small">{j.scope}</p><p>{j.trainSummary}</p>{help}</details>
