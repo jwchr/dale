@@ -117,12 +117,14 @@ describe('bounded reviewed-main rail verification', () => {
   it('names which shape test failed with field names and counts only, never values', async () => {
     const anderson = { code: 'AS', name: 'Anderson Street' };
     expect(shapeFailures([], anderson)).toEqual({ failed: ['top-level-array'] });
+    // A board may echo a shorter name than the station list; the code alone identifies it.
+    expect(shapeFailures({ STATION_2CHAR: 'AS', STATIONNAME: 'Anderson St', ITEMS: [row] }, anderson).failed).toEqual([]);
     expect(shapeFailures({ STATION_2CHAR: 'AS', STATIONNAME: 'Hackensack secret name', ITEMS: Array(20).fill(row) }, anderson))
-      .toEqual({ failed: ['station-name-echo', 'items-over-19'], topKeys: ['ITEMS', 'STATIONNAME', 'STATION_2CHAR'], itemCount: 20,
+      .toEqual({ failed: ['items-over-19'], topKeys: ['ITEMS', 'STATIONNAME', 'STATION_2CHAR'], itemCount: 20,
         rowKeys: ['GPSTIME', 'LAST_MODIFIED', 'LINECODE', 'SCHED_DEP_DATE', 'TRAIN_ID'] });
     expect(shapeFailures({ STATION_2CHAR: 'AS', STATIONNAME: 'Anderson Street', ITEMS: [{ TRAIN_ID: 1234, SCHED_DEP_DATE: '' }, { 'odd key!': 'secret value' }, 'secret row'] }, anderson).failed)
       .toEqual(['row-not-object', 'TRAIN_ID-missing:1', 'TRAIN_ID-not-string:1', 'SCHED_DEP_DATE-missing:1', 'SCHED_DEP_DATE-blank-or-over-128:1']);
-    expect(shapeFailures({ STATION: 'AS' }, anderson)).toEqual({ failed: ['station-code-echo', 'station-name-echo', 'items-missing'], topKeys: ['STATION'], itemCount: null, rowKeys: [] });
+    expect(shapeFailures({ STATION: 'AS' }, anderson)).toEqual({ failed: ['station-code-echo', 'items-missing'], topKeys: ['STATION'], itemCount: null, rowKeys: [] });
     // The logged result carries the diagnosis and none of the station's values.
     const normal = fixture(); const output: string[] = [];
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => url.endsWith('19Rec') && (init.body as FormData).get('station') === 'NY'

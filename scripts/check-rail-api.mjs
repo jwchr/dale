@@ -75,7 +75,7 @@ export function shapeFailures(value, station) {
   if (!object(value)) return { failed: [Array.isArray(value) ? 'top-level-array' : 'top-level-not-object'] };
   const failed = [];
   if (value.STATION_2CHAR !== station.code) failed.push('station-code-echo');
-  if (value.STATIONNAME !== station.name) failed.push('station-name-echo');
+  // Boards echo a shorter station name than the station list (run 44441329749), so a board is matched by code only, like the Worker.
   const items = value.ITEMS;
   if (!Array.isArray(items)) failed.push(items === undefined ? 'items-missing' : 'items-not-array');
   else {
