@@ -34,3 +34,7 @@ Both are publicly identified civic/cultural locations, not private residences. T
 ## Verification
 
 Browser regressions cover EN/ES305px at200% text, native Enter/Space disclosure and keyboard links, WCAG2.1AA checks, all five source links/locations, no external requests while reading, retained favorite/exact locked trip and access from an empty home. Complete repository verification, current CI, independently classified/qualified review and separate public acceptance still govern release.
+
+## Town Welcome cards (in progress)
+
+Town borders for the future Welcome cards come from US Census TIGER/Line county subdivisions (public domain, 2026 vintage), built by `scripts/build-town-boundaries.mjs` into `public/data/towns.json` (towns with a line 163/164/165 stop plus their neighbors; Douglas-Peucker 10 m). Entry logic is `src/domain/townEntry.ts`: only fresh (30 s) and accurate (50 m) GPS fixes count; entry needs two consecutive fixes at least 75 m inside the new town, spanning at least 10 s; the starting town and any town already announced stay silent. No UI uses it yet.
