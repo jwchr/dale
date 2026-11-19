@@ -53,10 +53,6 @@ This section replaces every earlier review, merge, operator, steward, queue and 
 - After a merge, open the public Pages site and confirm the change is there, on a narrow phone layout, in English and Spanish.
 - Worker deploys, live-feed changes and history collection are risky changes. They also keep the conditions written in `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md`.
 
-## Keep the chat small (Jeff, Nov 17, 2026)
-Reason: chats were filling to 40% in about 3 hours, and long chats use more of the weekly usage per step.
-- Run tests quietly: show only failures and the final count, never the full output.
-- Search (grep) for the lines you need instead of reading whole files.
-- Send big reading jobs (long logs, large files, big diffs, reviews) to a subagent that returns a short answer.
-- Never paste whole files, logs or diffs into the chat.
-- A fresh chat reads only its newest handoff note and its own SSOT rows to start, plus the required startup reads above (`docs/V1_CONTRACT.md`, `docs/HANDOFF.md` and the GitHub state check); older notes only if there is a gap.
+## Shared rules
+Jeff's standing rules for every chat (permission, reviews, PR limits, keeping the chat small, compaction at 60% instead of handoffs, SSOT) live only in `~/.claude/CLAUDE.md`, which Claude Code loads automatically. Do not copy them here; change them there.
+
