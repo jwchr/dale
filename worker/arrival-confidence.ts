@@ -146,7 +146,8 @@ export class ArrivalConfidence {
     try { this.foldOnce(now, reserve); }
     catch {
       this.nextCheckAt = now + FOLD_MS;
-      try { this.storage.transactionSync(() => { const meta = this.read(); meta.failures++; meta.reason = 'error'; this.write(meta); }); } catch { /* counted next time */ }
+      // Two units: the journal's reservation row and this meta row. With no spare budget the failure goes uncounted.
+      try { if (reserve(2, now)) this.storage.transactionSync(() => { const meta = this.read(); meta.failures++; meta.reason = 'error'; this.write(meta); }); } catch { /* counted next time */ }
     }
   }
   private foldOnce(now: number, reserve: SpareWrites) {
@@ -179,7 +180,7 @@ export class ArrivalConfidence {
       this.nextCheckAt = now + FOLD_MS;
       const size = this.storage.sql.databaseSize;
       const reason = !Number.isSafeInteger(size) || size >= DATABASE_HEADROOM_BYTES || meta.bytes >= MAX_CONFIDENCE_BYTES ? 'storage-limit' : 'write-budget';
-      if (meta.reason !== reason && reserve(1, now)) this.storage.transactionSync(() => { const m = this.read(); m.reason = reason; this.write(m); });
+      if (meta.reason !== reason && reserve(2, now)) this.storage.transactionSync(() => { const m = this.read(); m.reason = reason; this.write(m); });
       return;
     }
     this.nextCheckAt = now + (more ? CATCH_UP_MS : FOLD_MS);

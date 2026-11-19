@@ -160,19 +160,22 @@ function archive() {
     return `${version}:${hash}`;
   };
   let lists = 0, gets = 0;
+  // Test hooks: make the next R2 call slow, failing or hanging.
+  const hooks: { onList?: () => void; onGet?: (key: string) => Promise<never> | undefined } = {};
   const reader: ArchiveReader = {
     async list({ prefix, limit, startAfter }) {
-      lists++;
+      lists++; hooks.onList?.();
       const keys = [...objects.keys()].filter((k) => k.startsWith(prefix) && (!startAfter || k > startAfter)).sort();
       return { objects: keys.slice(0, limit).map((k) => ({ key: k, size: objects.get(k)!.byteLength })), truncated: keys.length > limit };
     },
     async get(k) {
       gets++;
+      const override = hooks.onGet?.(k); if (override) return override;
       const bytes = objects.get(k);
       return bytes ? { size: bytes.byteLength, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer } : null;
     },
   };
-  return { objects, reader, putBatch, putSchedule, counts: () => ({ lists, gets }) };
+  return { objects, reader, hooks, putBatch, putSchedule, counts: () => ({ lists, gets }) };
 }
 const BACKFILL_DATES = ['20261109', '20261110', '20261111', '20261112', '20261113'];
 const LATER = Date.parse('2026-11-14T15:00:00Z');
@@ -237,16 +240,82 @@ describe('archive backfill (manual, bounded, idempotent)', () => {
     expect(short.status()).toMatchObject({ state: 'expired', steps });
     expect(a.counts().lists).toBe(1);
   });
-  it('reads at most two archived schedules per step and resumes the rest next step without losing a batch', async () => {
+  it('loads a new archived schedule only first in a step and resumes the rest next step without losing a batch', async () => {
     const h = harness(), a = archive();
     ['a', 'b', 'c'].forEach((v, i) => a.putBatch(at('20261109', `07:0${i + 1}`), [], a.putSchedule(`old-${v}`), `old-${v}`));
     a.putBatch(at('20261109', '07:09'), [], a.putSchedule('old-missing').replace(/[a-f0-9]{64}$/, '0'.repeat(64)), 'old-missing');
     const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 3600_000}`);
     await backfill.step(LATER, h.spare); // 2026-11-08 has no batches
     await backfill.step(LATER + 1000, h.spare);
-    expect(backfill.status()).toMatchObject({ day: '2026-11-09', contextsRead: 2, batchesReplayed: 2 });
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', contextsRead: 1, batchesReplayed: 1 });
     await runToEnd(backfill, h.spare, LATER + 60_000);
     expect(backfill.status()).toMatchObject({ state: 'done', contextsRead: 4, batchesReplayed: 3, contextUnavailable: 1 });
+  });
+  it('a transient schedule read failure keeps the cursor, backs off, and the lease still finishes with every arrival', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    for (const date of BACKFILL_DATES) {
+      a.putBatch(at(date, '06:58'), [record(`T1@${date}`, at(date, '06:58'))], old, 'older-version');
+      a.putBatch(at(date, '07:04'), [record(`T1@${date}`, at(date, '07:04'), [0, '1'])], old, 'older-version');
+    }
+    let failures = 1;
+    a.hooks.onGet = (k) => k.startsWith('v1/schedules/') && failures-- > 0 ? Promise.reject(new Error('synthetic R2 outage')) : undefined;
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `apply:${LATER + 24 * 3600_000}`);
+    await backfill.step(LATER, h.spare); // 2026-11-08 has no batches
+    await backfill.step(LATER + 1000, h.spare);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', retryableFailures: 1, retries: 1, batchesReplayed: 0, contextUnavailable: 0, retryAt: LATER + 61_000 });
+    const listed = a.counts().lists;
+    await backfill.step(LATER + 30_000, h.spare); // still backing off: no R2 call
+    expect(a.counts().lists).toBe(listed);
+    await runToEnd(backfill, h.spare, LATER + 61_000);
+    expect(backfill.status()).toMatchObject({ state: 'done', newArrivals: 5, retries: 0, contextUnavailable: 0, retryableFailures: 1 });
+    expect(h.confidence.answer(key)).toMatchObject({ state: 'ready', samples: 5 });
+  });
+  it('one step-wide deadline covers listing, batch reads and the schedule load', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    a.putBatch(at('20261109', '07:04'), [record('T1@20261109', at('20261109', '07:04'), [0, '1'])], old, 'older-version');
+    let clock = 0, hang = true;
+    a.hooks.onList = () => { clock += 4_990; }; // a slow listing uses almost the whole step
+    a.hooks.onGet = (k) => k.startsWith('v1/schedules/') && hang ? new Promise<never>(() => {}) : undefined;
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 24 * 3600_000}`, () => clock);
+    await backfill.step(LATER, h.spare); // 2026-11-08
+    const started = Date.now();
+    await backfill.step(LATER + 1000, h.spare);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', retryableFailures: 1, batchesReplayed: 0, contextsRead: 1 });
+    a.hooks.onList = undefined; hang = false;
+    await runToEnd(backfill, h.spare, LATER + 61_000);
+    expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 1, newArrivals: 1 });
+  });
+  it('reserves at least every row it writes, in the live fold and in both backfill modes', async () => {
+    const h = harness(), a = archive();
+    for (const date of BACKFILL_DATES) {
+      a.putBatch(at(date, '06:58'), [record(`T1@${date}`, at(date, '06:58'))], 'ctx');
+      a.putBatch(at(date, '07:04'), [record(`T1@${date}`, at(date, '07:04'), [0, '1'])], 'ctx');
+    }
+    h.journal.reserveSpareWrites(1, LATER); // roll the budget day so the deltas below are same-day
+    const reserved = () => h.journal.status(LATER).reservedWrites;
+    const written = () => Number(h.db.prepare('SELECT total_changes() AS n').get()!.n);
+    const measure = async (work: () => Promise<unknown> | unknown) => {
+      const r = reserved(), w = written(); await work(); return { reserved: reserved() - r, written: written() - w };
+    };
+    for (const [n, mode] of ['dry-run', 'apply', 'apply'].entries()) {
+      const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `${mode}:${LATER + 24 * 3600_000 + n}`);
+      // Every single step, not only the total.
+      for (let i = 0; i < 60 && !['done', 'expired'].includes(String(backfill.status().state)); i++) {
+        const step = await measure(() => backfill.step(LATER + i * 60_000, h.spare));
+        expect(step.written, `${mode} step ${i}`).toBeLessThanOrEqual(step.reserved);
+        expect(step.written, `${mode} step ${i}`).toBeGreaterThan(0);
+      }
+      expect(backfill.status().state).toBe('done');
+    }
+    for (const date of WEEKDAYS) morning(h.db, date);
+    const live = await measure(() => h.confidence.fold(LATER + 3600_000, h.spare));
+    expect(live.written).toBeGreaterThan(0);
+    expect(live.written).toBeLessThanOrEqual(live.reserved);
+    const refused = await measure(() => h.confidence.fold(LATER + 2 * 3600_000, (u, n, k) => u <= 2 && h.spare(u, n, k)));
+    expect(refused.written).toBeLessThanOrEqual(refused.reserved);
   });
   it('waits instead of reading when spare writes are not available', async () => {
     const h = harness(), a = archive();
