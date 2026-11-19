@@ -5,7 +5,8 @@ export interface HistoryBucket {
   put(key: string, body: ArrayBuffer, options: { onlyIf: { etagDoesNotMatch: string }; sha256: ArrayBuffer; storageClass: 'Standard'; httpMetadata: { contentType: string; cacheControl: string } }): Promise<unknown>;
   get(key: string): Promise<ArchiveObject | null>;
 }
-const BYTE_LIMIT = 9_000_000_000, A_LIMIT = 500_000, B_LIMIT = 2_000_000;
+const BYTE_LIMIT = 9_000_000_000;
+export const A_LIMIT = 500_000, B_LIMIT = 2_000_000;
 const DAY = 86400_000;
 interface ArchiveState { v: 1; reservedBytes: number; verifiedObjects: number; failures: number; reason: string; lastAttemptAt?: number; lastSuccessAt?: number; nextAt?: number }
 const initial = (): ArchiveState => ({ v: 1, reservedBytes: 0, verifiedObjects: 0, failures: 0, reason: 'waiting' });

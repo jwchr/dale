@@ -10,12 +10,15 @@ import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistorySto
 import { HistoryArchive, type HistoryBucket } from './history-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
+import { ArrivalConfidence } from './arrival-confidence';
+import { ArrivalBackfill, type ArchiveReader } from './arrival-backfill';
+import { parseConfidenceQuery } from '../src/domain/arrivalConfidence';
 interface Storage extends Partial<HistoryStorage> {
   get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<void>;
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -38,6 +41,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
     private rail: RailBoards;
+    /** "How sure are we?" aggregates (#91): derived counts only, folded from the private hot batches. */
+    private confidence?: ArrivalConfidence;
+    private backfill?: ArrivalBackfill;
     /**
      * When history collection's own alarm is due: exactly the time the alarm would hold with no ride. Ride
      * wakes share the one alarm but never move this, so collection, archive flush and prune keep their
@@ -67,7 +73,15 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           try { this.rides = new RideAlerts(ctx.storage as HistoryStorage, ds, { snapshot: (...a) => this.snapshot(...a), arm: (changed) => this.arm(changed) }, clock, fetchImpl); }
           catch { this.rides = undefined; }
           try {
-            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, await historyContextKey(ds));
+            const contextKey = await historyContextKey(ds);
+            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, contextKey);
+            // Derived aggregates never stop collection: a failure here only leaves the endpoint unavailable.
+            try {
+              this.confidence = new ArrivalConfidence(ctx.storage as HistoryStorage, ds, contextKey);
+              const reader = env.HISTORY_ARCHIVE as unknown as Partial<ArchiveReader> | undefined;
+              if (env.HISTORY_COLLECTION === 'enabled' && env.ARRIVAL_BACKFILL && typeof reader?.list === 'function' && typeof reader.get === 'function')
+                this.backfill = new ArrivalBackfill(ctx.storage as HistoryStorage, this.confidence, reader as ArchiveReader, ds, contextKey, env.ARRIVAL_BACKFILL);
+            } catch { this.confidence = undefined; this.backfill = undefined; }
             this.journal.setEnabled(env.HISTORY_COLLECTION === 'enabled', clock());
             this.journal.setCadenceTest(env.HISTORY_CADENCE_TEST_UNTIL, clock());
             // A reset can happen before refresh persists its cache. The durable
@@ -155,6 +169,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           await this.poll(true);
           if (this.archive) await this.archive.flush(clock());
           this.journal?.pruneVerified(clock());
+          // Derived work last, from spare write margin only; it never throws into collection.
+          const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
+          try { this.confidence?.fold(clock(), spare); } catch { /* counted inside */ }
+          try { if (this.archive) await this.backfill?.step(clock(), spare); } catch { /* counted inside */ }
         }
       }
       finally {
@@ -274,7 +292,15 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
           alarmAt: await this.ctx.storage.getAlarm?.() ?? null, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
-        return Response.json({ v: 1, collection, rideAlerts: this.rideHealth() }, { headers: { 'cache-control': 'no-store' } });
+        return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
+      }
+      // Aggregates only, from SQLite. Never a demand refresh or an NJ Transit request.
+      if (url.pathname === '/v1/arrival-confidence') {
+        const key = parseConfidenceQuery(url.searchParams, ds);
+        if (!key) return Response.json({ v: 1, error: 'invalid' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+        try { if (this.confidence) return Response.json(this.confidence.answer(key), { headers: { 'cache-control': 'public, max-age=600' } }); }
+        catch { /* unreadable aggregate: unavailable, never a guess */ }
+        return Response.json({ v: 1, state: 'unavailable' }, { status: 503, headers: { 'cache-control': 'no-store' } });
       }
       if (url.pathname === '/v1/rail') {
         return Response.json(await this.rail.board(url.searchParams.get('station')!), { headers: { 'cache-control': 'no-store' } });
@@ -306,6 +332,11 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       }, { headers: { 'cache-control': 'no-store' } });
       }
       return Response.json(this.snapshot(trip, date, vehicle, now), { headers: { 'cache-control': 'no-store' } });
+    }
+    /** Aggregate counts and limits only: never trips, vehicles, stops, samples or archive keys. */
+    private confidenceHealth() {
+      try { return this.confidence ? { ...this.confidence.status(), backfill: this.backfill?.status() ?? { configured: false } } : { available: false }; }
+      catch { return { available: false, error: true }; }
     }
     /** Health shows only how many rides are active: never ids, push addresses, trips or stops. */
     private rideHealth() {
@@ -377,6 +408,16 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
         headers.set('content-type', 'application/json');
         headers.set('cache-control', 'public, max-age=300');
         return reply(geometry);
+      }
+      if (url.pathname === '/v1/arrival-confidence') {
+        // Read-only aggregates (docs/ARRIVAL_CONFIDENCE.md). Strict input; no upstream call is possible on this path.
+        if (request.url.length > 512 || !parseConfidenceQuery(url.searchParams, ds)) return reply('Invalid arrival confidence query', 400);
+        try {
+          const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(request);
+          headers.set('content-type', 'application/json');
+          if (response.status === 200) headers.set('cache-control', 'public, max-age=600');
+          return reply(await response.text(), response.status);
+        } catch { return reply('Arrival confidence unavailable', 503); }
       }
       if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection', '/v1/rail'].includes(url.pathname)) return reply('Not found', 404);
       if (url.pathname === '/v1/rail') {
