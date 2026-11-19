@@ -29,7 +29,7 @@ Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stan
 ## How we work
 Jeff's shared rules for every chat (permission, reviews and when a change is risky, PR limits, safety stops, spending, keeping the chat small, compaction at 60% instead of handoffs, SSOT) live only in `~/.claude/CLAUDE.md`, which Claude Code loads automatically. That file controls; do not copy its rules here, change them there. This section adds only Dale's own rules.
 
-- **One builder.** Claude builds Dale. ChatGPT or Codex builds only when Claude is out of usage and the owner says so. Never two builders at once.
+- **One builder.** Claude builds Dale. ChatGPT or Codex builds only when Claude is out of usage and the owner says so. Never two builders at once. Codex does not load `~/.claude/CLAUDE.md`: before Codex builds or reviews here, the session that starts it gives it that file's text, or it does not start.
 - **Plain English on top.** Every pull request description starts with two short parts for the owner: "What this does for you" and "How to try it" (step by step, in the app), or "Nothing for you to test."
 - **Checks before merging.** `npm run verify` passes locally before every push, and the GitHub `test` check is green on the final commit. Docs-only pull requests (only `docs/**` or Markdown) do not start that check (D70); for them the local tests are the test requirement. Open pull requests as drafts while building.
 - **CodeRabbit here.** It does not start by itself (`.coderabbit.yaml`). Request one `@coderabbitai full review` when a pull request is ready, and one `@coderabbitai review` for each later head a fix creates; never twice on the same head. The cutoff for its free reviews is in the shared rules.
