@@ -11,6 +11,13 @@ https://www.openstreetmap.org/copyright  https://opendatacommons.org/licenses/od
 The map file public/map/nj-nyc-20261104.pmtiles is an extract of the Protomaps daily build of
 OpenStreetMap (https://build.protomaps.com/20261104.pmtiles), see map/README.txt.
 
+TOWN BORDERS
+------------
+public/data/towns.json holds simplified New Jersey municipal borders from the US Census Bureau
+TIGER/Line Shapefiles, County Subdivisions, 2026 vintage
+(https://www2.census.gov/geo/tiger/TIGER2026/COUSUB/tl_2026_34_cousub.zip). TIGER/Line data is a
+US Government work in the public domain. Built by scripts/build-town-boundaries.mjs.
+
 ================================================================
 maplibre-gl 6.15.0
 ================================================================
