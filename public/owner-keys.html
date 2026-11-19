@@ -119,7 +119,7 @@ function render() {
 }
 document.getElementById('lang').addEventListener('click', () => { lang = lang === 'en' ? 'es' : 'en'; render(); });
 
-// 32 letters and digits without I, O, 0 and 1, so 16 of them carry 80 random bits (docs/RIDER_GPS.md).
+// 32 letters and digits without I, O, 0 and 1, so 16 of them carry 80 random bits (docs/LOCKED_STOP_ALERTS.md, Household code).
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function householdCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));

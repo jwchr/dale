@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeRailBoard, parseRailTime, railText, RailBoards, RAIL_BOARD_MS, RAIL_MINTS_PER_DAY } from '../../worker/rail';
+import { normalizeRailBoard, parseRailTime, railText, RailBoards, RAIL_BOARD_MS, RAIL_MINTS_PER_DAY, RAIL_PAUSE_MS } from '../../worker/rail';
 import { createRouter } from '../../worker/service';
 import { parseDataset } from '../../src/domain/dataset';
 import raw from '../../public/data/corridor.json';
@@ -196,6 +196,34 @@ describe('RailBoards', () => {
     expect((cut.store.get('rail-v1') as { token?: unknown }).token).toBeUndefined();
     const denied = harness((m) => m === 'getToken' ? json({ Authenticated: 'False' }) : json({}));
     expect(await denied.make().board('EX')).toMatchObject({ reason: 'access-denied' });
+  });
+
+  it('pauses every station after a rate limit, keeps the token, and survives a restart', async () => {
+    let limited = true;
+    const h = harness((m, f) => m === 'getToken' ? tokenOk() : limited ? json({ errorMessage: 'Daily usage limit reached' }) : json(board([row()], String(f.get('station')))));
+    const rail = h.make();
+    expect(await rail.board('EX')).toMatchObject({ state: 'unavailable', reason: 'rate-limited' });
+    const after = h.calls.length;
+    await rail.board('AS'); h.advance(RAIL_BOARD_MS); await rail.board('EX'); await rail.board('NY');
+    await h.make().board('SE');
+    expect(h.calls.length).toBe(after);
+    expect((h.store.get('rail-v1') as { token?: unknown }).token).toBeDefined();
+    limited = false; h.advance(RAIL_PAUSE_MS);
+    expect((await rail.board('EX')).state).toBe('ok');
+    expect(h.calls.filter((c) => c === 'getToken')).toHaveLength(1);
+  });
+
+  it('loads saved state once when the first requests arrive together', async () => {
+    let tokens = 0, reads = 0;
+    const store = new Map<string, unknown>();
+    const slow = { get: async <T,>(k: string) => { reads++; await new Promise((r) => setTimeout(r, 5)); return structuredClone(store.get(k)) as T | undefined; }, put: async (k: string, v: unknown) => { store.set(k, structuredClone(v)); } };
+    const fetchImpl = (async (url: string, init: RequestInit) => { const method = url.split('/').pop()!; return method === 'getToken' ? tokenOk(++tokens) : json(board([row()], String((init.body as FormData).get('station')))); }) as unknown as typeof fetch;
+    const rail = new RailBoards(slow, { NJT_API_USERNAME: 'user', NJT_API_PASSWORD: 'pass' }, fetchImpl, () => Date.parse('2026-11-18T22:00:00Z'));
+    const out = await Promise.all([rail.board('EX'), rail.board('AS'), rail.health()]);
+    expect(reads).toBe(1);
+    expect(tokens).toBe(1);
+    expect(out.slice(0, 2).map((b) => (b as { state: string }).state)).toEqual(['ok', 'ok']);
+    expect((store.get('rail-v1') as { mints: number[] }).mints).toHaveLength(1);
   });
 
   it('refuses unknown stations and needs credentials', async () => {

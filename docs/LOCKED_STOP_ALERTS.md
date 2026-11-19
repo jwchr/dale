@@ -14,7 +14,7 @@ Status: code built in #192, not yet deployed. Where the build differs from the d
 
 - A new setting, separate from today's "Phone notification": "Alerts when my phone is locked", off by default. It appears in Settings and on the ride screen; both are the same setting. Turning it on explains, in English and Spanish, that while a bus is locked Dale's server keeps a short-lived ride record (trip, stops, language and a push address from the browser) and deletes it when the ride ends; then it asks for notification permission and a push subscription.
 - Riders who already turned on "Phone notification" keep today's while-open alerts only. Nothing is sent to the server until they turn on the new setting themselves.
-- It also needs the household code (the same code as `docs/RIDER_GPS.md`, entered or scanned once per phone).
+- It also needs the household code (see "Household code" below, entered once per phone).
 
 ## Flow
 
@@ -58,7 +58,7 @@ All answers are JSON with `cache-control: no-store`. Writes need Dale's own page
 - VAPID needs a P-256 key pair. Jeff makes it, with the household code and its hash, on the key page `public/owner-keys.html` (published as `owner-keys.html` beside the app). The page runs only in his browser; its Content-Security-Policy blocks every network request, and nothing is saved. The builder never sees, commits or prints the private key or the code.
 - Order: the weekly rollover first, then the secrets. Adding a secret in the Cloudflare dashboard ends with Deploy, which makes a new Worker version, so the next rollover's `expected_worker_version` comes from a fresh `qualify-enabled` run. The deploy script accepts these two names only as secrets, and deploys keep existing secrets.
 - Jeff stores the private key as a Cloudflare secret, `VAPID_PRIVATE_KEY`: the private key as a P-256 JWK (JSON with `kty`, `crv`, `x`, `y` and `d`), with step-by-step help. The public key is not secret; the Worker derives it from that key and serves it at `GET /v1/ride-alerts/config`, so nothing key-related is in the repository.
-- The household code's hash is a second Worker secret, `HOUSEHOLD_CODE_HASH`: the lowercase hex SHA-256 of the household code after normalizing it (trimmed, upper case, spaces and hyphens removed), the same code as `docs/RIDER_GPS.md`.
+- The household code's hash is a second Worker secret, `HOUSEHOLD_CODE_HASH`: the lowercase hex SHA-256 of the household code after normalizing it (trimmed, upper case, spaces and hyphens removed). The code itself is described under "Household code" below.
 - If either secret is missing or malformed, every ride-alert route answers "not available" and the app keeps steps A and B only.
 
 ## Privacy and limits
@@ -95,3 +95,12 @@ All answers are JSON with `cache-control: no-store`. Writes need Dale's own page
 - Risky change (secrets, live server, rider data): Codex review (Argon if Codex is unavailable), plus CodeRabbit.
 - Jeff is told before the Worker deploy; the release uses `preserve-enabled`, keeping history collection unchanged.
 - Jeff stores `VAPID_PRIVATE_KEY` and the household code hash himself; no secret passes through chat or the repository.
+
+## Household code
+
+Moved here from `docs/RIDER_GPS.md` when rider-shared positions became open to any Dale rider (owner choice, Nov 17); locked-phone alerts are now its only user.
+
+- Made on the owner key page (`public/owner-keys.html`) with the browser's cryptographic random source: 16 characters from a 32-character alphabet without I, O, 0 and 1 (80 bits). Only its hash is stored, as the Worker secret `HOUSEHOLD_CODE_HASH` the owner sets.
+- Rotating it is one owner step: make a new set on the key page and store the new hash. Every phone then asks for the new code.
+- Every request's code is checked with a constant-time hash comparison, and a correct code is always accepted while the Worker is answering, so nobody else's wrong guesses on a shared address can lock out the household. Guessing an 80-bit code within the Free plan's 100,000 requests a day is not practical. After 5 wrong codes in 10 minutes from one network address, that address's later wrong codes get "try again later" for 1 hour (`WrongCodes` in `worker/ride-alerts.ts`). The address is kept in memory only. Expired entries are cleared lazily: they stay until the next wrong code from an address that is not locked out triggers cleanup, or until the object restarts, so an entry can outlive its 10-minute window or 1-hour lockout. At most 1,000 addresses are tracked: when the table is full, a new address is not tracked, so its wrong codes keep getting the ordinary "wrong code" answer and no lockout. The earlier design's health warning for many wrong codes across all addresses is not built.
+- It is never logged, archived or shown in health output.
