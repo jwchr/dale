@@ -9,6 +9,7 @@ import { summarizeDepartures } from './departures';
 import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistoryStorage } from './history-journal';
 import { HistoryArchive, type HistoryBucket } from './history-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
+import { RailBoards, RAIL_STATIONS } from './rail';
 interface Storage extends Partial<HistoryStorage> {
   get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<void>;
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
@@ -36,6 +37,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
+    private rail: RailBoards;
     /**
      * When history collection's own alarm is due: exactly the time the alarm would hold with no ride. Ride
      * wakes share the one alarm but never move this, so collection, archive flush and prune keep their
@@ -45,6 +47,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private historyAt: number | null = null;
     constructor(ctx: State, env: Env) {
       this.ctx = ctx; this.env = env;
+      // Live trains (#80) keep their own token and pace; they never trigger a bus refresh.
+      this.rail = new RailBoards(ctx.storage, env, fetchImpl, clock);
       this.ready = ctx.blockConcurrencyWhile(async () => {
         const stored = await ctx.storage.get<Saved>('state-v1');
         if (stored && Number.isFinite(stored.authAt) && Number.isFinite(stored.pollAt)) {
@@ -272,6 +276,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
+      if (url.pathname === '/v1/rail') {
+        return Response.json(await this.rail.board(url.searchParams.get('station')!), { headers: { 'cache-control': 'no-store' } });
+      }
       await this.poll();
       try { await this.arm(); } catch { this.collectionError = true; }
       const trip = url.searchParams.get('trip')!, date = url.searchParams.get('date')!, vehicle = url.searchParams.get('vehicle');
@@ -290,7 +297,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             alarmAt: await this.ctx.storage.getAlarm?.() ?? null, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
-        return Response.json({ v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, collection, rideAlerts: this.rideHealth(),
+        let rail: unknown = { error: true };
+        try { rail = await this.rail.health(); } catch { /* Health never fails on rail storage. */ }
+        return Response.json({ v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, collection, rideAlerts: this.rideHealth(), rail,
         connectionFailures: this.saved.failures ?? {},
         vehicles: age(vehicles), updates: age(updates), vehicleDiagnostics: vehicles.diagnostics, updateDiagnostics: updates.diagnostics, reportingBuses: new Set(vehicles.observations.filter((o) => now - o.observedAt <= 120_000).map((o) => o.vehicleId)).size,
         example: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0],
@@ -369,7 +378,11 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
         headers.set('cache-control', 'public, max-age=300');
         return reply(geometry);
       }
-      if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection'].includes(url.pathname)) return reply('Not found', 404);
+      if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection', '/v1/rail'].includes(url.pathname)) return reply('Not found', 404);
+      if (url.pathname === '/v1/rail') {
+        const station = url.searchParams.get('station');
+        if (!station || !Object.hasOwn(RAIL_STATIONS, station) || [...url.searchParams.keys()].length !== 1) return reply('Invalid station', 400);
+      }
       if (url.pathname === '/v1/departures') {
         try { if (request.url.length > 16_384) return reply('Invalid departures', 400); readDepartureRequests(ds, url.searchParams.get('q')); } catch { return reply('Invalid departures', 400); }
       }
