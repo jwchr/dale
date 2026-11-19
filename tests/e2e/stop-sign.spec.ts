@@ -101,7 +101,7 @@ test('physical sign wording stays printed when surrounding UI changes language',
   const printed = () => lettering.evaluate(svg => [...svg.querySelectorAll('.stop-sign-row, .stop-sign-number')].map(n => n.textContent).join('|'));
   const physical = await printed();
   await expect(page.locator('.stop-sign-face')).toBeHidden();
-  await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   await page.getByRole('button', { name: strings.es.back, exact: true }).click();
   await page.getByRole('button', { name: strings.es.stopSign.open, exact: true }).click();

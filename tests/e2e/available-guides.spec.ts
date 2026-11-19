@@ -32,7 +32,7 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.getByRole('button', { name: j.trainMode })).toBeVisible();
     await page.getByRole('button', { name: j.trainMode }).click();
     await expect(page.getByText(j.step(2, 5), { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
     await expect(page.getByText(t.transcribedBanner(lang === 'en' ? '7/1/2026' : '1/7/2026'), { exact: true })).toBeVisible();
     await expect(page.locator('.data-banner')).toHaveCount(0);
   });
@@ -54,6 +54,6 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.getByRole('heading', { name: other.journey.title, exact: true })).toBeVisible();
     await expect(page.getByRole('img', { name: 'Dale!', exact: true })).toBeVisible();
     await page.getByRole('button', { name: other.back, exact: true }).click();
-    await expect(page.getByRole('button', { name: other.settings, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: other.dash.tabs.household, exact: true })).toBeVisible();
   });
 }

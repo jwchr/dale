@@ -39,7 +39,7 @@ const screens: Screen[] = [
     await page.getByRole('button', { name: strings[lang].lockBus, exact: true }).click();
     await expect(page.locator('.bus-lock')).toBeVisible();
   } },
-  { name: 'settings', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: strings[lang].settings, exact: true }).click(); } },
+  { name: 'settings', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click(); } },
   { name: 'train', open: async (page, lang) => { await start(page, lang); await page.getByRole('button', { name: lang === 'es' ? 'Tren' : 'Train', exact: true }).click(); } },
 ];
 

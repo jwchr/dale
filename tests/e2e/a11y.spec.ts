@@ -19,13 +19,13 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme });
       await page.goto('/?printed=1&now=2026-11-04T17:10');
       if (lang === 'es') {
-        await page.getByRole('button', { name: 'Settings' }).click();
+        await page.getByRole('button', { name: 'Household', exact: true }).click();
         await page.getByRole('button', { name: 'Español' }).click();
         await page.getByRole('button', { name: 'Atrás' }).click();
       }
       const t = lang === 'es'
-        ? { find: /Buscar parada/i, save: /Guardar/, reverse: /Invertir/, allDay: /Todo el día/, settings: 'Ajustes', back: 'Atrás', guide: '¿Primera vez? Cómo funciona' }
-        : { find: /Find a stop/i, save: 'Save trip', reverse: /Reverse/, allDay: /All day/, settings: 'Settings', back: 'Back', guide: 'First time riding? How it works' };
+        ? { find: /Buscar parada/i, save: /Guardar/, reverse: /Invertir/, allDay: /todo el día/i, settings: 'Hogar', back: 'Atrás', guide: '¿Primera vez? Cómo funciona' }
+        : { find: /Find a stop/i, save: 'Save trip', reverse: /Reverse/, allDay: /All day|full-day/, settings: 'Household', back: 'Back', guide: 'First time riding? How it works' };
       await audit(page, 'home (empty)');
       await page.getByRole('button', { name: t.find }).first().click();
       await page.getByRole('searchbox').fill('irvington');
@@ -41,7 +41,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: t.back }).click();
       await page.getByRole('button', { name: t.allDay }).click();
       await audit(page, 'timetable');
-      await page.getByRole('button', { name: t.settings }).click();
+      await page.getByRole('button', { name: t.settings, exact: true }).click();
       await audit(page, 'settings');
       await page.getByRole('button', { name: t.guide }).click();
       await audit(page, 'guide');
@@ -93,10 +93,10 @@ for (const [skin, colorScheme] of [['household', 'light'], ['household', 'dark']
     await page.locator('.dep').first().click();
     await audit(page, `${skin} trip`);
     await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('button', { name: /All day/ }).click();
+    await page.getByRole('button', { name: /All day|full-day/ }).click();
     await audit(page, `${skin} timetable`);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('button', { name: { household: 'Household', garden: 'Garden State', clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Household', exact: true }).click();
+    await expect(page.getByRole('button', { name: { household: 'Household', garden: 'Garden State', clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'true');
     await audit(page, `${skin} settings`);
   });
 }

@@ -61,7 +61,7 @@ test('one local photo is held across navigation; failed image retains original a
   const requested = new Set<string>(); page.on('request', r => { if (r.url().includes('/backgrounds/') && r.url().endsWith('.webp')) requested.add(r.url()); });
   await page.goto('/?printed=1&now=2026-11-04T07:50'); await expect(page.locator('.photo-backdrop')).toHaveCount(1);
   const choice = await page.locator('.photo-backdrop').getAttribute('data-photo');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Household', exact: true }).click(); await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', choice!); expect(requested.size).toBe(1);
   await page.route('**/backgrounds/*.webp', r => r.abort('failed')); await page.reload();
   await expect(page.locator('.skin-backdrop svg')).toHaveCount(1); await expect(page.locator('.photo-backdrop')).toHaveCount(0);

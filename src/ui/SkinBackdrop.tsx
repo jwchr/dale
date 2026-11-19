@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import rambleNightUrl from '../assets/ramble-night.webp';
 import { useHomePhoto } from './HomePhoto';
 // Background scenes for Dale's styles (owner request 2026-11-04, D46). Owner-authorized photos
@@ -20,15 +20,24 @@ const OPENING_PHOTO = Math.random() < .5 ? 'paterson-great-falls' : 'new-jersey-
 
 export function SkinBackdrop({ skin }: { skin: Skin }) {
   const personal = useHomePhoto()?.url;
+  // Household's photo and its crop live in one CSS block (household.css, --household-photo), so swapping the
+  // picture changes one file; it is read back here only to wait for it to load.
+  const box = useRef<HTMLDivElement>(null);
+  const [cssPhoto, setCssPhoto] = useState<string>();
+  useLayoutEffect(() => {
+    if (skin !== 'household' || !box.current) { setCssPhoto(undefined); return; }
+    setCssPhoto(/url\(\s*["']?([^"')]+)["']?\s*\)/.exec(getComputedStyle(box.current).getPropertyValue('--household-photo'))?.[1]);
+  }, [skin]);
+  const household = skin === 'household' && !personal;
   // NYC uses the owner-supplied night photo and Household the daytime Great Falls (#101); other skins retain
   // their one choice per opening. Only the selected asset is requested; no remote image service or photo rotation.
-  const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : skin === 'household' ? 'paterson-great-falls' : OPENING_PHOTO;
-  const url = personal ?? (skin === 'nyc' ? rambleNightUrl : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`);
+  const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : household ? (cssPhoto?.split('/').pop()?.replace(/\.\w+$/, '') ?? 'household') : OPENING_PHOTO;
+  const url = personal ?? (skin === 'nyc' ? rambleNightUrl : household ? cssPhoto : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`);
   const [readyUrl, setReadyUrl] = useState<string>();
   // Readiness belongs to this URL: a late prior-style load must never paint the wrong photo.
   const ready = readyUrl === url;
   useEffect(() => {
-    if (matchMedia('(prefers-reduced-transparency: reduce), (forced-colors: active)').matches) return;
+    if (!url || matchMedia('(prefers-reduced-transparency: reduce), (forced-colors: active)').matches) return;
     let active = true;
     const image = new Image(); image.decoding = 'async'; image.fetchPriority = 'low';
     image.onload = () => { if (active) setReadyUrl(url); };
@@ -36,8 +45,8 @@ export function SkinBackdrop({ skin }: { skin: Skin }) {
     return () => { active = false; image.onload = null; image.onerror = null; };
   }, [url]);
   return (
-    <div className="skin-backdrop" aria-hidden="true" data-skin={skin}>
-      {ready && <div className="photo-backdrop" data-photo={photo} style={{ backgroundImage: `url("${url}")` }} />}
+    <div className="skin-backdrop" aria-hidden="true" data-skin={skin} ref={box}>
+      {ready && <div className="photo-backdrop" data-photo={photo} style={household ? undefined : { backgroundImage: `url("${url}")` }} />}
       {!ready && skin !== 'clean' && <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMax slice" width="100%" height="100%" focusable="false">
         {skin === 'turnpike' && <Turnpike />}
         {(skin === 'parkway' || skin === 'garden') && <Parkway />}

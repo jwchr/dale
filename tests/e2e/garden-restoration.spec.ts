@@ -22,7 +22,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     const initialPreferences = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!));
     const visual = await page.evaluate(() => {
       const css = getComputedStyle(document.documentElement);
-      const surfaces = Object.fromEntries(Object.entries({ card: '.fav', city: '[data-end="from"] .highway-sign', stop: '[data-end="from"] .commute-stop', departure: '.dep-next' }).map(([name, selector]) => {
+      const surfaces = Object.fromEntries(Object.entries({ card: '.dash-panel', city: '[data-end="from"] .highway-sign', stop: '[data-end="from"] .commute-stop'}).map(([name, selector]) => {
         const style = getComputedStyle(document.querySelector(selector)!);
         return [name, { background: style.background, color: style.color, border: style.border }];
       }));
@@ -35,7 +35,9 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         scheme: css.colorScheme };
     });
     expect(visual.tokens).toEqual(reference.tokens);
-    expect(visual.surfaces).toEqual(reference.surfaces);
+    // Home panels keep the approved card surface; home departures are now LED boards in every style (#101).
+    const { departure: _boardedNow, ...approvedSurfaces } = reference.surfaces;
+    expect(visual.surfaces).toEqual(approvedSurfaces);
     expect(visual.photoFilter).toBe('blur(3px) brightness(0.62)');
     expect(visual.wordmark).toBe('rgb(255, 251, 234)');
     expect(visual.bang).toBe('rgb(243, 198, 66)');
@@ -59,7 +61,8 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         document.body.style.fontFamily = font;
         const box = (r: DOMRect) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
         const wordmark = box(header.querySelector('.wordmark')!.getBoundingClientRect());
-        const settings = box(header.querySelector('.icon-btn')!.getBoundingClientRect());
+        // Settings is a tab now (#101), so Garden's home header may have no trailing control; then the wordmark stands in.
+        const end = header.querySelector('.top-actions > *'), settings = end ? box(end.getBoundingClientRect()) : wordmark;
         const lines = [...header.querySelectorAll('.top-version .nowrap')].flatMap(node => {
           const range = document.createRange(); range.selectNodeContents(node);
           return [...range.getClientRects()].filter(rect => rect.width > 0).map(box);
@@ -75,7 +78,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
         }
         const overlaps = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         const result = { font, wordmark, settings, lines, splitWords, height: header.getBoundingClientRect().height,
-          touches: lines.filter(line => overlaps(line, wordmark) || overlaps(line, settings)).length,
+          touches: lines.filter(line => overlaps(line, wordmark) || (end !== null && overlaps(line, settings))).length,
           outside: lines.filter(line => line.left < 0 || line.right > innerWidth).length,
           sameRow: (block => block.top < wordmark.bottom && block.bottom > wordmark.top)(header.querySelector('.top-version')!.getBoundingClientRect()),
           settingsBesideWordmark: settings.top < wordmark.bottom };
@@ -113,12 +116,12 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await page.getByRole('button', { name: t.journey.trainMode, exact: true }).click();
     await expect(page.getByText(t.rail.sample, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: t.journey.busMode, exact: true }).click();
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
     await expect(page.getByText(t.themeCleanOnly, { exact: true })).toBeVisible();
     for (const skin of ['clean','turnpike','nyc','parkway','household','garden'] as const) {
-      await page.getByRole('button', { name: t.skins[skin], exact: true }).click();
+      await page.getByRole('button', { name: t.skins[skin], exact: true }).and(page.locator('[aria-pressed]')).click();
       await expect(page.locator('html')).toHaveAttribute('data-skin', skin);
-      await expect(page.getByRole('button', { name: t.skins[skin], exact: true })).toHaveAttribute('aria-pressed','true');
+      await expect(page.getByRole('button', { name: t.skins[skin], exact: true }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed','true');
       if (skin === 'clean') expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim())).not.toBe(reference.tokens['--surface']);
     }
     await page.getByRole('button', { name: t.back, exact: true }).click();

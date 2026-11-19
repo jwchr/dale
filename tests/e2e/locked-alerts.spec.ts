@@ -117,7 +117,7 @@ const PINNED = '/?live=1&now=2026-11-04T07:20';
 
 async function openSettings(page: Page, lang: Lang) {
   await page.goto(PINNED);
-  await page.getByRole('button', { name: strings[lang].settings, exact: true }).click();
+  await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click();
 }
 
 async function board(page: Page, lang: Lang, open = true) {
@@ -286,7 +286,7 @@ test('changing the language mid-ride ends the ride and registers a new one in th
   await page.reload();
   const offer = page.locator('.lock-return[role="note"]');
   await expect(offer).toBeVisible();
-  await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).first().click();
   await page.keyboard.press('Escape');
   await offer.getByRole('button', { name: strings.es.busLock.resumeYes, exact: true }).click();

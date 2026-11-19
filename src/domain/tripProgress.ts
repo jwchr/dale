@@ -128,3 +128,14 @@ export function tripProgress(input: ProgressInput): TripProgress {
     alight: { scheduled: scheduledAlight, projected: scheduledAlight + delayMs },
   };
 }
+
+/** Where the home map puts the next bus (#101): official GPS only when it lies on this trip's route, otherwise
+ *  the timetable's position once the trip has started (labeled as an estimate), otherwise nothing. */
+export type BusOnTrip = { kind: 'gps'; position: number; observedAt: number } | { kind: 'estimate'; position: number } | { kind: 'not-started'; startsAt: number } | { kind: 'unknown' };
+export function busOnTrip(stops: readonly (Stop | undefined)[], times: readonly number[], now: number, gps?: { lat: number; lon: number; observedAt: number }): BusOnTrip {
+  const fix = gps && fixPosition(stops, 0, { lat: gps.lat, lon: gps.lon, at: gps.observedAt, accuracyM: 0 }, now);
+  if (gps && fix !== undefined) return { kind: 'gps', position: fix, observedAt: gps.observedAt };
+  if (times.length < 2) return { kind: 'unknown' };
+  if (now < times[0]!) return { kind: 'not-started', startsAt: times[0]! };
+  return { kind: 'estimate', position: timetablePosition(times, now) };
+}

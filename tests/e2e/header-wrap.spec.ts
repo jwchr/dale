@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-// The top bar at enlarged text, in every skin and both languages, on the home and train screens.
+// The top bar at enlarged text, in every skin and both languages, on the home and train screens. Settings moved to
+// the Household tab (#101 part 2); the last header control is now the Beta pill or Back.
 // DejaVu Sans is the wide fallback font on the Linux CI runner; Turnpike has the widest (boxed) wordmark.
 const favorites = [{ id: 'reference', label: 'Hackensack → New York', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }];
 test.use({ serviceWorkers: 'block' });
 for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) for (const screen of ['home', 'train'] as const) {
-  test(`top bar keeps settings with the wordmark or Back at enlarged text (${skin}, ${lang}, ${screen})`, async ({ page }) => {
+  test(`top bar keeps its last control with the wordmark or Back at enlarged text (${skin}, ${lang}, ${screen})`, async ({ page }) => {
     await page.addInitScript(({ skin, lang, favorites }) => {
       localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, theme: 'light', skin }));
       localStorage.setItem('arriba.favorites.v1', JSON.stringify(favorites));
@@ -21,13 +22,14 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
           document.documentElement.style.fontSize = `${scale}%`; document.body.style.fontFamily = font;
           const box = (e: Element) => e.getBoundingClientRect();
           const wordmark = box(node.querySelector('.wordmark')!), stamp = node.querySelector('.top-version')!;
-          const buttons = [...node.querySelectorAll('.icon-btn')].map(box), settings = buttons.at(-1)!;
+          const buttons = [...node.querySelectorAll('.icon-btn, .beta-pill')].map(box), settings = buttons.at(-1);
           const lines = [...stamp.querySelectorAll('.nowrap')].flatMap(part => { const r = document.createRange(); r.selectNodeContents(part); return [...r.getClientRects()].filter(x => x.width > 0); });
           const splitWords: string[] = [];
           // Every text node (React renders "· " and the time separately); each word must render on one line.
           const walker = document.createTreeWalker(stamp, NodeFilter.SHOW_TEXT);
           for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-            if (text.parentElement!.closest('.sr-only')) continue;
+            // Skip screen-reader-only text (Household keeps the build stamp for assistive tech and in the pill's tooltip).
+            if (text.parentElement!.closest('.sr-only') || (text.parentElement!.closest('.top-stamp')?.getBoundingClientRect().width ?? 2) <= 1) continue;
             for (const m of text.textContent!.matchAll(/\S+/g)) {
               const r = document.createRange(); r.setStart(text, m.index!); r.setEnd(text, m.index! + m[0].length);
               if ([...r.getClientRects()].filter(x => x.width > 0).length !== 1) splitWords.push(m[0]);
@@ -36,9 +38,10 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
           const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
           const sameRow = (a: DOMRect, b: DOMRect) => a.top < b.bottom && b.top < a.bottom;
           return {
-            settingsBesideWordmark: sameRow(settings, wordmark),
-            // Settings may move down only together with Back or beside the stamp, never onto a row of its own.
-            settingsAlone: !sameRow(settings, wordmark) && !buttons.slice(0, -1).some(b => sameRow(b, settings)) && !lines.some(l => sameRow(l, settings)),
+            // Styles other than Household have no trailing control on home now that Settings is a tab.
+            settingsBesideWordmark: !settings || sameRow(settings, wordmark),
+            // The last control may move down only together with Back or beside the stamp, never onto a row of its own.
+            settingsAlone: !!settings && !sameRow(settings, wordmark) && !buttons.slice(0, -1).some(b => sameRow(b, settings)) && !lines.some(l => sameRow(l, settings)),
             overlaps: [...buttons.map(b => overlaps(b, wordmark)), ...lines.map(l => overlaps(l, wordmark) || buttons.some(b => overlaps(l, b))),
               ...buttons.map((b, i) => buttons.some((c, j) => j !== i && overlaps(b, c)))].filter(Boolean).length,
             splitWords, overflow: document.documentElement.scrollWidth - innerWidth, height: box(node).height,
@@ -46,7 +49,7 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
         }, { scale, font });
         const detail = JSON.stringify({ width, font, scale, header });
         expect([header.settingsAlone, header.overlaps, header.splitWords, header.overflow], detail).toEqual([false, 0, [], 0]);
-        // The home bar has room for settings beside the wordmark at every tested size.
+        // The home bar has room for the Household Beta pill beside the wordmark at every tested size.
         if (screen === 'home') expect(header.settingsBesideWordmark, detail).toBe(true);
         expect(header.height, detail).toBeLessThanOrEqual(800 * 0.3);
       }

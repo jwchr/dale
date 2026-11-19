@@ -18,32 +18,54 @@
 :root[data-skin='household'] body { background: transparent; }
 :root[data-skin='household'] :is(h1, h2, h3, h4):not(.rail-heading *, .rail-preview *, .top *) { color: var(--heading); letter-spacing: -0.01em; }
 :root[data-skin='household'] h1 { font-weight: 850; }
-/* Brighter and sharper than the night styles; the cards stay nearly opaque so text never sits on the photo. */
-:root[data-skin='household'] .photo-backdrop { filter: blur(1.5px) brightness(.96) saturate(1.08); }
+/* The background photo and its crop: change the picture here, in one place (SkinBackdrop reads --household-photo
+   back only to wait for it to load). Bright and unblurred, as in the mock-up; text never sits on it without a
+   panel or a soft shadow. */
+.skin-backdrop[data-skin='household'] {
+  --household-photo: url('/backgrounds/paterson-great-falls.webp');
+  --household-photo-position: 50% 28%;
+  --household-photo-size: cover;
+}
+.skin-backdrop[data-skin='household'] .photo-backdrop { inset: 0; background-image: var(--household-photo); background-position: var(--household-photo-position);
+  background-size: var(--household-photo-size); filter: none; }
 
-/* Header on the photo: a dark green veil keeps the white slogan readable over the brightest sky. */
-:root[data-skin='household'] .top { --text: #ffffff; --muted: #e3ede6; --focus: #ffd23f; color: #fff;
-  background: linear-gradient(180deg, rgba(9, 36, 24, 0.84), rgba(9, 36, 24, 0.72)); border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); }
+/* Header straight on the photo (no band): "d" mark, lowercase wordmark, a thin divider, the slogan, the Beta pill. */
+:root[data-skin='household'] .top { --text: #ffffff; --muted: #eef3ef; --focus: #ffd23f; color: #fff; position: relative;
+  border-bottom: 0; border-radius: 0; box-shadow: none; -webkit-backdrop-filter: none;
+  /* A soft shade only behind the header, so the white wordmark and slogan read over the brightest sky. */
+  background: linear-gradient(180deg, rgba(10, 30, 22, 0.55), rgba(10, 30, 22, 0.3) 70%, rgba(10, 30, 22, 0)); backdrop-filter: none; padding-block: calc(14px + env(safe-area-inset-top)) 12px;
+  align-items: center; }
 :root[data-skin='household'] .top .chip { color: var(--heading); }
 :root[data-skin='household'] .top .chip[aria-pressed='true'] { color: var(--brand-ink); border-color: #fff; }
-:root[data-skin='household'] .top-slogan { font-style: normal; font-weight: 600; text-align: start; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); }
-:root[data-skin='household'] .top-version { align-items: flex-start; text-align: start; padding-inline-start: 8px; border-inline-start: 1px solid rgba(255, 255, 255, 0.4); }
+:root[data-skin='household'] .top :is(.icon-btn, .back) { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+:root[data-skin='household'] .top-slogan { font-size: min(.66rem, 3.3cqi); font-style: normal; font-weight: 500; line-height: 1.35; text-align: start; color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 0 10px rgba(0, 0, 0, 0.45); }
+:root[data-skin='household'] .top-version { align-items: flex-start; text-align: start; padding-inline-start: 10px; margin-inline-start: 2px; border-inline-start: 1px solid rgba(255, 255, 255, 0.6); }
+:root[data-skin='household'] .top .top-version { flex: 1 1 0; min-width: 0; }
+/* The build stamp moves into the Beta pill's tooltip and Settings; screen readers still hear it here. */
+:root[data-skin='household'] .top-stamp { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-skin='household'] .beta-pill { background: rgba(28, 44, 36, 0.74); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); font-size: min(.66rem, 3.6cqi); font-weight: 550; padding: 4px 9px; gap: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+:root[data-skin='household'] .beta-dot { background: #5cc15a; }
 /* The yellow "d" mark and lowercase wordmark; the accessible name stays "Dale!" on the image role. */
-:root[data-skin='household'] .wordmark { font-size: 0; letter-spacing: 0; -webkit-text-stroke: 0; color: #fff; gap: 6px; flex-shrink: 0; }
+:root[data-skin='household'] .wordmark { font-size: 0; letter-spacing: 0; -webkit-text-stroke: 0; color: #fff; gap: 8px; flex-shrink: 0; }
 :root[data-skin='household'] .wordmark .bang { display: none; }
-:root[data-skin='household'] .wordmark::before { content: 'd'; display: inline-grid; place-items: center; inline-size: min(2.2rem, 15cqi); block-size: min(2.2rem, 15cqi);
-  padding-block-end: .12em; border-radius: 50%; background: #f2b31f; color: var(--heading); font-size: min(1.6rem, 11cqi); font-weight: 800; line-height: 1;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.3); }
-:root[data-skin='household'] .wordmark::after { content: 'dale.'; font-size: min(1.85rem, 12.5cqi); font-weight: 900; letter-spacing: -0.035em; line-height: 1; }
+:root[data-skin='household'] .wordmark::before { content: 'd'; display: inline-grid; place-items: center; inline-size: min(2rem, 9cqi); block-size: min(2rem, 9cqi);
+  padding-block-end: .1em; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffd256, #f2b31f 55%, #dc9b12); color: #1d2a22;
+  font-size: min(1.45rem, 6.6cqi); font-weight: 650; line-height: 1; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.35); }
+:root[data-skin='household'] .wordmark::after { content: 'dale.'; font-size: min(1.6rem, 7.2cqi); font-weight: 800; letter-spacing: -0.04em; line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.3); }
 
-/* The wider "d" mark leaves less room, so on narrow bars the stamp takes its own row, as in Turnpike. */
-@container top-bar (max-width: 18.5rem) {
-  :root[data-skin='household'] .top .top-version { order: 3; flex-basis: 100%; padding-inline-start: 0; border-inline-start: 0; }
+/* The wider "d" mark leaves less room, so on narrow bars the slogan takes its own row, as in Turnpike. */
+@container top-bar (max-width: 21rem) {
+  /* Very large text: "Household Beta" may take two lines inside the pill, so it stays beside the mark. */
+  :root[data-skin='household'] .top .beta-pill { white-space: normal; text-align: center; line-height: 1.15; }
+  :root[data-skin='household'] .top .top-version { order: 3; flex-basis: 100%; padding-inline-start: 0; margin-inline-start: 0; border-inline-start: 0; }
 }
 
 /* Cream cards and panels. */
 :root[data-skin='household'] .card { border-radius: var(--radius); padding: 14px; }
+:root[data-skin='household'] .fav.fav-dashboard { background: none; border: 0; box-shadow: none; padding: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
 :root[data-skin='household'] main > section:not(.card) { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 4px 14px 14px; box-shadow: var(--glass-shadow); }
 :root[data-skin='household'] :is(main > .row-between, main > button, main > aside, main > .home-toolbar, .foot) {
   background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: 16px; box-shadow: var(--glass-shadow); }
@@ -89,43 +111,135 @@
 /* Home cards: the button itself is transparent; the board is drawn behind the route and times, and the minutes
    tile stands apart on the right. Wide rows keep route, times and minutes on one line; narrower rows put the
    times under the route; the narrowest (large text) put the tile inside the board, under the route. */
-:root[data-skin='household'] .fav .deps .dep { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'route tile' 'main tile';
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'route tile' 'main tile';
   gap: 0 6px; padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 12px; }
-:root[data-skin='household'] .fav .deps .dep::before { content: ''; grid-area: 1 / 1 / 3 / 2; align-self: stretch; background: var(--led-bg); border: 1px solid #000;
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep::before { content: ''; grid-area: 1 / 1 / 3 / 2; align-self: stretch; background: var(--led-bg); border: 1px solid #000;
   border-inline-start: 5px solid var(--accent); border-radius: 10px; box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(18, 34, 25, 0.28); }
-:root[data-skin='household'] .fav .deps .dep.dep-alt::before { background: #1f1d17; }
-:root[data-skin='household'] .fav .deps .dep.dep-next::before { box-shadow: inset 0 0 0 1px rgba(255, 182, 39, 0.55), inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(18, 34, 25, 0.28); }
-:root[data-skin='household'] .fav .deps .dep:hover::before { border-inline-start-color: #ffc94d; }
-:root[data-skin='household'] .fav .deps .dep > .dep-route { display: contents; }
-:root[data-skin='household'] .fav .deps .dep-route .route-badge { grid-area: route; justify-self: start; align-self: end; margin: 6px 0 0 13px;
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep.dep-alt::before { background: #1f1d17; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep.dep-next::before { box-shadow: inset 0 0 0 1px rgba(255, 182, 39, 0.55), inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(18, 34, 25, 0.28); }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep:hover::before { border-inline-start-color: #ffc94d; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep > .dep-route { display: contents; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep-route .route-badge { grid-area: route; justify-self: start; align-self: end; margin: 6px 0 0 13px;
   min-inline-size: 0; min-block-size: 44px; padding-inline: 2px; font-size: 1.65rem; line-height: 1; }
-:root[data-skin='household'] .fav .deps .dep > .dep-main { grid-area: main; padding: 0 10px 9px 15px; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep > .dep-main { grid-area: main; padding: 0 10px 9px 15px; }
 /* The same board color sits on the text box itself (clipped inside the padding, so the outline stays visible) so contrast checkers see the real background. */
-:root[data-skin='household'] .fav .deps .dep > .dep-main { background: var(--led-bg) content-box; }
-:root[data-skin='household'] .fav .deps .dep.dep-alt > .dep-main { background-color: #1f1d17; }
-:root[data-skin='household'] .fav .deps .dep-route .dep-right { grid-area: tile; align-self: stretch; display: grid; place-items: center; inline-size: auto;
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep > .dep-main { background: var(--led-bg) content-box; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep.dep-alt > .dep-main { background-color: #1f1d17; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep-route .dep-right { grid-area: tile; align-self: stretch; display: grid; place-items: center; inline-size: auto;
   min-inline-size: 3.6rem; max-inline-size: 5.2rem; padding: 6px 7px; background: #fffdf6; border: 1px solid #d6cdb5; border-radius: 12px;
   box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(18, 34, 25, 0.16); }
-:root[data-skin='household'] .fav .deps .dep-min { color: var(--heading); font-size: .9rem; font-weight: 800; line-height: 1.15; text-align: center; overflow-wrap: normal; }
+:root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep-min { color: var(--heading); font-size: .9rem; font-weight: 800; line-height: 1.15; text-align: center; overflow-wrap: normal; }
 @container (min-width: 22rem) {
-  :root[data-skin='household'] .fav .deps .dep { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'route main tile'; }
-  :root[data-skin='household'] .fav .deps .dep::before { grid-area: 1 / 1 / 2 / 3; }
-  :root[data-skin='household'] .fav .deps .dep-route .route-badge { align-self: center; margin: 0 4px 0 13px; }
-  :root[data-skin='household'] .fav .deps .dep > .dep-main { padding: 8px 10px 8px 0; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'route main tile'; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep::before { grid-area: 1 / 1 / 2 / 3; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep-route .route-badge { align-self: center; margin: 0 4px 0 13px; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep > .dep-main { padding: 8px 10px 8px 0; }
 }
 @container (max-width: 13rem) {
-  :root[data-skin='household'] .fav .deps .dep { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'route' 'tile' 'main'; }
-  :root[data-skin='household'] .fav .deps .dep::before { grid-area: 1 / 1 / 4 / 2; }
-  :root[data-skin='household'] .fav .deps .dep-route .dep-right { justify-self: stretch; margin: 6px 10px 8px 15px; max-inline-size: none; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'route' 'tile' 'main'; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep::before { grid-area: 1 / 1 / 4 / 2; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep-route .dep-right { justify-self: stretch; margin: 6px 10px 8px 15px; max-inline-size: none; }
 }
+
+/* Home dashboard (#101 part 2), drawn to docs/design/mockups/04-dashboard.jpg. */
+:root[data-skin='household'] .dash-panel { --glass-strong: rgba(250, 247, 238, 0.93); background: var(--glass-strong); border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 18px; box-shadow: 0 10px 30px rgba(18, 34, 25, 0.22), 0 1px 2px rgba(18, 34, 25, 0.12); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-skin='household'] .dash-panel { -webkit-backdrop-filter: blur(14px) saturate(1.1); backdrop-filter: blur(14px) saturate(1.1); }
+}
+:root[data-skin='household'] .dash-eyebrow { color: #26352d; font-weight: 700; letter-spacing: .24em; font-size: .7rem; }
+:root[data-skin='household'] .dash-title { color: var(--heading); font-weight: 800; font-size: 1.62rem; letter-spacing: -0.02em; }
+:root[data-skin='household'] .dash-connection .dash-title { font-size: 1.22rem; }
+:root[data-skin='household'] .dash-connection .dash-section-head { align-items: flex-end; }
+:root[data-skin='household'] .dash-connection .dash-section-head > div { flex: 1 1 9.5rem; }
+:root[data-skin='household'] .dash-direction { padding: 8px 8px 2px; }
+:root[data-skin='household'] .dash-direction-buttons { gap: 7px; }
+:root[data-skin='household'] .dash-dir .dash-icon { inline-size: 1.45em; block-size: 1.45em; }
+:root[data-skin='household'] .dash-dir .icon-go { inline-size: .95em; block-size: .95em; }
+:root[data-skin='household'] .dash-dir { gap: 6px; padding: 6px 8px 6px 10px; border-radius: 10px; min-block-size: 50px; font-size: .9rem; letter-spacing: -0.015em; font-weight: 700; color: var(--heading);
+  background: linear-gradient(180deg, #fffdf8, #f6f2e7); border: 1.5px solid #d9d1bc; box-shadow: 0 1px 2px rgba(18, 34, 25, 0.08); }
+:root[data-skin='household'] .dash-dir[aria-pressed='true'] { background: linear-gradient(180deg, #245a3c, #1d4d32); color: #fff; border-color: #173d2b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 6px rgba(23, 61, 43, 0.35); }
+:root[data-skin='household'] :is(.dash-from, .dash-locate) { color: #26352d; font-weight: 450; font-size: .86rem; }
+:root[data-skin='household'] .dash-from-row { margin-block-start: 0; padding-inline: 6px; }
+:root[data-skin='household'] :is(.dash-from, .dash-locate) .dash-icon { color: #3b4a41; }
+
+:root[data-skin='household'] .dash-arrivals .dash-section-head { margin-block-end: 12px; }
+:root[data-skin='household'] .status-pill { background: #ece7cf; color: #23412f; border: 0; padding: 7px 14px; font-weight: 700; font-size: .74rem; letter-spacing: .16em; }
+:root[data-skin='household'] .status-pill .status-dot { background: #8a8370; }
+:root[data-skin='household'] .status-pill[data-live='true'] .status-dot { background: #3f8a23; box-shadow: none; }
+
+/* The boards: black glass with a gold edge, unlit LED dots, a faint shine on top, amber dot-matrix capitals. */
+:root[data-skin='household'] .dep.dep-board { --text: #26352d; --muted: #4f5d55; --alert: #b3261e; color: var(--text); background: none; border: 0; border-radius: 0; box-shadow: none; }
+:root[data-skin='household'] .dep.dep-board:hover { border: 0; }
+:root[data-skin='household'] .dep-board > .dep-led { --text: var(--led-ink); --muted: var(--led-soft); color: var(--led-ink); min-block-size: 56px; padding: 4px 10px 4px 15px; gap: 10px;
+  border: 0; border-inline-start: 0; border-radius: 9px;
+  background-color: var(--led-bg);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.025) 42%, rgba(255, 255, 255, 0) 48%),
+    radial-gradient(circle closest-side, rgba(255, 182, 39, 0.07) 60%, transparent 75%);
+  background-size: auto, 3px 3px;
+  box-shadow: inset 5px 0 0 var(--accent), inset 0 0 0 1px #000, inset 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 0 2px #2b2a25, 0 3px 8px rgba(18, 34, 25, 0.35); }
+:root[data-skin='household'] .dep-board:hover > .dep-led { box-shadow: inset 5px 0 0 #ffc94d, inset 0 0 0 1px #000, inset 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 0 2px #3d3a30, 0 3px 8px rgba(18, 34, 25, 0.35); }
+:root[data-skin='household'] .dep-board .dep-led .route-badge { border-inline-end: 0; padding-inline-end: 0; min-inline-size: 2.6ch; background: none; color: var(--led-ink);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 2.1rem; line-height: 1; font-weight: 800; letter-spacing: -0.02em;
+  text-shadow: 0 0 3px rgba(255, 170, 20, 0.7), 0 0 9px rgba(255, 150, 0, 0.3); }
+:root[data-skin='household'] .dep-board .dep-dest { align-self: stretch; align-content: center; padding-inline-start: 11px; border-inline-start: 1px solid rgba(255, 182, 39, 0.22);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--led-ink); text-shadow: 0 0 3px rgba(255, 170, 20, 0.55); }
+:root[data-skin='household'] .dep-board .dep-dest-main { font-size: 1.28rem; font-weight: 700; letter-spacing: 0; line-height: 1; }
+:root[data-skin='household'] .dep-board .dep-dest-sub { font-size: .6rem; font-weight: 600; letter-spacing: .02em; margin-block-start: 2px; color: var(--led-ink); }
+/* Dot matrix: the real glyphs show through a fine grid of round holes, so the text stays text (and keeps its
+   real color for contrast checks) while it reads as an LED sign. Sharp at any pixel density. */
+@supports (mask-image: radial-gradient(circle, #000, transparent)) or (-webkit-mask-image: radial-gradient(circle, #000, transparent)) {
+  :root[data-skin='household'] .dep-board .dep-led :is(.route-badge, .dep-dest-main) {
+    -webkit-mask-image: radial-gradient(circle closest-side, #000 72%, rgba(0, 0, 0, 0.35) 88%, transparent 100%);
+    mask-image: radial-gradient(circle closest-side, #000 72%, rgba(0, 0, 0, 0.35) 88%, transparent 100%);
+    -webkit-mask-size: .085em .085em; mask-size: .085em .085em; }
+}
+:root[data-skin='household'] .dep-board .dep-tile { min-inline-size: 3rem; padding-inline: 4px; background: linear-gradient(180deg, #faf8f1, #efebdf); color: var(--heading); border: 1px solid #e0d9c6;
+  border-radius: 10px; box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(18, 34, 25, 0.12); }
+:root[data-skin='household'] .dep-board .dep-tile-num { font-size: 1.65rem; font-weight: 800; color: #142a1e; }
+:root[data-skin='household'] .dep-board .dep-tile-unit { color: #26352d; font-size: .86rem; }
+:root[data-skin='household'] .dep-board[data-cancelled='true'] .dep-tile { color: #b3261e; }
+:root[data-skin='household'] .dep-board > .dep-main { color: #4f5d55; padding-inline: 6px; }
+:root[data-skin='household'] .dash-arrivals { padding: 12px; }
+:root[data-skin='household'] .dep-board > .dep-main :is(.dep-time, .dep-arrival-time, .dep-arrival-scheduled) { color: #26352d; text-shadow: none; }
+:root[data-skin='household'] .dep-board > .dep-main .dep-place { color: #4f5d55; font-size: .74rem; letter-spacing: 0; text-transform: none; font-weight: 600; }
+:root[data-skin='household'] .dep-board .live-symbol[data-live='true'] { color: #2e7d32; }
+:root[data-skin='household'] .dep-boards .dep-gate { color: #26352d; }
+:root[data-skin='household'] .dash-fullday { color: #26352d; font-weight: 450; font-size: .92rem; border-block-start-color: #dcd5c2; }
+:root[data-skin='household'] .dash-fullday .dash-icon { color: #3b4a41; }
+
+:root[data-skin='household'] .dash-outline { color: var(--heading); border-color: #b9b19b; font-weight: 700; background: rgba(255, 255, 255, 0.5); font-size: .64rem; letter-spacing: .12em; padding: 6px 11px; gap: 6px; }
+:root[data-skin='household'] .connection-map { border-radius: 14px; box-shadow: inset 0 0 0 1px rgba(23, 61, 43, 0.08); }
+:root[data-skin='household'] .map-status { color: #26352d; font-size: .84rem; }
+
+:root[data-skin='household'] .guidance-banner { background: linear-gradient(100deg, #fbf3dc, #f5e7c2); color: #26352d; border: 1px solid #eadbb2; border-radius: 16px;
+  box-shadow: 0 8px 22px rgba(18, 34, 25, 0.2); padding: 14px 14px 14px 16px; gap: 12px; }
+:root[data-skin='household'] .guidance-banner .icon-signpost { color: #a06a08; }
+:root[data-skin='household'] .guidance-text strong { color: #142a1e; font-size: .84rem; letter-spacing: -0.01em; }
+:root[data-skin='household'] .guidance-text span { font-size: .78rem; color: #3b4a41; }
+:root[data-skin='household'] .guidance-banner .icon-chevron { color: #8c6106; }
+:root[data-skin='household'] .dash-other-title { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+:root[data-skin='household'] .dash-trip { padding-block: 12px; }
+
+/* Bottom tab bar: frosted cream, dark outline icons, the open tab in dark green with a short underline. */
+:root[data-skin='household'] .tab-bar { background: rgba(250, 247, 238, 0.94); border-block-start: 1px solid rgba(23, 61, 43, 0.1); box-shadow: 0 -4px 18px rgba(18, 34, 25, 0.12); }
+:root[data-skin='household'] .tab { color: #3b4a41; font-size: .68rem; font-weight: 500; padding-inline: 0; letter-spacing: -0.01em; }
+:root[data-skin='household'] .tab[aria-current='page'] { color: #1f5a3a; font-weight: 700; }
+:root[data-skin='household'] .tab[aria-current='page']::after { inset-inline: 18%; block-size: 3px; background: #1f5a3a; }
 
 /* Comfort and contrast fallbacks. */
 @media (prefers-reduced-transparency: reduce) {
   :root[data-skin='household'] .top { background: #173d2b; }
+  :root[data-skin='household'] :is(.dash-panel, .tab-bar, .beta-pill) { background: #f7f4ec; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  :root[data-skin='household'] .beta-pill { background: #173d2b; }
   :root[data-skin='household'] :is(.card, main > section:not(.card), main > .row-between, main > button, main > aside, main > .home-toolbar, .foot) {
     background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (forced-colors: active) {
   :root[data-skin='household'] :is(.top, .dep, .dep-right, .highway-sign, .commute-stop, .commute-sign) { background: Canvas; color: CanvasText; border-color: CanvasText; text-shadow: none; }
-  :root[data-skin='household'] .fav .deps .dep::before, :root[data-skin='household'] .wordmark::before { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  :root[data-skin='household'] .fav:not(.fav-dashboard) .deps .dep::before, :root[data-skin='household'] .wordmark::before { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  :root[data-skin='household'] .dep-board .dep-led :is(.route-badge, .dep-dest-main) { -webkit-mask: none; mask: none; text-shadow: none; }
+  :root[data-skin='household'] :is(.dep-board > .dep-led, .dep-board .dep-tile, .status-pill, .beta-pill, .guidance-banner, .tab-bar, .dash-dir) { background: Canvas; color: CanvasText; box-shadow: none; border: 1px solid CanvasText; }
+  :root[data-skin='household'] .dash-dir[aria-pressed='true'] { background: Highlight; color: HighlightText; }
 }

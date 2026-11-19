@@ -14,7 +14,7 @@ for (const lang of ['en', 'es'] as const) test(`a setting saved in one tab survi
   const a = await context.newPage(), b = await context.newPage();
   for (const page of [a, b]) {
     await page.goto('/?printed=1&now=2026-11-04T07:50');
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   }
   await a.getByRole('button', { name: '5', exact: true }).click();
   await expect.poll(() => saved(a)).toMatchObject({ count: 5 });
@@ -32,7 +32,7 @@ test('settings adopted from another tab are not written back over a newer save',
     if (!localStorage.getItem('arriba.settings.v1')) localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang: 'en', skin: 'clean', theme: 'light', count: 3 }));
   });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   // Same order a real second tab produces: save, notification here, then a newer save
   // before this page has re-rendered.
   await page.evaluate(() => {
@@ -57,7 +57,7 @@ for (const lang of ['en', 'es'] as const) test(`a change saves only its own sett
     if (!localStorage.getItem('arriba.settings.v1')) localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'clean', theme: 'light', count: 3 }));
   }, lang);
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   // The other tab's save, with no storage notice reaching this tab.
   await page.evaluate(() => {
     const key = 'arriba.settings.v1';
@@ -78,7 +78,7 @@ test('settings changes still work when this browser refuses to save them', async
     Storage.prototype.setItem = function () { throw new DOMException('blocked', 'QuotaExceededError'); };
   });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   await page.getByRole('button', { name: '5', exact: true }).click();
   await page.getByRole('button', { name: t.themeDark, exact: true }).click();
   // Both in-memory choices hold; the second change did not reset the first.

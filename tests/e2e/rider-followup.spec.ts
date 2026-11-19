@@ -35,8 +35,8 @@ for (const lang of ['en', 'es'] as const) test(`compact home, legacy label and t
     expect(find!.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
-  // Future-day labels must fit inside their own clock, not collide with the destination time.
-  expect(await page.locator('.dep-clock > span').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
+  // Future-day labels must fit inside their own clock, not collide with the destination time (screen-reader-only labels are 1px).
+  expect(await page.locator('.dep-clock > span').evaluateAll(nodes => nodes.every(node => node.clientWidth <= 1 || node.scrollWidth <= node.clientWidth + 1))).toBe(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toEqual(saved);
   await page.screenshot({ path: `test-results/rider-home-${lang}.png`, fullPage: true });
 

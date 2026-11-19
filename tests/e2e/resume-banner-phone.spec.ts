@@ -21,7 +21,7 @@ for (const lang of ['en', 'es'] as const) for (const skin of ['household', 'gard
   await page.reload();
   const banner = page.locator('.lock-return[role=note]');
   await expect(banner).toBeVisible();
-  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   for (const width of [305, 320]) for (const enlarged of [false, true]) {
     await page.setViewportSize({ width, height: 800 });
     await page.evaluate(enlarged => {

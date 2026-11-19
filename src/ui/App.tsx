@@ -14,10 +14,10 @@ import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
 import { ARRIVAL_KEY, observedDestinationArrival, readLastArrival, saveLastArrival } from '../domain/destinationArrival';
 import { ArrivalResult } from './DestinationArrival';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
-import { checkDirection, destinationsFrom, returnLeg, searchStops } from '../domain/direction';
+import { checkDirection, destinationsFrom, hasStopLocations, returnLeg, searchStops } from '../domain/direction';
 import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
@@ -38,6 +38,10 @@ import { StopChoice } from './StopChoice';
 import { StopSign } from './StopSign';
 import { TourGuide } from './TourGuide';
 import { NearMe } from './NearMe';
+import { ArrowRight, BetaPill, BusIcon, DirectionPanel, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
+import { HomeConnection } from './HomeConnection';
+import { stopLabel } from './StripMap';
+import type { VehicleObservation } from '../domain/lock';
 import { Rescue } from './Rescue';
 import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
 import { TravelModeSelector } from './TravelModeSelector';
@@ -64,7 +68,9 @@ interface Leg { fromStopId: string; toStopId: string; routeIds: string[] }
 interface ActiveLock { dep: Departure; leg: Leg; session: BusSession }
 type Screen =
   | { name: 'home' }
-  | { name: 'search' }
+  | { name: 'search'; nearMe?: boolean }
+  | { name: 'schedules' }
+  | { name: 'gates' }
   | { name: 'commute'; favoriteId: string; reversed: boolean; end: CommutePickEnd; level: 'city' | 'stop' }
   | { name: 'timetable'; leg: Leg; title: string; date?: string }
   | { name: 'departure'; dep: Departure; leg: Leg }
@@ -344,11 +350,21 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
     if (s.name === 'home') return [s];
     const top = st[st.length - 1]!;
     // Tapping Settings (or search, or the guide) again while already there does not stack copies.
-    if (top.name === s.name && ['settings', 'search', 'guide', 'penn'].includes(s.name)) return st;
+    if (top.name === s.name && ['settings', 'search', 'guide', 'penn', 'schedules', 'gates'].includes(s.name)) return st;
     // Keep the history short, but never drop home at the bottom: Back must always lead home.
     return st.length >= 20 ? [st[0]!, ...st.slice(2), s] : [...st, s];
   });
   const back = () => setStack((st) => (st.length > 1 ? st.slice(0, -1) : st));
+  // The bottom tab bar (#101): one navigation for every style. A tab opens its screen like the old buttons did,
+  // so Back still returns to the screen the rider came from (Dashboard always starts over at home).
+  const activeTab: Tab | undefined = screen.name === 'home' ? 'dashboard'
+    : screen.name === 'schedules' || screen.name === 'timetable' || (screen.name === 'penn' && screen.railOnly) ? 'schedules'
+    : screen.name === 'search' || screen.name === 'commute' ? 'routes' : screen.name === 'gates' ? 'gates' : screen.name === 'settings' ? 'household' : undefined;
+  const openTab = (tab: Tab) => {
+    if (tab === 'dashboard') { setScreen({ name: 'home' }); return; }
+    const next: Screen = tab === 'schedules' ? { name: 'schedules' } : tab === 'routes' ? { name: 'search' } : tab === 'gates' ? { name: 'gates' } : { name: 'settings' };
+    setScreen(next);
+  };
   /** Update the current screen's entry (for example the timetable's chosen day) without adding history. */
   const updateTop = (s: Screen) => setStack((st) => [...st.slice(0, -1), s]);
   // The phone's or browser's own Back steps back inside Dale instead of leaving it mid-ride. Only a
@@ -425,6 +441,12 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? t.unknownStop;
   const ctx: Ctx = { ds, tz, now, t, lang: settings.lang, stopName, fromCache, savedAt };
 
+  const toolbar = <div className="home-toolbar"><TravelModeSelector
+    mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
+      if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
+      else if (screen.name === 'penn') back();
+    }} /><button className="find-stop" onClick={() => setScreen({ name: 'search' })}><ButtonLabel translate={other => other.findStop}>{t.findStop}</ButtonLabel></button></div>;
+
   return (
     <BilingualButtons enabled={settings.bilingualButtons} lang={settings.lang}><div className={`app${settings.bilingualButtons ? ' bilingual-buttons' : ''}`}>
       <SkinBackdrop skin={settings.skin} />
@@ -438,18 +460,15 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
           {screen.name === 'penn' ? (
             <button className="icon-btn" onClick={back} aria-label={t.back}>‹</button>
           ) : null}
-          <button className="icon-btn" onClick={() => setScreen({ name: 'settings' })} aria-label={t.settings}>⚙</button>
+          {/* The Household mock-up's Beta pill; the other styles keep their own header with the build stamp. */}
+          {settings.skin === 'household' && (screen.name === 'home' || screen.name === 'penn') && <BetaPill t={t} title={versionLine(t, settings.lang, tz)} />}
         </span>
       </AppHeader>
       {ds.meta.demo && <div className="demo-banner" role="note">{t.demoBanner}{demoInAddress() && <> <a className="link demo-leave" href={leaveDemoHref()}>{t.leaveDemo}</a></>}</div>}
       <FeedStatus ctx={ctx} />
       {ds.meta.transcribed && isNjtHoliday(localYmd(now, tz)) && <p className="status-line" data-level="warn" role="note">{t.holidayToday}</p>}
       <main>
-        {(screen.name === 'home' || (screen.name === 'penn' && screen.railOnly)) && <div className="home-toolbar"><TravelModeSelector
-          mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
-            if (mode === 'train') { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }
-            else if (screen.name === 'penn') back();
-          }} /><button className="find-stop" onClick={() => setScreen({ name: 'search' })}><ButtonLabel translate={other => other.findStop}>{t.findStop}</ButtonLabel></button></div>}
+        {((screen.name === 'home' && !favorites.length) || (screen.name === 'penn' && screen.railOnly)) && toolbar}
         {resumable && !activeLock && <aside className="lock-return" role="note">
           <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
@@ -471,8 +490,10 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             onChoose={(favoriteId, reversed, end, level) => { pickerFocus.current = { favoriteId, end, level }; setScreen({ name: 'commute', favoriteId, reversed, end, level }); }}
             onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
             onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })}
+            onLocation={hasStopLocations(ds) ? () => setScreen({ name: 'search', nearMe: true }) : undefined}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
         )}
+        {screen.name === 'home' && favorites.length > 0 && toolbar}
         {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'home' && lastArrival && <details className="card last-arrival">
           <summary>{t.arrival.last}</summary><ArrivalResult value={lastArrival} t={t} lang={settings.lang} tz={tz} />
@@ -484,8 +505,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
           <a className="link" href={sourceHref(!liveMode)}>{liveMode ? t.live.backup : t.live.open}</a>
         </details>}
         {screen.name === 'search' && (
-          <Search ctx={ctx} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
+          <Search ctx={ctx} nearMe={screen.nearMe} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
         )}
+        {screen.name === 'schedules' && <SchedulesScreen ctx={ctx} favorites={favorites} onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
+          onTrain={() => { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }} onFind={() => setScreen({ name: 'search' })} />}
+        {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
         {screen.name === 'commute' && (() => {
           const favorite = favorites.find(f => f.id === screen.favoriteId), leg = favorite && legFor(ds, favorite, screen.reversed);
           return favorite && leg ? <CommutePicker ds={ds} t={t} lang={settings.lang} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds} end={screen.end} level={screen.level} onCancel={back}
@@ -534,6 +558,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         <p>{dataNotice(ds, t)}</p>
         <p className="version-line">{versionLine(t, settings.lang, tz)}</p>
       </footer>
+      <TabBar t={t} active={activeTab} onTab={openTab} />
     </div></BilingualButtons>
   );
 }
@@ -635,7 +660,7 @@ function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefine
   return back ? { ...back, routeIds: f.routeIds } : undefined;
 }
 
-function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone }: {
+function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone, onLocation }: {
   ctx: Ctx; favorites: Favorite[]; count: number; setFavorites: (fn: (l: Favorite[]) => Favorite[]) => void;
   reversedIds: Set<string>; toggleReversed: (id: string) => void;
   onChoose: (favoriteId: string, reversed: boolean, end: CommutePickEnd, level: 'city' | 'stop') => void;
@@ -643,6 +668,8 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
   /** Labels of commutes saved with the printed timetable, shown once the official schedule is the source. */
   printedCommutes?: string[]; onFind?: () => void; onMoveDone?: () => void;
+  /** "Use my location": opens Find a stop and asks for the position there. Absent when stops have no coordinates. */
+  onLocation?: (() => void) | undefined;
 }) {
   const { t, ds, now } = ctx;
   const [editing, setEditing] = useState(false);
@@ -658,6 +685,11 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
   const evidence = (d: Departure, toStopId: string): DepartureEvidence | undefined => !live ? undefined
     : live.state !== 'available' ? { kind: live.state === 'checking' ? 'checking' : 'unavailable' }
     : departureEvidence(live.batch, reports.get(departureKey(requestFor(d, toStopId))), now);
+  // The next bus's own GPS for the home map: only the position the live check validated for this exact trip, and only while fresh.
+  const gpsFor = (d: Departure, toStopId: string): VehicleObservation | undefined => {
+    const item = reports.get(departureKey(requestFor(d, toStopId))), seen = evidence(d, toStopId)?.gpsObservedAt;
+    return seen !== undefined && item?.gps?.observedAt === seen ? item.gps : undefined;
+  };
   if (!favorites.length && printedCommutes.length && onFind) {
     // Printed and official stops use different IDs, so Dale never maps them silently: the rider picks again.
     return (
@@ -680,6 +712,12 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
       </section>
     );
   }
+  const card = (f: Favorite, i: number, dash?: DashboardParts) => <FavoriteCard ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
+    onMove={(dlt) => setFavorites((l) => moveFavorite(l, f.id, dlt))}
+    onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
+    onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
+    onLeavePlan={(plan) => setFavorites((l) => setLeavePlan(l, f.id, reversedIds.has(f.id) ? 'back' : 'out', plan))}
+    onAllDay={onAllDay} onDeparture={onDeparture} onRescue={onRescue} onChoose={(end, level) => onChoose(f.id, reversedIds.has(f.id), end, level)} {...(dash ? { dash } : {})} />;
   return (
     <>
       {printedCommutes.length > 0 && onFind && onMoveDone && <section className="card move-reminder" aria-label={t.live.moveReminder}>
@@ -690,22 +728,18 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
           <button className="chip" onClick={onMoveDone}>{t.live.moveDone}</button>
         </div>
       </section>}
-      <ol className="fav-list">
-        {favorites.map((f, i) => (
-          <li key={f.id}>
-            <FavoriteCard ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
-              onMove={(dlt) => setFavorites((l) => moveFavorite(l, f.id, dlt))}
-              onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
-              onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
-              onLeavePlan={(plan) => setFavorites((l) => setLeavePlan(l, f.id, reversedIds.has(f.id) ? 'back' : 'out', plan))}
-              onAllDay={onAllDay} onDeparture={onDeparture} onRescue={onRescue} onChoose={(end, level) => onChoose(f.id, reversedIds.has(f.id), end, level)} />
-          </li>
-        ))}
-      </ol>
+      {/* The first saved trip is the dashboard from the mock-up (#101); the others keep their cards below it. */}
+      <div className="fav-primary">{card(favorites[0]!, 0, { onLocation, gps: gpsFor, guidance: <GuidanceBanner t={t} onOpen={onGuide} /> })}</div>
+      {editing && <p className="sr-only">{t.edit}</p>}
+      {favorites.length > 1 && <>
+        <h2 className="dash-other-title">{t.dash.otherTrips}</h2>
+        <ol className="fav-list">
+          {favorites.slice(1).map((f, j) => <li key={f.id}>{card(f, j + 1)}</li>)}
+        </ol>
+      </>}
       <div className="row-between favorites-tools">
         <button className="ghost" onClick={() => setEditing((e) => !e)}>{editing ? t.done : t.edit}</button>
       </div>
-      <button className="ghost" onClick={onGuide}>{t.guideOpen}</button>
       <TourGuide t={t} lang={ctx.lang} />
     </>
   );
@@ -737,12 +771,27 @@ function HighwayPlace({ place, label, end, t, onCity, onStop }: { place: { name:
 }
 
 /** Saved commute presentation preserves the selected direction, departure and existing trip actions. */
-function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue, onChoose }: {
+/** What only the dashboard (first) card gets: the near-me shortcut, the bus's GPS for the map, and the guide banner. */
+interface DashboardParts { onLocation?: (() => void) | undefined; gps: (d: Departure, toStopId: string) => VehicleObservation | undefined; guidance: ReactNode }
+
+/** The LED board's two destination lines, from the trip's own sign text and its last stop; never invented. */
+function boardDestination(ds: Dataset, d: Departure, t: Strings): { main: string; sub?: string } {
+  const last = ds.stops.find(s => s.id === d.pattern.stopIds[d.pattern.stopIds.length - 1]);
+  const toPabt = last?.terminal === 'PABT';
+  const prefix = d.route.shortName.toLowerCase() + ' ';
+  const head = (d.pattern.headsign.toLowerCase().startsWith(prefix) ? d.pattern.headsign.slice(prefix.length) : d.pattern.headsign).trim();
+  const main = head || (toPabt ? t.commuteNewYork : stopLabel(last?.name ?? '').town);
+  const sub = [toPabt ? t.dash.portAuthority : undefined, /turnpike/i.test(d.route.longName) ? t.dash.turnpike : undefined].filter(Boolean).join(' / ');
+  return sub ? { main, sub } : { main };
+}
+
+function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance, editing, rev, onReverse, first, last, onMove, onRemove, onRename, onLeavePlan, onAllDay, onDeparture, onRescue, onChoose, dash }: {
   ctx: Ctx; fav: Favorite; count: number; model: UpcomingSet; distance: (d: Departure) => ReportedRouteDistance | undefined; liveEnabled: boolean; evidence: (d: Departure, toStopId: string) => DepartureEvidence | undefined; editing: boolean; rev: boolean; onReverse: () => void; first: boolean; last: boolean;
   onMove: (d: -1 | 1) => void; onRemove: () => void; onRename: (s: string) => void; onLeavePlan: (p: LeavePlan | undefined) => void;
   onAllDay: (leg: Leg, title: string) => void; onDeparture: (d: Departure, leg: Leg) => void;
   onRescue: (leg: Leg, label: 'home' | 'other', usualRouteId?: string) => void;
   onChoose: (end: CommutePickEnd, level: 'city' | 'stop') => void;
+  dash?: DashboardParts;
 }) {
   const { ds, t, now, stopName } = ctx;
   const leg = legFor(ds, fav, rev);
@@ -796,36 +845,151 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
       </article>
     );
   }
+  const rowItem = ({ d, arr, live }: typeof rows[number], i: number) => {
+    const shown = live?.boarding?.at ?? d.departs;
+    const arrivalPlace = to?.terminal === 'PABT' ? t.commutePabt : to?.name ?? t.unknownStop;
+    const reasonId = `${evidencePrefix}-${d.tripInstanceId}`;
+    const reason = live && homeArrivalReason(ctx, d, live);
+    const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
+    return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
+      <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''} ${i % 2 === 0 ? 'dep-alt' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg!)}>
+        <span className="dep-route"><RouteBadge ds={ds} routeId={d.route.id} />
+          <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
+        </span>
+        <span className="dep-main">
+          <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
+            time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
+          <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
+          {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
+          {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
+          {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+        </span>
+      </button>
+      {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
+        : live.reportedAt !== undefined && <span className="dep-source">{t.live.rows.reportAge(Math.max(0, Math.floor((now - live.reportedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
+    </li>;
+  };
+  // The dashboard's LED boards (#101): route and destination on the black board, minutes on the tile beside it,
+  // and the clock times, evidence, gate and cancellations kept on the compact line underneath.
+  const boardItem = ({ d, arr, live }: typeof rows[number], i: number) => {
+    const shown = live?.boarding?.at ?? d.departs;
+    const arrivalPlace = to?.terminal === 'PABT' ? t.commutePabt : to?.name ?? t.unknownStop;
+    const reasonId = `${evidencePrefix}-${d.tripInstanceId}`;
+    const reason = live && homeArrivalReason(ctx, d, live);
+    const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
+    const minutes = minutesUntil(now, shown), gone = live?.kind === 'cancelled' || (shown < now && !!live);
+    const minText = live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutes);
+    const dest = boardDestination(ds, d, t);
+    return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
+      <button className={`dep dep-board ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''}`} data-cancelled={live?.kind === 'cancelled' || undefined} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg!)}>
+        <span className="dep-route dep-led">
+          <RouteBadge ds={ds} routeId={d.route.id} />
+          <span className="dep-dest"><span className="dep-dest-main">{dest.main}</span>{dest.sub && <span className="dep-dest-sub">{dest.sub}</span>}</span>
+          <span className="dep-right sr-only"><span className="dep-min">{minText}</span></span>
+        </span>
+        <MinutesTile t={t} {...(gone ? {} : { minutes })} text={minText} />
+        <span className="sr-only">. {live?.kind === 'live' ? t.dash.live : t.dash.scheduled}.</span>
+        <span className="dep-main">
+          <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
+            time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
+          <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
+          {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
+          {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
+          {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+        </span>
+      </button>
+      {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
+        : live.reportedAt !== undefined && <span className="dep-source">{t.live.rows.reportAge(Math.max(0, Math.floor((now - live.reportedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
+    </li>;
+  };
+  const header = <>
+  <div className="commute-header">
+    {editing ? (
+      <div className="commute-edit">
+        <label className="rename">{t.rename}
+          <input defaultValue={fav.label} onBlur={(e) => onRename(e.currentTarget.value)} />
+        </label>
+      </div>
+    ) : <>
+      {customName ? <div className="commute-sign"><h2 className="commute-led"><SignText text={fav.label} /></h2></div>
+        : <h2 className="sr-only">{fullLeg}</h2>}
+      <div className="commute-places" ref={places}>
+        <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
+        <button ref={reverseButton} className="commute-reverse" aria-label={t.reverse} aria-pressed={rev} onClick={reverseTrip}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>
+        </button>
+        {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" t={t} onCity={() => onChoose('to', 'city')} onStop={() => onChoose('to', 'stop')} />}
+      </div>
+    </>}
+    {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
+    {editing && leg && <p className="leg">{title}</p>}
+    {/* One compact row of actions, so the next buses sit right under the signs. */}
+    {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
+      actions={trigger => <div className="commute-controls">
+        {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span><ButtonLabel translate={other => other.leave.set}>{t.leave.set}</ButtonLabel></button>}
+        <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></button>
+        {trigger}
+      </div>} /> : null}
+  </div>
+  </>;
+  const planBlock = leg && (planning
+    ? <LeavePlanForm ctx={ctx} plan={plan} onDone={(p) => { if (p !== 'cancel') onLeavePlan(p); setPlanning(false); }} />
+    : plan && <LeaveBy ctx={ctx} plan={plan} options={ahead} onEdit={() => setPlanning(true)} editRef={planButton} />);
+  const extras = <>
+  {express && <p className="next-express" data-testid="next-express">
+    <span>{t.nextExpress}</span><span className="express-mini">165T</span>
+    <span><TimeText ctx={ctx} at={express.departs} estimated={express.estimated} />
+      {localYmd(express.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {new Intl.DateTimeFormat(ctx.lang, { timeZone: ctx.tz, month: 'short', day: 'numeric' }).format(express.departs)}</>}
+      {' · '}{t.inMin(minutesUntil(now, express.departs))}{' · '}{t.scheduledOnly}
+    </span>
+  </p>}
+  {soonest && rows[soonest.index] && <p className="small leave-why">{t.leave.arrivesFirstWhy(
+    rows[soonest.index]!.d.route.shortName,
+    `${rows[soonest.index]!.d.estimated ? '~' : ''}${formatTime12(rows[soonest.index]!.d.departs, ctx.tz, ctx.lang)}`, soonest.laterMin, soonest.earlierMin, soonest.estimated)}</p>}
+  {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
+  </>;
+  if (dash && !editing) {
+    const d = t.dash;
+    const endOf = (reversedView: boolean) => ds.stops.find(s => s.id === (legFor(ds, fav, reversedView)?.toStopId ?? (reversedView ? fav.fromStopId : fav.toStopId)));
+    const outEnd = endOf(false), backEnd = endOf(true);
+    const nyIsBack = outEnd?.terminal !== 'PABT' && backEnd?.terminal === 'PABT';
+    const choice = (reversedView: boolean): DirectionChoice => {
+      const end = reversedView ? backEnd : outEnd, ny = end?.terminal === 'PABT';
+      const other = reversedView ? outEnd : backEnd;
+      const label = ny ? d.toNewYork : other?.terminal === 'PABT' ? d.toNewJersey : d.toPlace(commutePlace(end, end?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verifiedCities).name);
+      return { key: reversedView ? 'back' : 'out', label, icon: ny ? 'ny' : 'nj', pressed: rev === reversedView, onPress: reverseTrip };
+    };
+    const choices = nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)];
+    const fromLabel = from?.terminal === 'PABT' ? t.commutePabt : stopPlace(stopName(fromId));
+    const anyLive = rows.some(r => r.live?.kind === 'live');
+    const next = rows[0];
+    return (
+      <article className="card fav fav-dashboard" data-favorite-id={fav.id} aria-label={customName ? `${fav.label}: ${fullLeg}` : fullLeg}>
+        <DirectionPanel t={t} choices={choices} fromLabel={fromLabel} onFrom={leg ? () => onChoose('from', 'stop') : undefined} onLocation={dash.onLocation} />
+        <section className="dash-panel dash-arrivals" aria-labelledby={`${evidencePrefix}-arrivals`}>
+          <div className="dash-section-head">
+            <div><p className="dash-eyebrow">{d.atYourStop}</p><h2 className="dash-title" id={`${evidencePrefix}-arrivals`}>{d.nextArrivals}</h2></div>
+            <StatusPill t={t} live={anyLive} />
+          </div>
+          {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
+            : <ul className="deps dep-boards">{rows.map(boardItem)}</ul>}
+          {leg && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
+        </section>
+        {leg && next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next.d} toStopId={leg.toStopId} gps={dash.gps(next.d, leg.toStopId)} onDetails={() => onDeparture(next.d, leg)} />}
+        {dash.guidance}
+        <section className="dash-panel dash-trip" aria-label={d.yourTrip}>
+          <p className="dash-eyebrow">{d.yourTrip}</p>
+          {header}
+          {planBlock}
+          {extras}
+          {leg && deps.length > 0 && <p className="muted small tap-hint">{t.tapHint}</p>}
+        </section>
+      </article>
+    );
+  }
   return (
     <article className="card fav" data-favorite-id={fav.id} aria-label={customName ? `${fav.label}: ${fullLeg}` : fullLeg}>
-      <div className="commute-header">
-        {editing ? (
-          <div className="commute-edit">
-            <label className="rename">{t.rename}
-              <input defaultValue={fav.label} onBlur={(e) => onRename(e.currentTarget.value)} />
-            </label>
-          </div>
-        ) : <>
-          {customName ? <div className="commute-sign"><h2 className="commute-led"><SignText text={fav.label} /></h2></div>
-            : <h2 className="sr-only">{fullLeg}</h2>}
-          <div className="commute-places" ref={places}>
-            <HighwayPlace place={origin} label={t.commuteFrom} end="from" t={t} onCity={leg ? () => onChoose('from', 'city') : undefined} onStop={leg ? () => onChoose('from', 'stop') : undefined} />
-            <button ref={reverseButton} className="commute-reverse" aria-label={t.reverse} aria-pressed={rev} onClick={reverseTrip}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>
-            </button>
-            {destination && <HighwayPlace place={destination} label={t.commuteToLabel} end="to" t={t} onCity={() => onChoose('to', 'city')} onStop={() => onChoose('to', 'stop')} />}
-          </div>
-        </>}
-        {/* Keep edit height stable when blur saves a new name, so Done does not move mid-tap. */}
-        {editing && leg && <p className="leg">{title}</p>}
-        {/* One compact row of actions, so the next buses sit right under the signs. */}
-        {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
-          actions={trigger => <div className="commute-controls">
-            {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span><ButtonLabel translate={other => other.leave.set}>{t.leave.set}</ButtonLabel></button>}
-            <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></button>
-            {trigger}
-          </div>} /> : null}
-      </div>
+      {header}
       {!leg && !editing ? <p className="warn" role="alert">{t.noReturnStop}</p> : editing ? (
         <div className="edit-row">
           <button onClick={() => onMove(-1)} disabled={first}>↑ {t.moveUp}</button>
@@ -834,48 +998,13 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
         </div>
       ) : (
         <>
-          {leg && (planning
-            ? <LeavePlanForm ctx={ctx} plan={plan} onDone={(p) => { if (p !== 'cancel') onLeavePlan(p); setPlanning(false); }} />
-            : plan && <LeaveBy ctx={ctx} plan={plan} options={ahead} onEdit={() => setPlanning(true)} editRef={planButton} />)}
+          {planBlock}
           {!leg ? null : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : (
             <ul className="deps">
-              {rows.map(({ d, arr, live }, i) => {
-                const shown = live?.boarding?.at ?? d.departs;
-                const arrivalPlace = to?.terminal === 'PABT' ? t.commutePabt : to?.name ?? t.unknownStop;
-                const reasonId = `${evidencePrefix}-${d.tripInstanceId}`;
-                const reason = live && homeArrivalReason(ctx, d, live);
-                const observedAt = live?.boarding?.observedAt ?? live?.arrival?.observedAt;
-                return <li key={d.tripInstanceId} data-arrival-kind={live?.kind ?? 'scheduled'} data-trip-instance={d.tripInstanceId}>
-                  <button className={`dep ${live ? 'dep-has-live' : ''} ${i === 0 ? 'dep-next' : ''} ${i % 2 === 0 ? 'dep-alt' : ''}`} aria-describedby={live ? reasonId : undefined} onClick={() => onDeparture(d, leg)}>
-                    <span className="dep-route"><RouteBadge ds={ds} routeId={d.route.id} />
-                      <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
-                    </span>
-                    <span className="dep-main">
-                      <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
-                        time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
-                      <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
-                      {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
-                      {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
-                      {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
-                    </span>
-                  </button>
-                  {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
-                    : live.reportedAt !== undefined && <span className="dep-source">{t.live.rows.reportAge(Math.max(0, Math.floor((now - live.reportedAt) / 1000)))}</span>}{live.kind !== 'live' && <span className="dep-reason">{reason}</span>}{live.gpsObservedAt && ['no-prediction', 'passed', 'stale', 'unavailable'].includes(live.kind) && <> {t.live.rows.gpsHint}</>}</p>}
-                </li>;
-              })}
+              {rows.map(rowItem)}
             </ul>
           )}
-          {express && <p className="next-express" data-testid="next-express">
-            <span>{t.nextExpress}</span><span className="express-mini">165T</span>
-            <span><TimeText ctx={ctx} at={express.departs} estimated={express.estimated} />
-              {localYmd(express.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {new Intl.DateTimeFormat(ctx.lang, { timeZone: ctx.tz, month: 'short', day: 'numeric' }).format(express.departs)}</>}
-              {' · '}{t.inMin(minutesUntil(now, express.departs))}{' · '}{t.scheduledOnly}
-            </span>
-          </p>}
-          {soonest && rows[soonest.index] && <p className="small leave-why">{t.leave.arrivesFirstWhy(
-            rows[soonest.index]!.d.route.shortName,
-            `${rows[soonest.index]!.d.estimated ? '~' : ''}${formatTime12(rows[soonest.index]!.d.departs, ctx.tz, ctx.lang)}`, soonest.laterMin, soonest.earlierMin, soonest.estimated)}</p>}
-          {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
+          {extras}
           {leg && <div className="row-between card-foot">
             <button className="link" onClick={() => onAllDay(leg, title)}>{t.allDay} →</button>
             {deps.length > 0 && <span className="muted small tap-hint">{t.tapHint}</span>}
@@ -884,6 +1013,47 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
       )}
     </article>
   );
+}
+
+/** Schedules tab (#101): the full-day timetable of each saved trip, both ways, and the train times. */
+function SchedulesScreen({ ctx, favorites, onAllDay, onTrain, onFind }: { ctx: Ctx; favorites: Favorite[]; onAllDay: (leg: Leg, title: string) => void; onTrain: () => void; onFind: () => void }) {
+  const { ds, t, stopName } = ctx, d = t.dash;
+  const legs = favorites.flatMap(f => [false, true].flatMap(rev => { const leg = legFor(ds, f, rev); return leg ? [{ key: `${f.id}-${rev}`, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}` }] : []; }));
+  return <section className="card tab-screen" aria-labelledby="schedules-title">
+    <h1 id="schedules-title">{d.schedulesTitle}</h1>
+    <p>{d.schedulesIntro}</p>
+    {legs.length ? <ul className="tab-list">{legs.map(l => <li key={l.key}>
+      <button type="button" className="tab-row" onClick={() => onAllDay(l.leg, l.title)}><BusIcon /><span>{d.fullDayFor(l.title)}</span><ArrowRight /></button>
+    </li>)}</ul> : <><p className="muted">{d.schedulesNone}</p><p><button className="chip" onClick={onFind}>{t.findStop}</button></p></>}
+    <p><button type="button" className="tab-row tab-train" onClick={onTrain}><span>{t.journey.trainMode}</span><ArrowRight /></button></p>
+  </section>;
+}
+
+/** PABT gates tab (#101): the gate line Dale already shows for each next bus from Port Authority. Never inferred from a route. */
+function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorites: Favorite[]; count: number; onDeparture: (d: Departure, leg: Leg) => void }) {
+  const { ds, t, now, stopName } = ctx, d = t.dash;
+  const seen = new Set<string>();
+  const legs = favorites.flatMap(f => [false, true].flatMap(rev => {
+    const leg = legFor(ds, f, rev), key = leg && `${leg.fromStopId}>${leg.toStopId}`;
+    if (!leg || !key || seen.has(key) || ds.stops.find(s => s.id === leg.fromStopId)?.terminal !== 'PABT') return [];
+    seen.add(key);
+    return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
+  }));
+  return <section className="card tab-screen" aria-labelledby="gates-title">
+    <h1 id="gates-title">{d.gatesTitle}</h1>
+    <p>{d.gatesIntro}</p>
+    {!legs.length && <p className="muted">{d.gatesNone}</p>}
+    {legs.map(l => <section key={l.key} className="gate-trip">
+      <h2>{l.title}</h2>
+      {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
+        <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
+          <RouteBadge ds={ds} routeId={dep.route.id} />
+          <span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
+          <ArrowRight />
+        </button>
+      </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}
+    </section>)}
+  </section>;
 }
 
 function homeArrivalReason(ctx: Ctx, dep: Departure, evidence: DepartureEvidence): string {
@@ -954,7 +1124,7 @@ function LeavePlanForm({ ctx, plan, onDone }: { ctx: Ctx; plan?: LeavePlan; onDo
   );
 }
 
-function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
+function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => void; nearMe?: boolean | undefined }) {
   const { ds, t, lang, stopName } = ctx;
   const [q, setQ] = useState(''), [stop, setStop] = useState<Stop>(), [dest, setDest] = useState<string>();
   const [city, setCity] = useState<string>();
@@ -988,7 +1158,7 @@ function Search({ ctx, onSave }: { ctx: Ctx; onSave: (f: Favorite) => void }) {
       </ul></>}
       {q && !results.length && !visibleTowns.length && <p className="muted" role="status">{t.noResults}</p>}
     </search>
-    {!q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} />}
+    {!q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} autoAsk={nearMe} />}
   </section>;
   const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
     <span>{s.name}</span>{s.code && <span className="small">{t.selection.stopNumber(s.code)}</span>}

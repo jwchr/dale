@@ -50,22 +50,26 @@ async function setup(page: Page, options: { mode?: Mode; lang?: 'en' | 'es'; now
 const current = (page: Page) => page.locator('.deps li[data-trip-instance="T1@20261104"]');
 
 // Measure real text advances by line, not merely the full-width countdown wrapper.
-// The countdown is centered under the route badge, or in its own minutes tile in the Household style.
-const countdownAnchor = (skin: string) => skin === 'household' ? '.dep-right' : '.route-badge';
-const countdownBounds = (button: Element, anchor = '.route-badge') => {
-  const badge = button.querySelector(anchor)!.getBoundingClientRect();
-  const child = button.querySelector('.dep-min')!, rect = child.getBoundingClientRect();
-  const center = (badge.left + badge.right) / 2, lines = new Map<number, { left: number; right: number }>();
+// Home arrivals are LED boards in every style (#101): the visible countdown is centered in its own minutes tile.
+const countdownBounds = (button: Element) => {
+  const badge = button.querySelector('.dep-tile')!.getBoundingClientRect();
+  // The tile's content as one group: the number and "min" (side by side on narrow cards), or the word.
+  const child = button.querySelector('.dep-tile')!, parts = [...child.children].map(part => part.getBoundingClientRect());
+  const rect = { left: Math.min(...parts.map(part => part.left)), right: Math.max(...parts.map(part => part.right)) };
+  const center = (badge.left + badge.right) / 2, lines: { top: number; bottom: number; left: number; right: number }[] = [];
   const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
   let text: Node | null;
   while ((text = walker.nextNode())) for (let index = 0; index < (text.textContent?.length ?? 0); index++) {
     if (/\s/.test(text.textContent![index]!)) continue;
     const range = document.createRange(); range.setStart(text, index); range.setEnd(text, index + 1);
-    const glyph = range.getBoundingClientRect(), y = Math.round(glyph.top), line = lines.get(y);
-    lines.set(y, { left: Math.min(line?.left ?? Infinity, glyph.left), right: Math.max(line?.right ?? -Infinity, glyph.right) });
+    // Glyphs whose boxes share a row form one line (the big number and the small "min" beside it).
+    const glyph = range.getBoundingClientRect(), middle = (glyph.top + glyph.bottom) / 2;
+    const line = lines.find(row => middle > row.top && middle < row.bottom);
+    if (line) Object.assign(line, { top: Math.min(line.top, glyph.top), bottom: Math.max(line.bottom, glyph.bottom), left: Math.min(line.left, glyph.left), right: Math.max(line.right, glyph.right) });
+    else lines.push({ top: glyph.top, bottom: glyph.bottom, left: glyph.left, right: glyph.right });
   }
   return { text: child.textContent, childOffset: Math.abs((rect.left + rect.right) / 2 - center),
-    glyphOffsets: [...lines.values()].map(line => Math.abs((line.left + line.right) / 2 - center)) };
+    glyphOffsets: lines.map(line => Math.abs((line.left + line.right) / 2 - center)) };
 };
 
 test('normal upcoming home shows official estimates automatically, retaining schedule and exact departure on open', async ({ page }) => {
@@ -172,7 +176,7 @@ test('live icons reflect each source, respect reduced motion, and can be paused 
   await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
   await page.emulateMedia({ reducedMotion: 'reduce' }); await expect(icon).toHaveCSS('animation-name', 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
+  await page.getByRole('button', { name: 'Household', exact: true }).click(); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(icon).toHaveCSS('animation-name', 'none');
   state.mode = 'failed'; state.now += 31000; await page.clock.fastForward(31000);
@@ -187,7 +191,7 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
   const icon = current(page).locator('.boarding-clock .live-symbol');
   await expect(icon).toHaveAttribute('data-live', 'true');
   await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
-  await page.getByRole('button', { name: t.settings, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   await page.getByRole('checkbox', { name: t.live.motion }).uncheck();
   await expect(page.locator('html')).toHaveAttribute('data-live-motion', 'off');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).liveMotion)).toBe(false);
@@ -218,7 +222,7 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
     // the read. A one-shot evaluate can instead read empty styles off the old SVG.
     await expect(icon).toHaveCSS('animation-name', 'none');
     await expect(current(page).locator('.boarding-clock .badge-live')).toHaveText(t.live.rows.live);
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
     await expect(page.getByRole('checkbox', { name: t.live.motion })).not.toBeChecked();
     await page.getByRole('checkbox', { name: t.live.motion }).check();
     await page.getByRole('button', { name: t.back, exact: true }).click();
@@ -234,12 +238,9 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
   for (const lang of ['en', 'es'] as const) test(`compact departure cards retain clocks and controls (${skin}, ${lang})`, async ({ page }) => {
     const state = await setup(page, { lang, skin });
     const row = current(page), button = row.getByRole('button');
-    // Rows alternate, starting with the lighter shade, so cards never blend together (owner, #155).
-    // Household draws each card's board behind the button, so its shade is on ::before.
-    const shades = await page.locator('.deps .dep').evaluateAll((nodes, skin) => nodes.map(n => getComputedStyle(n, skin === 'household' ? '::before' : null).backgroundColor), skin);
-    // The Turnpike's first row keeps its green next-bus highlight; its later rows still alternate.
-    if (shades.length > 1) expect(shades[0]).not.toBe(shades[1]);
-    if (shades.length > 2 && skin !== 'turnpike') expect(shades[2]).toBe(shades[0]);
+    // Each arrival is its own framed LED board with a gap between boards (#101), so boards never blend together (owner, #155).
+    const gaps = await page.locator('.dep-boards > li').evaluateAll(items => items.slice(1).map((item, i) => item.getBoundingClientRect().top - items[i]!.getBoundingClientRect().bottom));
+    expect(gaps.every(gap => gap >= 6), JSON.stringify(gaps)).toBe(true);
     const source = lang === 'en' ? 'Prediction by NJ Transit 20s ago' : 'Predicción de NJ Transit hace 20s';
     await expect(row.locator('.dep-evidence')).toHaveText(source);
     await expect(row.locator('.dep-route .dep-min')).toHaveText(lang === 'en' ? 'In 5 minutes' : 'En 5 minutos');
@@ -249,25 +250,16 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
       const geometry = await button.evaluate(button => {
         const rect = (selector: string) => button.querySelector(selector)!.getBoundingClientRect().toJSON();
         const bounds = button.getBoundingClientRect();
-        return { bounds: bounds.toJSON(), route: rect('.route-badge'), main: rect('.dep-main'), countdown: rect('.dep-right'), boardingColumn: rect('.boarding-clock'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
+        return { bounds: bounds.toJSON(), route: rect('.dep-led'), main: rect('.dep-main'), countdown: rect('.dep-tile'), boardingColumn: rect('.boarding-clock'), boarding: rect('.boarding-clock .dep-time'), arrival: rect('.destination-clock .dep-arrival-time'), overflow: button.scrollWidth - button.clientWidth,
           textOutside: [...button.querySelectorAll('*')].some(node => node.getBoundingClientRect().right > bounds.right + 1) };
       });
-      if (skin === 'household') {
-        // Household: the times sit beside or under the route, and the minutes tile stands on its own to the right.
-        expect(geometry.route.right <= geometry.main.left + 1 || geometry.main.top >= geometry.route.bottom - 1, JSON.stringify({ width, scale, geometry })).toBe(true);
-        // The minutes tile is right of the route, or (very large text) on its own line under it.
-        expect(geometry.countdown.left >= geometry.route.right || geometry.countdown.top >= geometry.route.bottom, JSON.stringify({ width, scale, geometry })).toBe(true);
-      } else {
-        if (scale <= 130) expect(geometry.route.right).toBeLessThan(geometry.main.left);
-        else expect(geometry.main.top).toBeGreaterThan(geometry.route.bottom);
-        expect(geometry.countdown.top).toBeGreaterThanOrEqual(geometry.route.bottom);
-      }
+      // The clock line sits under the board; the minutes tile is right of the board, or under it on very narrow cards.
+      expect(geometry.main.top, JSON.stringify({ width, scale, geometry })).toBeGreaterThanOrEqual(geometry.route.bottom - 1);
+      expect(geometry.countdown.left >= geometry.route.right - 1 || geometry.countdown.top >= geometry.route.bottom - 1, JSON.stringify({ width, scale, geometry })).toBe(true);
       expect(geometry.route.height).toBeGreaterThanOrEqual(44);
-      const textBounds = await button.evaluate(countdownBounds, countdownAnchor(skin));
+      const textBounds = await button.evaluate(countdownBounds);
       expect(textBounds.childOffset, JSON.stringify({ width, scale, textBounds })).toBeLessThan(1);
       expect(textBounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, textBounds })).toBe(true);
-      if (skin !== 'household') expect(Math.abs((geometry.route.left + geometry.route.right - geometry.countdown.left - geometry.countdown.right) / 2)).toBeLessThan(1);
-      if (scale <= 130) expect(geometry.route.top).toBeLessThan(geometry.boarding.bottom);
       expect(geometry.overflow).toBe(0);
       expect(geometry.textOutside).toBe(false);
       if (scale === 100) {
@@ -376,14 +368,14 @@ for (const lang of ['en', 'es'] as const) test(`Garden live indicator remains di
 });
 
 for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean']) for (const lang of ['en', 'es'] as const) {
-  test(`short Now/Ahora countdown is centered ${skin === 'household' ? 'in its tile' : 'under the route'} (${skin}, ${lang})`, async ({ page }) => {
+  test(`short Now/Ahora countdown is centered in its minutes tile (${skin}, ${lang})`, async ({ page }) => {
     await setup(page, { lang, skin, mode: 'due-now' });
     const row = current(page), button = row.getByRole('button');
     await expect(row.locator('.dep-min')).toHaveText(lang === 'en' ? 'Now' : 'Ahora');
     for (const [width, scale] of [[390, 100], [305, 100], [320, 130], [320, 200]] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);
-      const bounds = await button.evaluate(countdownBounds, countdownAnchor(skin));
+      const bounds = await button.evaluate(countdownBounds);
       expect(bounds.childOffset, JSON.stringify({ width, scale, bounds })).toBeLessThan(1);
       expect(bounds.glyphOffsets.length).toBeGreaterThan(0);
       expect(bounds.glyphOffsets.every(offset => offset < 1), JSON.stringify({ width, scale, bounds })).toBe(true);
