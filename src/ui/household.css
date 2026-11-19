@@ -16,7 +16,7 @@
   color-scheme: light; background: var(--bg);
 }
 :root[data-skin='household'] body { background: transparent; }
-:root[data-skin='household'] :is(h1, h2, h3, h4):not(.rail-heading *, .top *) { color: var(--heading); letter-spacing: -0.01em; }
+:root[data-skin='household'] :is(h1, h2, h3, h4):not(.rail-heading *, .rail-preview *, .top *) { color: var(--heading); letter-spacing: -0.01em; }
 :root[data-skin='household'] h1 { font-weight: 850; }
 /* Brighter and sharper than the night styles; the cards stay nearly opaque so text never sits on the photo. */
 :root[data-skin='household'] .photo-backdrop { filter: blur(1.5px) brightness(.96) saturate(1.08); }
@@ -36,6 +36,11 @@
   padding-block-end: .12em; border-radius: 50%; background: #f2b31f; color: var(--heading); font-size: min(1.6rem, 11cqi); font-weight: 800; line-height: 1;
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.3); }
 :root[data-skin='household'] .wordmark::after { content: 'dale.'; font-size: min(1.85rem, 12.5cqi); font-weight: 900; letter-spacing: -0.035em; line-height: 1; }
+
+/* The wider "d" mark leaves less room, so on narrow bars the stamp takes its own row, as in Turnpike. */
+@container top-bar (max-width: 18.5rem) {
+  :root[data-skin='household'] .top .top-version { order: 3; flex-basis: 100%; padding-inline-start: 0; border-inline-start: 0; }
+}
 
 /* Cream cards and panels. */
 :root[data-skin='household'] .card { border-radius: var(--radius); padding: 14px; }
