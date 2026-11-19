@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { parseLiveRailBoard, type LiveRailBoard, type RailBoardCode } from '../domain/railLive';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { parseLiveRailBoard, railBoardAt, type LiveRailBoard, type RailBoardCode } from '../domain/railLive';
 
 /** Live train boards from Dale's Worker, once a minute while the page is visible. Undefined while checking or off. */
 export function useLiveRail(api: string | undefined, codes: RailBoardCode[], now: number, enabled: boolean) {
@@ -31,5 +31,6 @@ export function useLiveRail(api: string | undefined, codes: RailBoardCode[], now
     document.addEventListener('visibilitychange', onVisibility); void poll();
     return () => { stopped = true; clearTimeout(next); ctl?.abort(); document.removeEventListener('visibilitychange', onVisibility); };
   }, [enabled, api, key]);
-  return enabled && api && boards?.key === key ? boards.list : undefined;
+  const current = enabled && api && boards?.key === key ? boards.list : undefined;
+  return useMemo(() => current?.map((b) => railBoardAt(b, now)), [current, now]);
 }

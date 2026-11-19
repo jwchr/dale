@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { minutesLate, parseLiveRailBoard, railBoardsFor, RAIL_STALE_MS } from '../../src/domain/railLive';
+import { minutesLate, parseLiveRailBoard, railBoardAt, railBoardsFor, RAIL_STALE_MS } from '../../src/domain/railLive';
 
 const NOW = Date.parse('2026-11-18T22:00:00Z');
 const dep = (over: Record<string, unknown> = {}) => ({ trainId: '1620', line: 'Pascack Valley Line', lineCode: 'PV', destination: 'Hoboken',
@@ -30,6 +30,17 @@ describe('parseLiveRailBoard', () => {
       answer({ departures: [dep({ destination: 'x'.repeat(65) })] }), answer({ departures: [dep({ secondsLate: 1.5 })] }), answer({ departures: [dep({ scheduledAt: -1 })] }),
       answer({ departures: [dep({ status: '' })] }), answer({ departures: [null] })];
     for (const raw of bad) expect(parseLiveRailBoard(raw, 'AS', NOW)).toEqual({ state: 'unavailable', station: 'AS' });
+  });
+});
+
+describe('railBoardAt', () => {
+  it('turns a held board stale and drops departed trains as the clock moves, keeping the receipt time', () => {
+    const board = parseLiveRailBoard(answer({ departures: [dep({ trainId: 'SOON', scheduledAt: NOW + 30_000 }), dep()] }), 'AS', NOW);
+    expect(railBoardAt(board, NOW)).toBe(board);
+    const later = railBoardAt(board, NOW + RAIL_STALE_MS);
+    expect(later).toMatchObject({ state: 'ok', stale: true, receivedAt: NOW - 20_000 });
+    expect(later.state === 'ok' && later.departures.map((d) => d.trainId)).toEqual(['1620']);
+    expect(railBoardAt({ state: 'unavailable', station: 'AS' }, NOW)).toEqual({ state: 'unavailable', station: 'AS' });
   });
 });
 

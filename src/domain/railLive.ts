@@ -47,8 +47,15 @@ export function parseLiveRailBoard(raw: unknown, station: RailBoardCode, now: nu
     departures.push({ trainId: x.trainId, ...fields as { [K in keyof typeof fields]: string | null }, scheduledAt: x.scheduledAt as number,
       secondsLate: x.secondsLate as number | null, updatedAt: x.updatedAt as number | null });
   }
-  return { state: 'ok', station, receivedAt, stale: now - receivedAt > RAIL_STALE_MS,
-    departures: departures.filter((d) => d.scheduledAt + Math.max(0, d.secondsLate ?? 0) * 1000 + GONE_MS > now).sort((a, b) => a.scheduledAt - b.scheduledAt) };
+  return railBoardAt({ state: 'ok', station, receivedAt, stale: false, departures: departures.sort((a, b) => a.scheduledAt - b.scheduledAt) }, now);
+}
+
+/** The board as it stands at `now`: age-based staleness and departures that have left, recomputed as the clock moves. */
+export function railBoardAt(board: LiveRailBoard, now: number): LiveRailBoard {
+  if (board.state !== 'ok') return board;
+  const departures = board.departures.filter((d) => d.scheduledAt + Math.max(0, d.secondsLate ?? 0) * 1000 + GONE_MS > now);
+  const stale = now - board.receivedAt > RAIL_STALE_MS;
+  return stale === board.stale && departures.length === board.departures.length ? board : { ...board, stale, departures };
 }
 
 /** Whole minutes late, only when NJ Transit reports at least one; never an inferred delay. */
