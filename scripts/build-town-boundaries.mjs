@@ -149,11 +149,13 @@ for (const s of stops) {
     e.stops++; if (typeof s.MUNICIPALITY === 'string') e.njtNames.add(s.MUNICIPALITY.trim()); served.set(t.geoid, e);
   } else outside.push(`${s.STOP_NUM} ${s.MUNICIPALITY} (${hits.length} towns)`);
 }
-// Neighbors: share at least two exact TIGER vertices (a common border, not just a corner) with a served town.
+// Neighbors: share at least one exact TIGER border segment (positive length) with a served town; a corner touch is not enough.
 const key = ([x, y]) => `${x.toFixed(6)},${y.toFixed(6)}`;
-const servedVertices = new Set();
-for (const { town } of served.values()) for (const p of town.polygons) for (const r of p) for (const v of r) servedVertices.add(key(v));
-const neighbors = all.filter(t => !served.has(t.geoid) && t.polygons.flat(2).filter(v => servedVertices.has(key(v))).length >= 2);
+const edgeKey = (a, b) => { const ka = key(a), kb = key(b); return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`; };
+const edges = (town) => town.polygons.flatMap((p) => p.flatMap((r) => r.slice(1).map((v, i) => [r[i], v]).filter(([a, b]) => key(a) !== key(b))));
+const servedEdges = new Set();
+for (const { town } of served.values()) for (const [a, b] of edges(town)) servedEdges.add(edgeKey(a, b));
+const neighbors = all.filter(t => !served.has(t.geoid) && edges(t).some(([a, b]) => servedEdges.has(edgeKey(a, b))));
 
 const pick = [...[...served.values()].map(e => ({ ...e.town, served: true })), ...neighbors.map(t => ({ ...t, served: false }))]
   .sort((a, b) => a.geoid.localeCompare(b.geoid));
@@ -176,6 +178,8 @@ const ds = {
   },
   towns,
 };
+// Unusable source data (no stops matched, nothing selected) must never replace the committed dataset.
+if (!served.size || !towns.length || !towns.every((t) => t.polygons.length)) throw new Error(`No usable towns selected (${served.size} served, ${towns.length} total); dataset left unchanged`);
 const json = JSON.stringify(ds);
 if (json.length > MAX_BYTES) throw new Error(`Output ${json.length} bytes exceeds ${MAX_BYTES}`);
 mkdirSync(dirname(out), { recursive: true });
