@@ -1,3 +1,6 @@
 # Shared coding-agent instructions
 
 Follow `CLAUDE.md`. It applies to every coding and review agent on this repository. This repository is public: never commit credentials, NJ Transit recordings, locations or personal data.
+
+## Review guidelines
+When you review a plan, branch or pull request here, check it first against "Product rules" and "Data and privacy" in `CLAUDE.md` and cite the rule: nothing invented shown as live (every bus, gate or estimate carries its source and age; "not reporting" is never "cancelled"), the exact-bus lock never switches silently, every string in English and Spanish, and no credentials, feed recordings, vehicle IDs, rider locations or personal data in the repo, logs or any public endpoint. For Worker and history changes, also check: feed calls and storage stay inside the documented free limits and NJ Transit's 40,000 requests a day, a crash or retry partway through never loses or double counts history, archived objects are never overwritten or deleted, and anything public shows totals only. Then check time handling: Eastern time, overnight trips past midnight, daylight saving changes and schedule rollovers. Rank findings P1 to P3 with file:line and a concrete trigger. Skip style.
