@@ -47,6 +47,16 @@ for (const skin of ['nyc', 'parkway', 'turnpike'] as const) for (const lang of [
   });
 }
 
+test('Turnpike city signs stay dark green under white text', async ({ page }) => {
+  await open(page, 'turnpike', 'en');
+  const sign = page.locator('.highway-sign').first();
+  await expect(sign).toBeVisible();
+  const style = await sign.evaluate((el) => ({ image: getComputedStyle(el).backgroundImage, color: getComputedStyle(el).color }));
+  expect(style.image).toContain('rgb(15, 77, 47)');
+  expect(style.image).not.toContain('rgb(246, 243, 232)');
+  expect(style.color).toBe('rgb(255, 255, 255)');
+});
+
 test('Garden State keeps its own approved look, not the Household layout', async ({ page }) => {
   await open(page, 'garden', 'en');
   expect(await page.evaluate(() => document.documentElement.dataset.look)).toBe('garden');

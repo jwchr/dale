@@ -77,7 +77,7 @@
 :root[data-skin='turnpike'] .dep-board .live-symbol[data-live='true'] { color: #8be08f; }
 /* The light minutes tiles keep dark ink. */
 :root[data-skin='turnpike'] :is(.dep-board .dep-tile, .fav:not(.fav-dashboard) .deps .dep-min) { color: #142a1e; }
-:root[data-skin='turnpike'] .highway-sign { border-width: 3px; }
+:root[data-skin='turnpike'] .highway-sign { background: linear-gradient(180deg, #1b6e43, #0f4d2f); border-width: 3px; box-shadow: 0 0 0 2px #0b3a23, 0 6px 14px rgba(0, 0, 0, 0.35); }
 :root[data-skin='turnpike'] :is(.travel-mode, .commute-controls .chip:not([aria-pressed='true']), .find-stop) { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.75); }
 :root[data-skin='turnpike'] .commute-reverse { color: #0f4d2f; }
 :root[data-skin='turnpike'] button:not(.dep, .icon-btn, .ghost, .link, .link-cell, .travel-mode button) { border-color: rgba(255, 255, 255, 0.7); }
@@ -97,6 +97,8 @@
 @media (prefers-reduced-transparency: reduce) {
   :root[data-skin='turnpike'] :is(.dash-panel, .tab-bar) { background: #0f4d2f; }
   :root[data-skin='nyc'] .top { background: #111214; }
+  :root[data-skin='parkway'] .top { background: #163a28; }
+  :root[data-skin='turnpike'] .top { background: #0b2a1b; }
 }
 @media (forced-colors: active) {
   :root:is([data-skin='nyc'], [data-skin='parkway'], [data-skin='turnpike']) .wordmark::before { forced-color-adjust: none; }
