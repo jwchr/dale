@@ -136,7 +136,7 @@ test('home keeps original distance and source time on missing feed, then rejects
 
 for (const skin of ['household', 'turnpike', 'parkway', 'garden', 'nyc']) test(`distance inherits readable compact text in ${skin}`, async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 }); await setup(page);
-  await page.evaluate(skin => { document.documentElement.dataset.skin = skin; }, skin);
+  await page.evaluate(skin => { document.documentElement.dataset.skin = skin; document.documentElement.dataset.look = ['household', 'nyc', 'parkway', 'turnpike'].includes(skin) ? 'household' : skin; }, skin);
   const row = page.locator('.deps li[data-trip-instance="T1@20261104"]');
   await expect(row.locator('.route-distance')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
