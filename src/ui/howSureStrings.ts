@@ -28,7 +28,7 @@ const en = {
   measured: (from: string, to: string, days: string) => `${days[0]!.toUpperCase()}${days.slice(1)} measured ${from} to ${to}`,
   source: 'Source: NJ Transit GPS, measured by Dale',
   explainTitle: 'Confidence explained.',
-  explain: 'We look at past arrivals for this route, stop, time of day and type of day. An arrival is the first time NJ Transit\'s own GPS reports the bus stopped at this stop.',
+  explain: 'We look at past arrivals for this route, stop, time of day and type of day. An arrival is the first time NJ Transit\'s own GPS reports the bus stopped at this stop. These are past patterns, not a promise: the data may be incomplete or late.',
   days: { weekday: 'weekdays', saturday: 'Saturdays', sunday: 'Sundays and holidays' } satisfies Days,
 };
 const es: typeof en = {
@@ -58,7 +58,7 @@ const es: typeof en = {
   measured: (from, to, days) => `${days[0]!.toUpperCase()}${days.slice(1)} medidos del ${from} al ${to}`,
   source: 'Fuente: GPS de NJ Transit, medido por Dale',
   explainTitle: 'Cómo se calcula.',
-  explain: 'Miramos llegadas pasadas para esta ruta, parada, hora del día y tipo de día. Una llegada es la primera vez que el GPS de NJ Transit reporta el autobús detenido en esta parada.',
+  explain: 'Miramos llegadas pasadas para esta ruta, parada, hora del día y tipo de día. Una llegada es la primera vez que el GPS de NJ Transit reporta el autobús detenido en esta parada. Son patrones pasados, no una promesa: los datos pueden estar incompletos o atrasados.',
   days: { weekday: 'días laborables', saturday: 'sábados', sunday: 'domingos y feriados' },
 };
 export const howSureStrings = { en, es };
