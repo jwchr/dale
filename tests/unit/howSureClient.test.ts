@@ -44,6 +44,13 @@ describe('How sure are we? answer check', () => {
     expect(parseConfidenceAnswer({ ...r, oneMinute: r.oneMinute.slice(1) }, key)).toBeUndefined();
     expect(parseConfidenceAnswer({ ...r, worst: { ...r.worst, serviceDate: '2026-13-01' } }, key)).toBeUndefined();
     expect(parseConfidenceAnswer({ ...r, state: 'insufficient' }, key)).toBeUndefined();
+    expect(parseConfidenceAnswer({ ...r, worst: { ...r.worst, minutes: r.worst.minutes + 1 } }, key)).toBeUndefined();
+    if (r.state === 'ready') {
+      const moved = r.fiveMinute.map((b) => ({ ...b, count: 0 }));
+      moved[3] = { ...moved[3]!, count: r.samples };
+      expect(r.fiveMinute[3]!.count).not.toBe(r.samples);
+      expect(parseConfidenceAnswer({ ...r, fiveMinute: moved }, key)).toBeUndefined();
+    }
     expect(parseConfidenceAnswer(null, key)).toBeUndefined();
   });
 });

@@ -224,7 +224,7 @@ const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{
 const isRecord = (v: unknown): v is ConfidenceRecord => {
   const r = v as ConfidenceRecord | null;
   return !!r && typeof r === 'object' && isInt(r.minutes, -60, 180) && isInt(r.delaySeconds, -MAX_EARLY_SECONDS, MAX_LATE_SECONDS)
-    && isDate(r.serviceDate) && isInt(r.arrivedAt, 0, 8.64e15);
+    && r.minutes === Math.trunc(r.delaySeconds / 60) && isDate(r.serviceDate) && isInt(r.arrivedAt, 0, 8.64e15);
 };
 const bucketsMatch = (list: unknown, expected: readonly ConfidenceBucket[]) => Array.isArray(list) && list.length === expected.length
   && list.every((b: ConfidenceBucket, i) => !!b && b.fromMinute === expected[i]!.fromMinute && b.toMinute === expected[i]!.toMinute && isInt(b.count, 0, 1e6));
@@ -248,7 +248,11 @@ export function parseConfidenceAnswer(raw: unknown, key: ConfidenceKey): Confide
   if (a.state !== 'ready' || a.samples < MIN_CONFIDENCE_SAMPLES || a.measurement !== 'first-official-stopped-at-sample') return;
   if (typeof a.source !== 'string' || a.source.length > 120 || !isDate(a.firstServiceDate) || !isDate(a.lastServiceDate) || a.firstServiceDate > a.lastServiceDate) return;
   if (!bucketsMatch(a.oneMinute, BUCKET_SHAPE.one) || !bucketsMatch(a.fiveMinute, BUCKET_SHAPE.five)) return;
-  if (a.oneMinute.reduce((s, b) => s + b.count, 0) !== a.samples || a.fiveMinute.reduce((s, b) => s + b.count, 0) !== a.samples) return;
+  if (a.oneMinute.reduce((s, b) => s + b.count, 0) !== a.samples) return;
+  // Five-minute counts must be the sums of the one-minute counts they cover, so both views show the same arrivals.
+  const one = a.oneMinute.map((b) => b.count), last = one.length - 1;
+  if (!a.fiveMinute.every((b, i) => b.count === (i === 0 ? one[0] : i === a.fiveMinute.length - 1 ? one[last]
+    : one.slice((i - 1) * 5 + 1, (i - 1) * 5 + 6).reduce((x, y) => x + y, 0)))) return;
   if (!isRecord(a.worst) || !isRecord(a.best) || !isRecord(a.earliest)) return;
   const u = a.uncertainty;
   if (!u || !isInt(u.boundedSamples, 0, a.samples) || !(u.meanWindowSeconds === null || isInt(u.meanWindowSeconds, 0, 86400))) return;
