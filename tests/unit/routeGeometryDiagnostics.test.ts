@@ -113,10 +113,11 @@ const far: [string, (f: Record<string, string | undefined>, ds: Dataset) => void
     { tripStopDistance: 2, farFirstAtFirstStop: 2, farTripIncomplete: 1, farTripOnlyFirstStop: 1 }],
   ['a last stop beyond the end of the shape', (_, ds) => { ds.stops[2]!.lat = C.lat + 0.01; },
     { tripStopDistance: 2, farFirstAtLastStop: 2, farFirst1To5km: 2, farTripOnlyLastStop: 2, farFirstOffShapeLineOver250m: 2 }],
+  // Different units in the two files (#154 part 2): one factor from the closed list makes every trip match.
   ['shape measures in meters and stop measures in miles', f => measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]),
-    { shapeUnitMeters: 1, tripStopDistance: 2, farFirstAtMiddleStop: 2, farFirst250mTo1km: 2, farTripMostStops: 2, farFirstNearShapeLine: 2, farRatioX0_000621: 2 }],
+    { shapeUnitMeters: 1, unitFactor: 8, tripStopDistance: 0, matchedTrips: 2 }],
   ['shape measures in miles and stop measures in feet', f => measures(f, [0, AB / MILE, (AB + BC) / MILE], [0, AB / MILE * 5280, (AB + BC) / MILE * 5280]),
-    { shapeUnitMiles: 1, tripMeasureOutOfRange: 2, tripStopDistance: 0, farFirstNearShapeLine: 0 }],
+    { shapeUnitMiles: 1, unitFactor: 3, tripMeasureOutOfRange: 0, matchedTrips: 2 }],
   ['a shape whose measure starts above zero', f => measures(f, [5, 22, 40], [5, 22, 40]), { shapeMeasureStartNonzero: 1, matchedTrips: 2 }],
 ];
 
@@ -149,6 +150,38 @@ describe('stop distance evidence', () => {
       expect(sum('farRatio')).toBe(counts.farFirstNearShapeLine);
       expect(sum('shapeUnit')).toBe(counts.validShapes);
     }
+  });
+});
+
+const FEET = 3.28084;
+describe('unit factor (#154 part 2)', () => {
+  it('matches NJ Transit\'s shapes in feet with stop times in miles, with the same road meters as same-unit files', () => {
+    const f = files(); measures(f, [0, AB * FEET, (AB + BC) * FEET], [0, AB / MILE, (AB + BC) / MILE]);
+    const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
+    expect(counts).toMatchObject({ unitFactor: 2, matchedTrips: 2, tripStopDistance: 0 });
+    expect(JSON.stringify(geometry)).toBe(BASELINE.accepted);
+  });
+  it('keeps same units when they already match', () => {
+    expect(buildRouteGeometryWithReport(files(), dataset(), SHA).counts).toMatchObject({ unitFactor: 1, matchedTrips: 2 });
+  });
+  it('never gives trips different factors: a tie keeps same units and the other trip stays out', () => {
+    const f = files(); measures(f, [0, AB, AB + BC], [0, AB, AB + BC]);
+    f['stop_times.txt'] = f['stop_times.txt']!.replace(`PRIVTRIP_B,PRIVSTOP_B,2,${AB}`, `PRIVTRIP_B,PRIVSTOP_B,2,${AB / MILE}`)
+      .replace(`PRIVTRIP_B,PRIVSTOP_C,3,${AB + BC}`, `PRIVTRIP_B,PRIVSTOP_C,3,${(AB + BC) / MILE}`);
+    const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
+    expect(counts).toMatchObject({ unitFactor: 1, matchedTrips: 1 });
+    expect(Object.keys(geometry.trips)).toEqual(['PRIVTRIP_A']);
+  });
+  it('stays off when another factor fixes fewer than 90% of the trips', () => {
+    const f = files(); measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]);
+    f['stop_times.txt'] = f['stop_times.txt']!.replace(`PRIVTRIP_B,PRIVSTOP_C,3,${(AB + BC) / MILE}`, 'PRIVTRIP_B,PRIVSTOP_C,3,0.01');
+    const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
+    expect(counts).toMatchObject({ unitFactor: 1, matchedTrips: 0 });
+    expect(Object.keys(geometry.trips)).toHaveLength(0);
+  });
+  it('reports no factor when no trip reaches the check', () => {
+    const f = files(); f['shapes.txt'] = undefined;
+    expect(buildRouteGeometryWithReport(f, dataset(), SHA).counts.unitFactor).toBe(0);
   });
 });
 

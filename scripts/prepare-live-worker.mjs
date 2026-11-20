@@ -93,6 +93,8 @@ try {
     const report = buildRouteGeometryWithReport(files, ds, sourceSHA256);
     geometry = report.geometry;
     if (retained && !Object.keys(geometry.trips).length) throw new GeometryError('no-matched-trips', 'No matched geometry; do not update an enabled recorder', report.counts);
+    const { matchedTrips, outputShapes, unitFactor } = report.counts;
+    if (matchedTrips) console.log(`Route geometry (aggregate counts only): ${JSON.stringify({ matchedTrips, outputShapes, unitFactor })}`);
   } catch (error) {
     if (!rollover) throw error;
     geometry = rolloverGeometryFallback(error);
