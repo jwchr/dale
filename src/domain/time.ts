@@ -10,8 +10,24 @@ function formatter(key: string, locale: string, options: Intl.DateTimeFormatOpti
   return f;
 }
 
-/** Offset of `timeZone` from UTC, in minutes, at the given instant. */
+/**
+ * Offset of `timeZone` from UTC, in minutes, at the given instant. Cached per zone and 15-minute UTC
+ * slot: clock changes happen on a quarter hour, and the Intl call is slow enough that a full-day
+ * schedule search spent most of its time here (Nov 20, 2026).
+ */
 export function tzOffsetMinutes(instant: number, timeZone: string): number {
+  const key = `${timeZone}|${Math.floor(instant / OFFSET_SLOT_MS)}`;
+  let offset = offsetCache.get(key);
+  if (offset === undefined) {
+    if (offsetCache.size > 20_000) offsetCache.clear();
+    offsetCache.set(key, (offset = offsetAt(Math.floor(instant / OFFSET_SLOT_MS) * OFFSET_SLOT_MS, timeZone)));
+  }
+  return offset;
+}
+const OFFSET_SLOT_MS = 15 * 60_000;
+const offsetCache = new Map<string, number>();
+
+function offsetAt(instant: number, timeZone: string): number {
   const parts = formatter(`offset|${timeZone}`, 'en-US', {
     timeZone,
     hourCycle: 'h23',

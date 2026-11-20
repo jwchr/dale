@@ -3,11 +3,12 @@
 // across from it), ranked by arrival. Coverage is stated, never implied: routes outside Dale's data
 // are unknown, not absent. With the wider official schedule (src/domain/rescueSchedule.ts) the search
 // also covers routes that share a stop with the corridor; when it is missing, the reason is returned
-// so the screen says what was not searched. There is no walking or transfer data: a bus that stops near
-// home is listed separately with the straight-line distance, which is never presented as a verified walk.
+// so the screen says what was not searched. There is no walking data: a bus that stops near home is
+// listed separately with the straight-line distance, which is never presented as a verified walk. A trip
+// with one change of bus is offered only at the same stop (no walk between stops), with time to make it.
 import { distanceM, twinOf } from './direction';
 import { isNjtHoliday } from './holidays';
-import { departuresOn, tripStopTimes } from './schedule';
+import { departuresOn, tripStopTimes, tripTimeAt } from './schedule';
 import { addDays, localYmd, parseYmd, zonedWallTime } from './time';
 import { withRescueSchedule, type RescueSchedule } from './rescueSchedule';
 import type { Dataset, Departure } from './types';
@@ -37,8 +38,20 @@ export interface RescueNearHome extends RescueOption {
   straightLineM: number;
 }
 
+/** A way home with one change of bus at the same stop. Scheduled times only. */
+export interface RescueTransfer {
+  /** From the rider's stop (or across the street) to the change stop. */
+  first: RescueOption;
+  /** From the change stop to home (or across from it). */
+  second: RescueOption;
+  changeStopId: string;
+  /** Time between arriving at the change stop and the second bus leaving it. */
+  waitMs: number;
+  arrives: number;
+}
+
 export type RescueLimitation = 'schedule_only' | 'routes_in_data_only' | 'no_walking_or_transfers' | 'printed_timepoints_only' | 'demo_schedule'
-  | 'no_transfers' | 'walk_straight_line_only' | 'wider_routes_missing' | 'wider_routes_loading';
+  | 'transfers_same_stop_only' | 'walk_straight_line_only' | 'wider_routes_missing' | 'wider_routes_loading';
 
 /** What the caller knows about the wider official schedule. Absent: not asked for (printed or demo data). */
 export type RescueWider = { state: 'loading' } | { state: 'ready'; schedule: RescueSchedule } | { state: 'missing'; reason: string };
@@ -47,6 +60,8 @@ export interface RescueResult {
   options: RescueOption[];
   /** Buses that stop near home (never at it), soonest first; empty when stop locations are unknown. */
   nearHome: RescueNearHome[];
+  /** Trips with one change of bus that arrive before any direct bus, soonest first; empty without stop locations. */
+  transfers: RescueTransfer[];
   /** Short names of the routes Dale's data has: the only ones searched. */
   routesSearched: string[];
   /** Short names of the searched routes that came from the wider official schedule. */
@@ -61,6 +76,11 @@ export interface RescueResult {
 export const NEAR_HOME_M = 800;
 const NEAR_HOME_LIMIT = 4;
 const byNumber = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: true });
+
+/** A change of bus needs at least this long, and is not offered with a longer wait than the maximum. */
+export const MIN_CHANGE_MS = 3 * 60_000;
+export const MAX_CHANGE_WAIT_MS = 45 * 60_000;
+const TRANSFER_LIMIT = 3;
 
 export const RESCUE_HORIZON_MS = 4 * 3600_000;
 /** A gap this long with no bus on the line is the overnight break; the trip before it is the last tonight. */
@@ -82,7 +102,7 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   const located = (s: { lat?: number; lon?: number } | undefined): s is { lat: number; lon: number } => typeof s?.lat === 'number' && typeof s?.lon === 'number';
   const walkable = located(home);
   const limitations: RescueLimitation[] = ['schedule_only', 'routes_in_data_only'];
-  limitations.push(...(walkable ? ['no_transfers', 'walk_straight_line_only'] as const : ['no_walking_or_transfers'] as const));
+  limitations.push(...(walkable ? ['transfers_same_stop_only', 'walk_straight_line_only'] as const : ['no_walking_or_transfers'] as const));
   if (ds.meta.transcribed) limitations.push('printed_timepoints_only');
   if (ds.meta.demo) limitations.push('demo_schedule');
   if (wider?.state === 'loading') limitations.push('wider_routes_loading');
@@ -91,7 +111,7 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   const widerRoutes = [...new Set(ds.routes.filter((r) => widerRouteIds.has(r.id)).map((r) => r.shortName))].sort(byNumber);
   const until = now + horizonMs;
   const base = { routesSearched, widerRoutes, ...(wider?.state === 'missing' ? { widerMissing: wider.reason } : {}), searchedUntil: until, limitations };
-  if (!from || !home) return { ...base, options: [], nearHome: [] };
+  if (!from || !home) return { ...base, options: [], nearHome: [], transfers: [] };
 
   const boards = [from, twinOf(ds, from)].filter((s): s is NonNullable<typeof s> => !!s);
   const homes = [home, twinOf(ds, home)].filter((s): s is NonNullable<typeof s> => !!s);
@@ -187,5 +207,118 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   }
   const nearHome = [...near.values()].filter((o) => !found.has(o.dep.tripInstanceId))
     .sort((a, b) => a.arrives - b.arrives || a.straightLineM - b.straightLineM).slice(0, NEAR_HOME_LIMIT);
-  return { ...base, options, nearHome };
+  // One change of bus, only where stop locations are known (the official schedule), and only when it
+  // gets home before every direct bus found.
+  const firstDirect = Math.min(...[...found.values()].map((o) => o.arrives));
+  // Every stop in a change (boarding, changing, getting off) must have a known location.
+  const locatedIds = new Set(ds.stops.filter(located).map((s) => s.id));
+  const transfers = walkable ? oneChange(ds, boards.filter(located), homes.filter(located), from.id, home.id, now, until, firstDirect, usualRouteId, widerRouteIds, locatedIds)
+    .filter((x) => x.arrives < firstDirect).slice(0, TRANSFER_LIMIT) : [];
+  return { ...base, options, nearHome, transfers };
+}
+
+type StopRef = { id: string };
+
+/** Trips home with one change of bus at the same stop, soonest arrival first, one per second bus. */
+// `beat` is the first direct arrival: a change that gets home at or after it is not worth offering.
+function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: string, homeId: string, now: number, until: number, beat: number,
+  usualRouteId: string | undefined, widerRouteIds: Set<string>, locatedIds: Set<string>): RescueTransfer[] {
+  const tz = ds.meta.timezone;
+  const homeIds = new Set(homes.map((h) => h.id));
+  const boardIds = new Set(boards.map((b) => b.id));
+  // Stops where a bus that lets riders off at home can be boarded: the only useful places to change.
+  const changeStops = new Map<string, Set<string>>(); // change stop -> patterns that go on from it to home
+  const homePatterns = new Set<string>();
+  for (const p of ds.patterns) {
+    // The last stop at home that lets riders off, so a pattern through both twin home stops still counts.
+    let h = -1;
+    p.stopIds.forEach((id, i) => { if (homeIds.has(id) && !p.noDropOff?.includes(i)) h = i; });
+    if (h > 0) homePatterns.add(p.id);
+    for (let i = 0; i < h; i++) {
+      const id = p.stopIds[i]!;
+      if (!p.noPickup?.includes(i) && !homeIds.has(id) && !boardIds.has(id) && locatedIds.has(id)) {
+        changeStops.set(id, (changeStops.get(id) ?? new Set()).add(p.id));
+      }
+    }
+  }
+  if (!changeStops.size) return [];
+  // Per change stop and day: the buses that let riders off at home, with their arrival there, by departure time.
+  const tripsByPattern = new Map<string, Dataset['trips']>();
+  for (const x of ds.trips) {
+    if (!homePatterns.has(x.patternId)) continue;
+    const list = tripsByPattern.get(x.patternId);
+    if (list) list.push(x); else tripsByPattern.set(x.patternId, [x]);
+  }
+  type Onward = { next: Departure; h: number; end: { at: number; estimated: boolean } };
+  // Trip lookups by id (tripStopTimes searches the whole trip list on every call).
+  const tripById = new Map(ds.trips.map((x) => [x.id, x] as const));
+  const timeAt = (d: Departure, i: number) => {
+    const trip = tripById.get(d.tripId);
+    return trip && trip.times[i] !== undefined ? { at: tripTimeAt(ds, trip, d.serviceDate, i), estimated: trip.estimated?.includes(i) ?? false } : undefined;
+  };
+  const cache = new Map<string, Onward[]>();
+  const onward = (stopId: string, date: string) => {
+    const key = `${stopId}|${date}`;
+    let list = cache.get(key);
+    if (!list) {
+      list = [];
+      // Only the trips that go on from this stop to home: searching just those keeps this fast.
+      const trips = [...changeStops.get(stopId) ?? []].flatMap((id) => tripsByPattern.get(id) ?? []);
+      for (const next of departuresOn({ ...ds, trips }, { stopId, date })) {
+        const nIds = next.pattern.stopIds;
+        const h = nIds.findIndex((id, k) => k > next.stopIndex && homeIds.has(id) && !next.pattern.noDropOff?.includes(k));
+        if (h < 0) continue;
+        const end = timeAt(next, h);
+        if (end) list.push({ next, h, end });
+      }
+      list.sort((a, b) => a.next.departs - b.next.departs);
+      cache.set(key, list);
+    }
+    return list;
+  };
+  const departing = (stopId: string, date: string) => departuresOn(ds, { stopId, date });
+  const tag = (dep: Departure) => ({ sameLine: dep.route.id === usualRouteId, lastOnLine: false, ...(widerRouteIds.has(dep.route.id) ? { wider: true } : {}) });
+  const best = new Map<string, RescueTransfer>();
+  const today = localYmd(now, tz);
+  for (const board of boards) {
+    for (const date of [today, addDays(today, 1)]) {
+      for (const dep of departing(board.id, date)) {
+        if (dep.departs < now - 60_000 || dep.departs > until || dep.departs >= beat) continue;
+        const ids = dep.pattern.stopIds;
+        // A bus that also reaches home can still be the first half of a change to a faster bus, changing
+        // before home; the caller keeps a change only if it beats every direct bus.
+        const homeAt = ids.findIndex((id, i) => i > dep.stopIndex && homeIds.has(id) && !dep.pattern.noDropOff?.includes(i));
+        ids.forEach((changeId, i) => {
+          if (i <= dep.stopIndex || (homeAt >= 0 && i >= homeAt) || !changeStops.has(changeId) || dep.pattern.noDropOff?.includes(i)) return;
+          const at = timeAt(dep, i);
+          if (!at || at.at + MIN_CHANGE_MS >= beat) return;
+          const dates = [...new Set([localYmd(at.at, tz), localYmd(at.at + MAX_CHANGE_WAIT_MS, tz)])];
+          for (const d of dates) {
+            const list = onward(changeId, d);
+            // Skip to the first bus leaving at least MIN_CHANGE_MS after arrival (the list is sorted).
+            let lo = 0, hi = list.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]!.next.departs - at.at < MIN_CHANGE_MS) lo = mid + 1; else hi = mid; }
+            for (let k = lo; k < list.length; k++) {
+              const { next, h, end } = list[k]!;
+              const wait = next.departs - at.at;
+              if (wait > MAX_CHANGE_WAIT_MS) break;
+              if (next.tripId === dep.tripId || end.at >= beat) continue;
+              const nIds = next.pattern.stopIds;
+              const x: RescueTransfer = {
+                first: { dep, boardStopId: board.id, acrossFromBoard: board.id !== fromId, alightStopId: changeId, acrossFromHome: false, arrives: at.at, arrivesEstimated: at.estimated, ...tag(dep) },
+                second: { dep: next, boardStopId: changeId, acrossFromBoard: false, alightStopId: nIds[h]!, acrossFromHome: nIds[h] !== homeId, arrives: end.at, arrivesEstimated: end.estimated, ...tag(next) },
+                changeStopId: changeId, waitMs: wait, arrives: end.at,
+              };
+              // One row per second bus: prefer boarding at the rider's own stop, then the shorter wait.
+              const prev = best.get(next.tripInstanceId);
+              const better = !prev || (prev.first.acrossFromBoard && !x.first.acrossFromBoard)
+                || (prev.first.acrossFromBoard === x.first.acrossFromBoard && x.waitMs < prev.waitMs);
+              if (better) best.set(next.tripInstanceId, x);
+            }
+          }
+        });
+      }
+    }
+  }
+  return [...best.values()].sort((a, b) => a.arrives - b.arrives || a.first.dep.departs - b.first.dep.departs);
 }

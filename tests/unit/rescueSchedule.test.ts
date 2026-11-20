@@ -186,7 +186,7 @@ describe('rescue with and without the wider routes', () => {
     expect(routes.has('166')).toBe(false); // 166 never reaches S30
     expect(r.options.filter((o) => o.dep.route.shortName === '168').every((o) => o.wider)).toBe(true);
     expect(r.options.filter((o) => o.dep.route.shortName === '165').every((o) => !o.wider)).toBe(true);
-    expect(r.limitations).toEqual(expect.arrayContaining(['schedule_only', 'no_transfers', 'walk_straight_line_only']));
+    expect(r.limitations).toEqual(expect.arrayContaining(['schedule_only', 'transfers_same_stop_only', 'walk_straight_line_only']));
     expect(r.limitations).not.toContain('no_walking_or_transfers');
   });
   it('lists a bus that stops near home with a straight-line distance, never as a verified walk', () => {

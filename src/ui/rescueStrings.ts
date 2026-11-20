@@ -1,6 +1,9 @@
 // Strings for the wider official schedule on the "Get me home" screen (#32). English and Spanish.
 import type { WiderMissing } from '../data/rescueSchedule';
 
+/** Ends a sentence once, so a time ending in "p.m." never reads "p.m..". */
+const end = (text: string) => text.endsWith('.') ? text : `${text}.`;
+
 export const rescueStrings = {
   en: {
     loading: 'Loading other routes from NJ Transit’s schedule…',
@@ -17,7 +20,10 @@ export const rescueStrings = {
     nearTitle: 'Stops near home (not at it)',
     near: (stop: string, meters: number) => `Gets off at ${stop}, ${meters} m from your stop in a straight line. Not a verified walk.`,
     widerTag: 'Other route · scheduled, not tracked',
-    walkNote: 'Distances near home are straight lines between stops, not verified walking routes. No transfers are suggested.',
+    walkNote: 'Distances near home are straight lines between stops, not verified walking routes. A change of bus is suggested only at the same stop, with at least 3 minutes to make it, and only when it gets home before every direct bus.',
+    transfersTitle: 'With one change of bus',
+    transferRide: (stop: string, at: string) => end(`Ride to ${stop}, arrives ${at}`),
+    transferChange: (route: string, at: string, wait: number) => `Change to the ${route} at ${at}, same stop (${wait} min to change).`,
   },
   es: {
     loading: 'Cargando otras rutas del horario de NJ Transit…',
@@ -34,7 +40,10 @@ export const rescueStrings = {
     nearTitle: 'Paradas cerca de casa (no en ella)',
     near: (stop: string, meters: number) => `Bájate en ${stop}, a ${meters} m de tu parada en línea recta. No es un camino a pie verificado.`,
     widerTag: 'Otra ruta · programada, sin seguimiento',
-    walkNote: 'Las distancias cerca de casa son líneas rectas entre paradas, no caminos a pie verificados. No se sugieren transbordos.',
+    walkNote: 'Las distancias cerca de casa son líneas rectas entre paradas, no caminos a pie verificados. Un transbordo se sugiere solo en la misma parada, con al menos 3 minutos para hacerlo, y solo cuando llega a casa antes que cualquier autobús directo.',
+    transfersTitle: 'Con un transbordo',
+    transferRide: (stop: string, at: string) => end(`Viaja hasta ${stop}, llega a las ${at}`),
+    transferChange: (route: string, at: string, wait: number) => `Cambia al ${route} a las ${at}, en la misma parada (${wait} min para cambiar).`,
   },
 };
 export type RescueStrings = typeof rescueStrings.en;
