@@ -243,3 +243,17 @@
   :root[data-skin='household'] :is(.dep-board > .dep-led, .dep-board .dep-tile, .status-pill, .beta-pill, .guidance-banner, .tab-bar, .dash-dir) { background: Canvas; color: CanvasText; box-shadow: none; border: 1px solid CanvasText; }
   :root[data-skin='household'] .dash-dir[aria-pressed='true'] { background: Highlight; color: HighlightText; }
 }
+
+/* PABT gate guide (#101 part 3), drawn to docs/design/mockups/02-pabt-gates.jpg. */
+:root[data-skin='household'] .gg-card { padding: 20px 18px; margin-block-end: 14px; }
+:root[data-skin='household'] .gg-head h1 { font-size: 1.62rem; line-height: 1.12; }
+:root[data-skin='household'] .gg-pill { background: #f3ead0; border-color: #d8c58d; color: #6b5a22; }
+:root[data-skin='household'] .gg-sub { color: #3b4a41; }
+:root[data-skin='household'] .gg-num { color: #b8862b; }
+:root[data-skin='household'] .gg-icon { background: #e8eadf; color: #1f4a33; }
+:root[data-skin='household'] .gg-text strong { color: var(--heading); }
+:root[data-skin='household'] .gg-text > span { color: #3b4a41; }
+:root[data-skin='household'] .gg-notice { background: #f1e9d2; color: #5a4a1c; font-weight: 500; }
+:root[data-skin='household'] .gg-link { color: #1e4f6e; font-weight: 500; }
+:root[data-skin='household'] .gg-walk-title { text-transform: none; letter-spacing: -0.02em; font-size: 1.85rem; line-height: 1.1; margin: 4px 0 6px; }
+:root[data-skin='household'] .gg-walk-button { background: linear-gradient(180deg, #24597a, #1c4a66); border: 1px solid #143a50; box-shadow: 0 2px 6px rgba(20, 58, 80, .3); }
