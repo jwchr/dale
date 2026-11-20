@@ -12,7 +12,7 @@ for (const lang of ['en', 'es'] as const) test(`a fresh install opens in Househo
   // Household is always light, whatever the phone's dark-mode setting.
   await page.emulateMedia({ colorScheme: 'dark' });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light');
-  await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'paterson-great-falls');
+  await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'palisades-october');
   await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   await expect(page.getByRole('button', { name: t.skins.household, exact: true }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'true');
   // The style list sits under the "Style" heading; Household comes first.
