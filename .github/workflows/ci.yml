@@ -18,7 +18,8 @@ jobs:
   test:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The full suite takes about 8 minutes on GitHub's runner and grows with each screen; 10 cut off a passing run (#219).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
