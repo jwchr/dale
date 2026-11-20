@@ -37,6 +37,20 @@ export const dashboardStrings = {
     gatesIntro: 'Gates for your next buses leaving Port Authority. Dale shows a gate only when it has one, and says where it comes from.',
     gatesNone: 'None of your saved trips leaves from Port Authority. Save a trip from Port Authority to see its gates here.',
     gatesNoBuses: 'No more buses from Port Authority today on this trip.',
+    gateGuide: {
+      title: 'Port Authority, made simpler.', pill: 'Gate guide', subtitle: 'A few clear steps for the trip back to New Jersey.',
+      steps: [
+        { title: 'Find your departure', body: 'Check the terminal boards for your route, branch, departure time and current gate.' },
+        { title: 'Get your ticket ready', body: 'Buy before boarding at Port Authority. Confirm the destination and zones in the NJ Transit app.' },
+        { title: 'Follow the gate signs', body: 'Use terminal signs to find your gate, then confirm the bus destination before boarding.' },
+      ],
+      unavailable: 'Gate assignment unavailable. No gate number is inferred.',
+      official: 'Open official terminal information',
+      firstTime: 'First time? You’ve got this.',
+      walkBody: 'Find your gate, prepare your fare and board with confidence.',
+      walk: 'Walk me through it',
+      app: 'NJ Transit app & tickets',
+    },
   },
   es: {
     beta: 'Hogar Beta',
@@ -75,5 +89,19 @@ export const dashboardStrings = {
     gatesIntro: 'Puertas de tus próximos autobuses que salen de Port Authority. Dale muestra una puerta solo cuando la tiene, y dice de dónde viene.',
     gatesNone: 'Ninguno de tus viajes guardados sale de Port Authority. Guarda un viaje desde Port Authority para ver sus puertas aquí.',
     gatesNoBuses: 'No hay más autobuses desde Port Authority hoy en este viaje.',
+    gateGuide: {
+      title: 'Port Authority, más fácil.', pill: 'Guía de puertas', subtitle: 'Unos pasos claros para el viaje de vuelta a Nueva Jersey.',
+      steps: [
+        { title: 'Encuentra tu salida', body: 'Mira las pantallas de la terminal para tu ruta, ramal, hora de salida y puerta actual.' },
+        { title: 'Ten listo tu boleto', body: 'Compra antes de subir en Port Authority. Confirma el destino y las zonas en la app de NJ Transit.' },
+        { title: 'Sigue los letreros de las puertas', body: 'Usa los letreros de la terminal para encontrar tu puerta y confirma el destino del autobús antes de subir.' },
+      ],
+      unavailable: 'No hay asignación de puerta. Dale no adivina ningún número de puerta.',
+      official: 'Abrir la información oficial de la terminal',
+      firstTime: '¿Primera vez? Tú puedes.',
+      walkBody: 'Encuentra tu puerta, prepara tu pasaje y sube con confianza.',
+      walk: 'Guíame paso a paso',
+      app: 'App y boletos de NJ Transit',
+    },
   },
 };

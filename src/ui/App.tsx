@@ -58,6 +58,7 @@ import { useLiveDepartures } from './useLiveDepartures';
 import { departureEvidence, departureKey, requestFor, type DepartureEvidence } from '../domain/liveDepartures';
 import { upcomingCandidates, selectUpcoming, type UpcomingSet } from '../domain/upcoming';
 import { LastReturnCard } from './LastReturnCard';
+import { GateGuide } from './GateGuide';
 import { PastReports } from './PastReports';
 import { LockedAlertsSetting } from './LockedAlertsSetting';
 import { useLockedRideAlerts } from './lockedRideAlerts';
@@ -509,7 +510,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         )}
         {screen.name === 'schedules' && <SchedulesScreen ctx={ctx} favorites={favorites} onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
           onTrain={() => { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }} onFind={() => setScreen({ name: 'search' })} />}
-        {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
+        {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onGuide={() => setScreen({ name: 'guide' })} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
         {screen.name === 'commute' && (() => {
           const favorite = favorites.find(f => f.id === screen.favoriteId), leg = favorite && legFor(ds, favorite, screen.reversed);
           return favorite && leg ? <CommutePicker ds={ds} t={t} lang={settings.lang} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds} end={screen.end} level={screen.level} onCancel={back}
@@ -1033,7 +1034,7 @@ function SchedulesScreen({ ctx, favorites, onAllDay, onTrain, onFind }: { ctx: C
 }
 
 /** PABT gates tab (#101): the gate line Dale already shows for each next bus from Port Authority. Never inferred from a route. */
-function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorites: Favorite[]; count: number; onDeparture: (d: Departure, leg: Leg) => void }) {
+function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx; favorites: Favorite[]; count: number; onGuide: () => void; onDeparture: (d: Departure, leg: Leg) => void }) {
   const { ds, t, now, stopName } = ctx, d = t.dash;
   const seen = new Set<string>();
   const legs = favorites.flatMap(f => [false, true].flatMap(rev => {
@@ -1044,12 +1045,15 @@ function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorit
     const routes = leg.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? id).join(', ');
     return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}${routes ? ` (${routes})` : ''}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
   }));
-  return <section className="card tab-screen" aria-labelledby="gates-title">
-    <h1 id="gates-title">{d.gatesTitle}</h1>
+  const anyGate = legs.some(l => l.deps.some(dep => { const g = departureGate(ds, dep); return !!g && g.status !== 'unknown'; }));
+  return <>
+  <GateGuide t={t} anyGate={anyGate} onGuide={onGuide} />
+  <section className="card tab-screen" aria-labelledby="gates-title">
+    <h2 id="gates-title" className="gates-heading">{d.gatesTitle}</h2>
     <p>{d.gatesIntro}</p>
     {!legs.length && <p className="muted">{d.gatesNone}</p>}
     {legs.map(l => <section key={l.key} className="gate-trip">
-      <h2>{l.title}</h2>
+      <h3>{l.title}</h3>
       {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
@@ -1058,7 +1062,8 @@ function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorit
         </button>
       </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}
     </section>)}
-  </section>;
+  </section>
+  </>;
 }
 
 function homeArrivalReason(ctx: Ctx, dep: Departure, evidence: DepartureEvidence): string {

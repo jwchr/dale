@@ -80,7 +80,8 @@ test('every tab opens its screen, in English and Spanish', async ({ page }) => {
   await tab('Routes & stops').click();
   await expect(page.locator('#stop-search')).toBeVisible();
   await tab('PABT gates').click();
-  await expect(page.getByRole('heading', { name: 'Port Authority gates', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Port Authority, made simpler.', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Port Authority gates', level: 2 })).toBeVisible();
   await tab('Household').click();
   await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
@@ -93,7 +94,8 @@ test('every tab opens its screen, in English and Spanish', async ({ page }) => {
   await tabEs('Rutas y paradas').click();
   await expect(page.locator('#stop-search')).toBeVisible();
   await tabEs('Puertas PABT').click();
-  await expect(page.getByRole('heading', { name: 'Puertas en Port Authority', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Port Authority, más fácil.', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Puertas en Port Authority', level: 2 })).toBeVisible();
 });
 
 test('every older home feature is still one tap away', async ({ page }) => {
@@ -201,10 +203,36 @@ for (const lang of ['en', 'es'] as const) test(`PABT gates keep trips with diffe
   await page.getByRole('navigation', { name: lang === 'en' ? 'Main' : 'Principal' }).getByRole('button', { name: lang === 'en' ? 'PABT gates' : 'Puertas PABT', exact: true }).click();
   const trips = page.locator('.gate-trip');
   await expect(trips).toHaveCount(2);
-  await expect(trips.nth(0).locator('h2')).toHaveText(/\(165\)$/);
-  await expect(trips.nth(1).locator('h2')).toHaveText(/\(165T\)$/);
+  await expect(trips.nth(0).locator('h3')).toHaveText(/\(165\)$/);
+  await expect(trips.nth(1).locator('h3')).toHaveText(/\(165T\)$/);
   // After tonight's last bus, the next ones are tomorrow's, and each says so.
   const date = trips.nth(0).locator('.gate-row .dep-date').first();
   await expect(date).toBeVisible();
   await expect(date).toHaveText(lang === 'en' ? '11/5/2026' : '5/11/2026');
+});
+
+for (const lang of ['en', 'es'] as const) test(`PABT gate guide: three steps, honest gate notice, walk-through and official links (${lang})`, async ({ page }) => {
+  await page.addInitScript((lang) => {
+    localStorage.setItem('arriba.favorites.v1', JSON.stringify([{ id: 'a', label: 'Local', fromStopId: 'PABT', toStopId: 'W10', routeIds: ['R165'] }]));
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'household', count: 3, tourSeen: true }));
+  }, lang);
+  await page.goto('/?printed=1&now=2026-11-04T17:00');
+  await page.getByRole('navigation', { name: lang === 'en' ? 'Main' : 'Principal' }).getByRole('button', { name: lang === 'en' ? 'PABT gates' : 'Puertas PABT', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: lang === 'en' ? 'Port Authority, made simpler.' : 'Port Authority, más fácil.' })).toBeVisible();
+  const steps = page.locator('.gg-steps > li');
+  await expect(steps).toHaveCount(3);
+  await expect(steps.nth(0)).toContainText(lang === 'en' ? 'Find your departure' : 'Encuentra tu salida');
+  await expect(page.locator('.gg-num')).toHaveText(['01', '02', '03']);
+  // The gate icon never shows a number.
+  await expect(page.locator('.gg-icon').nth(2)).not.toContainText(/\d/);
+  // The notice shows exactly when none of the listed buses has a sourced gate.
+  const known = await page.locator('.gate-row .dep-gate:not([data-status="unknown"])').count();
+  await expect(page.locator('.gg-notice')).toHaveCount(known ? 0 : 1);
+  await expect(page.getByRole('link', { name: lang === 'en' ? 'Open official terminal information' : 'Abrir la información oficial de la terminal' }))
+    .toHaveAttribute('href', 'https://www.panynj.gov/bus-terminals/en/port-authority.html');
+  await expect(page.getByRole('link', { name: lang === 'en' ? 'NJ Transit app & tickets' : 'App y boletos de NJ Transit' })).toHaveAttribute('href', 'https://www.njtransit.com/app');
+  // Nothing spills sideways on a narrow phone.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole('button', { name: lang === 'en' ? 'Walk me through it' : 'Guíame paso a paso' }).click();
+  await expect(page.locator('.guide h1')).toBeVisible();
 });
