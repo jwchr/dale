@@ -31,7 +31,7 @@ export function SkinBackdrop({ skin }: { skin: Skin }) {
     setCssPhoto(/url\(\s*["']?([^"')]+)["']?\s*\)/.exec(getComputedStyle(box.current).getPropertyValue('--household-photo'))?.[1]);
   }, [skin]);
   const household = skin === 'household' && !personal;
-  // NYC uses the owner-supplied night photo and Household the daytime Great Falls (#101); other skins retain
+  // NYC uses the owner-supplied night photo and Household the public-domain Palisades painting (#101 part 7); other skins retain
   // their one choice per opening. Only the selected asset is requested; no remote image service or photo rotation.
   const photo = personal ? 'personal' : skin === 'nyc' ? 'ramble-night' : household ? (cssPhoto?.split('/').pop()?.replace(/\.\w+$/, '') ?? 'household') : OPENING_PHOTO;
   const url = personal ?? (skin === 'nyc' ? rambleNightUrl : household ? cssPhoto : `${import.meta.env.BASE_URL}backgrounds/${photo}.webp`);

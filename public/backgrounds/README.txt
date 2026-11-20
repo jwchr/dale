@@ -1,1 +1,3 @@
 Owner-selected photographs, provided and authorized for the Dale app. Optimized WebP copies with metadata removed. Originals remain unchanged. Paterson Great Falls and New Jersey September sunset. No third-party image requests.
+
+palisades-october.webp: "Under the Palisades, in October" (1895) by Jasper Francis Cropsey (1823-1900), White House Collection. Public domain (Wikimedia Commons, File:Under_the_Palisades,_in_October.jpg). Downloaded with the owner's OK on 2026-11-20, upscaled to 1198x1500 and saved as WebP with metadata removed. The Household style's backdrop, as in the approved mock-up (#101 part 7).

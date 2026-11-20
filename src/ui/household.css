@@ -18,13 +18,15 @@
 :root[data-look='household'] body { background: transparent; }
 :root[data-look='household'] :is(h1, h2, h3, h4):not(.rail-heading *, .rail-preview *, .top *) { color: var(--heading); letter-spacing: -0.01em; }
 :root[data-look='household'] h1 { font-weight: 850; }
+/* The amber boards' dot-matrix letters (mock-ups 01-04): Doto, SIL Open Font License, served from Dale (src/assets/fonts). */
+@font-face { font-family: 'Dale LED'; src: url('../assets/fonts/dale-led.woff2') format('woff2'); font-weight: 600 900; font-display: swap; }
 /* The background photo and its crop: change the picture here, in one place (SkinBackdrop reads --household-photo
    back only to wait for it to load). Bright and unblurred, as in the mock-up; text never sits on it without a
    panel or a soft shadow. */
 .skin-backdrop[data-skin='household'] {
-  --household-photo: url('/backgrounds/paterson-great-falls.webp');
-  --household-photo-position: 50% 28%;
-  --household-photo-size: cover;
+  --household-photo: url('/backgrounds/palisades-october.webp');
+  --household-photo-position: 80% 22%;
+  --household-photo-size: auto max(135%, 106vw * 1.25);
 }
 .skin-backdrop[data-skin='household'] .photo-backdrop { inset: 0; background-image: var(--household-photo); background-position: var(--household-photo-position);
   background-size: var(--household-photo-size); filter: none; }
@@ -103,7 +105,7 @@
 :root[data-look='household'] .dep:hover { border-color: #000; border-inline-start-color: #ffc94d; }
 /* The route number is always amber on the black board, here and on every other screen; the T in 165T says express. */
 :root[data-look='household'] .route-badge { background: var(--led-bg); color: var(--led-ink); border: 0; box-shadow: none; border-radius: 8px;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; letter-spacing: .02em; text-shadow: 0 0 6px rgba(255, 170, 20, 0.45); }
+  font-family: 'Dale LED', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; letter-spacing: .02em; text-shadow: 0 0 6px rgba(255, 170, 20, 0.45); }
 :root[data-look='household'] .route-badge[data-express='true'] { background: var(--led-bg); color: var(--led-ink); box-shadow: none; }
 :root[data-look='household'] .dep .dep-place { color: var(--led-soft); font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; }
 :root[data-look='household'] .dep :is(.dep-time, .dep-arrival-time, .dep-arrival-scheduled) { color: var(--led-ink); text-shadow: 0 0 6px rgba(255, 170, 20, 0.35); }
@@ -181,20 +183,12 @@
   box-shadow: inset 5px 0 0 var(--accent), inset 0 0 0 1px #000, inset 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 0 2px #2b2a25, 0 3px 8px rgba(18, 34, 25, 0.35); }
 :root[data-look='household'] .dep-board:hover > .dep-led { box-shadow: inset 5px 0 0 #ffc94d, inset 0 0 0 1px #000, inset 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 0 2px #3d3a30, 0 3px 8px rgba(18, 34, 25, 0.35); }
 :root[data-look='household'] .dep-board .dep-led .route-badge { border-inline-end: 0; padding-inline-end: 0; min-inline-size: 2.6ch; background: none; color: var(--led-ink);
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 2.1rem; line-height: 1; font-weight: 800; letter-spacing: -0.02em;
+  font-family: 'Dale LED', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 2.1rem; line-height: 1; font-weight: 800; letter-spacing: -0.02em;
   text-shadow: 0 0 3px rgba(255, 170, 20, 0.7), 0 0 9px rgba(255, 150, 0, 0.3); }
 :root[data-look='household'] .dep-board .dep-dest { align-self: stretch; align-content: center; padding-inline-start: 11px; border-inline-start: 1px solid rgba(255, 182, 39, 0.22);
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--led-ink); text-shadow: 0 0 3px rgba(255, 170, 20, 0.55); }
+  font-family: 'Dale LED', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--led-ink); text-shadow: 0 0 3px rgba(255, 170, 20, 0.55); }
 :root[data-look='household'] .dep-board .dep-dest-main { font-size: 1.28rem; font-weight: 700; letter-spacing: 0; line-height: 1; }
 :root[data-look='household'] .dep-board .dep-dest-sub { font-size: .6rem; font-weight: 600; letter-spacing: .02em; margin-block-start: 2px; color: var(--led-ink); }
-/* Dot matrix: the real glyphs show through a fine grid of round holes, so the text stays text (and keeps its
-   real color for contrast checks) while it reads as an LED sign. Sharp at any pixel density. */
-@supports (mask-image: radial-gradient(circle, #000, transparent)) or (-webkit-mask-image: radial-gradient(circle, #000, transparent)) {
-  :root[data-look='household'] .dep-board .dep-led :is(.route-badge, .dep-dest-main) {
-    -webkit-mask-image: radial-gradient(circle closest-side, #000 72%, rgba(0, 0, 0, 0.35) 88%, transparent 100%);
-    mask-image: radial-gradient(circle closest-side, #000 72%, rgba(0, 0, 0, 0.35) 88%, transparent 100%);
-    -webkit-mask-size: .085em .085em; mask-size: .085em .085em; }
-}
 :root[data-look='household'] .dep-board .dep-tile { min-inline-size: 3rem; padding-inline: 4px; background: linear-gradient(180deg, #faf8f1, #efebdf); color: var(--heading); border: 1px solid #e0d9c6;
   border-radius: 10px; box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(18, 34, 25, 0.12); }
 :root[data-look='household'] .dep-board .dep-tile-num { font-size: 1.65rem; font-weight: 800; color: #142a1e; }
