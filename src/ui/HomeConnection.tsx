@@ -101,7 +101,7 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
           {you !== undefined && <span className="map-key map-key-you" aria-hidden="true" />}
           {phoneState === 'on' && phone ? fresh ? <>{d.gpsOn(Math.round(fresh.accuracyM))}{you === undefined && <> {d.youOffMap}</>}</> : d.youWaiting : d.gps[phoneState]}
         </p>}
-        <span className="sr-only" role="status">{showMe ? d.gps[phoneState] : ''}</span>
+        <span className="sr-only" role="status">{showMe ? (phoneState === 'on' && phone && !fresh ? d.youWaiting : d.gps[phoneState]) : ''}</span>
         {street && <StreetMap text={t.maps} key={dep.tripInstanceId} stops={mapStops} bus={busPoint} you={fresh && { lat: fresh.lat, lon: fresh.lon }} dark={!!mapIsDark()} label={t.live.mapLabel} loadingText={t.progress.mapLoading} failedText={t.progress.mapFailed} />}
       </>}
     </div>

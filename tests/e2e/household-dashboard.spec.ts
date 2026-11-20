@@ -165,6 +165,7 @@ test.describe('the home map', () => {
       await setup(page, 'gps', lang);
       await page.getByRole('button', { name: s.showMe }).click();
       await expect(page.locator('.map-you-status')).toHaveText(s.waiting);
+      await expect(page.locator('.map-you-status + [role="status"], .map-you-status ~ [role="status"]').first()).toHaveText(s.waiting);
       await expect(page.getByTestId('map-you')).toHaveCount(0);
       await expect(page.locator('.map-key-you')).toHaveCount(0);
     });
