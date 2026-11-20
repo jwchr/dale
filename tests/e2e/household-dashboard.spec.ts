@@ -115,6 +115,17 @@ test('every older home feature is still one tap away', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Schedules', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
+for (const lang of ['en', 'es'] as const) test(`Get me home sits right under Next arrivals, once, and opens its screen (${lang})`, async ({ page }) => {
+  await setup(page, 'failed', lang);
+  const r = strings[lang].rescue;
+  const row = page.locator('.dash-arrivals').getByRole('button', { name: r.otherWays });
+  await expect(row).toBeVisible();
+  await expect(page.locator('.dash-trip').getByRole('button', { name: r.otherWays })).toHaveCount(0);
+  await row.click();
+  await expect(page.locator('.rescue h1')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test.describe('the home map', () => {
   test.use({ geolocation: { latitude: 40.8705, longitude: -74.0402, accuracy: 20 }, permissions: ['geolocation'] });
 
