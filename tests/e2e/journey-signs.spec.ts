@@ -77,7 +77,7 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
       await signsSettled(page);
       const geometry = await page.locator('.commute-header').evaluate(header => {
         const box = (selector: string) => header.querySelector(selector)!.getBoundingClientRect().toJSON();
-        return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: box('.rescue-chip'), overflow: document.documentElement.scrollWidth - innerWidth };
+        return { left: box('[data-end="from"] .highway-sign'), right: box('[data-end="to"] .highway-sign'), stop: box('[data-end="from"] .commute-stop'), otherStop: box('[data-end="to"] .commute-stop'), reverse: box('.commute-reverse'), trigger: box('.stop-sign-toggle'), leave: box('.leave-set'), rescue: document.querySelector('.commute-controls .rescue-chip') ? box('.commute-controls .rescue-chip') : null, overflow: document.documentElement.scrollWidth - innerWidth };
       });
       // Paired side by side where a name like HACKENSACK fits whole (390px at normal text); stacked on narrower
       // phones and enlarged text (owner request 2026-11-11: city names never split).
@@ -91,9 +91,10 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
         expect(geometry.right.top).toBeGreaterThanOrEqual(geometry.reverse.bottom);
       }
       expect(geometry.stop.top).toBeGreaterThanOrEqual(geometry.left.bottom);
-      expect(geometry.trigger.left).toBeGreaterThanOrEqual(geometry.rescue.right);
+      // On the Dashboard, Get me home sits under Next arrivals instead of in this row (#32 step 3).
+      expect(geometry.rescue).toBeNull();
+      expect(geometry.trigger.left).toBeGreaterThanOrEqual(geometry.leave.right);
       expect(Math.abs(geometry.trigger.top - geometry.leave.top)).toBeLessThan(1);
-      expect(Math.abs(geometry.trigger.top - geometry.rescue.top)).toBeLessThan(1);
       expect(geometry.trigger.height).toBeGreaterThanOrEqual(44);
       expect(geometry.reverse.height).toBeGreaterThanOrEqual(44);
       expect(geometry.overflow).toBe(0);
@@ -171,8 +172,8 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
       await page.evaluate(() => { document.body.style.fontFamily = ''; });
     }
     await reverse.focus();
-    // Destination city, destination stop, Leave by, alternatives, then stop sign.
-    for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+    // Destination city, destination stop, Leave by, then stop sign (alternatives moved under Next arrivals, #32 step 3).
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
     await expect(trigger).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');

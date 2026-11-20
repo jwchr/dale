@@ -38,7 +38,7 @@ import { StopChoice } from './StopChoice';
 import { StopSign } from './StopSign';
 import { TourGuide } from './TourGuide';
 import { NearMe } from './NearMe';
-import { ArrowRight, BetaPill, BusIcon, DirectionPanel, FilterIcon, Pin, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
+import { ArrowRight, BetaPill, BusIcon, RescueIcon, DirectionPanel, FilterIcon, Pin, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
 import { HomeConnection } from './HomeConnection';
 import { stopLabel } from './StripMap';
 import type { VehicleObservation } from '../domain/lock';
@@ -934,7 +934,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
     {!editing && leg && from && to ? <StopSign key={`${from.id}-${to.id}`} ds={ds} from={from} to={to} routeIds={leg.routeIds} now={now} t={t}
       actions={trigger => <div className="commute-controls">
         {!plan && !planning && <button ref={planButton} className="chip leave-set" onClick={() => setPlanning(true)}><span aria-hidden="true">⏱ </span><ButtonLabel translate={other => other.leave.set}>{t.leave.set}</ButtonLabel></button>}
-        <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></button>
+        {/* On the Dashboard the same action sits under Next arrivals instead (#32 step 3). */}
+        {!dash && <button className="chip rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></button>}
         {trigger}
       </div>} /> : null}
   </div>
@@ -983,6 +984,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
             : <ul className="deps dep-boards">{rows.map(boardItem)}</ul>}
           {leg && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
+          {/* "Get me home" right under the buses, not deep in Your trip where it went unnoticed (#32 step 3). */}
+          {leg && to && <button type="button" className="dash-fullday dash-rescue rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>
+            <RescueIcon /><span><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></span><ArrowRight /></button>}
         </section>
         {leg && next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next.d} toStopId={leg.toStopId} gps={dash.gps(next.d, leg.toStopId)} onDetails={() => onDeparture(next.d, leg)} />}
         {dash.guidance}

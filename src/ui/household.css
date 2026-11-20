@@ -208,6 +208,7 @@
 :root[data-skin='household'] .dep-boards .dep-gate { color: #26352d; }
 :root[data-skin='household'] .dash-fullday { color: #26352d; font-weight: 450; font-size: .92rem; border-block-start-color: #dcd5c2; }
 :root[data-skin='household'] .dash-fullday .dash-icon { color: #3b4a41; }
+:root[data-skin='household'] .dash-rescue, :root[data-skin='household'] .dash-rescue .dash-icon { color: var(--heading); font-weight: 700; }
 
 :root[data-skin='household'] .dash-outline { color: var(--heading); border-color: #b9b19b; font-weight: 700; background: rgba(255, 255, 255, 0.5); font-size: .64rem; letter-spacing: .12em; padding: 6px 11px; gap: 6px; }
 :root[data-skin='household'] .connection-map { border-radius: 14px; box-shadow: inset 0 0 0 1px rgba(23, 61, 43, 0.08); }

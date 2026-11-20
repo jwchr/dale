@@ -25,6 +25,8 @@ export const Pin = () => <Icon className="icon-pin"><path d="M12 21.2s-6.4-5.8-6
 const Locate = () => <Icon className="icon-locate"><circle cx="12" cy="12" r="6.6" /><circle cx="12" cy="12" r="2.4" fill="currentColor" /><path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4" /></Icon>;
 export const FilterIcon = () => <Icon className="icon-filter"><path d="M3.5 7h9M16.5 7h4M3.5 17h4M11.5 17h9" /><circle cx="14.5" cy="7" r="2" /><circle cx="9.5" cy="17" r="2" /></Icon>;
 export const BusIcon = () => <Icon className="icon-bus"><path d="M6.5 3h11A2.5 2.5 0 0 1 20 5.5V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5A2.5 2.5 0 0 1 6.5 3zM4 11.5h16M4 7h16M7.5 18v2.5M16.5 18v2.5M7.8 14.8h.01M16.2 14.8h.01" /></Icon>;
+/** A house: "Get me home". */
+export const RescueIcon = () => <Icon className="icon-rescue"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5.5h4V20" /></Icon>;
 const Signpost = () => <Icon className="icon-signpost"><path d="M12 2.5v19M8.5 21.5h7M4.5 6.5h12.2l2.8 2.6-2.8 2.6H4.5zM19.5 13.5H7.3l-2.8 2.4 2.8 2.4h12.2z" /></Icon>;
 
 /** "Household Beta": the stage of this household tool; the build stamp stays in its title and in the footer. */
