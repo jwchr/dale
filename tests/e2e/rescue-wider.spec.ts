@@ -50,6 +50,11 @@ for (const lang of ['en', 'es'] as const) {
     await expect(rescue.getByRole('heading', { name: w.nearTitle })).toBeVisible();
     await expect(rescue).toContainText(lang === 'en' ? 'Not a verified walk.' : 'No es un camino a pie verificado.');
     await expect(rescue).toContainText(w.walkNote);
+    // One change of bus at the same stop, sooner than any direct bus (#32 step 2).
+    await expect(rescue.getByRole('heading', { name: w.transfersTitle })).toBeVisible();
+    const change = rescue.locator('h2', { hasText: w.transfersTitle }).locator('xpath=following-sibling::ol[1]/li').first();
+    await expect(change).toContainText(lang === 'en' ? 'same stop' : 'misma parada');
+    await expect(change).toContainText('165T');
     await expect(rescue).toContainText(t.rescue.coverage('163, 164, 165, 165T, 166, 167, 168'));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const { violations } = await new AxeBuilder({ page }).include('.rescue').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
