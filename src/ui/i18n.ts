@@ -780,7 +780,7 @@ const es: Strings = {
     title: '¡Llévame a casa ya!',
     otherWays: 'Otros autobuses hacia allá',
     leg: (from: string, home: string) => `${from} → ${home}`,
-    scheduleOnly: (until: string, last: boolean) => `Autobuses previstos en los datos de Dale, ordenados por llegada, que salen hasta ${laLas(until)}${last ? ', más el último que aparece en tu línea' : ''}. Solo horarios, no en vivo.`,
+    scheduleOnly: (until: string, last: boolean) => `Autobuses previstos en los datos de Dale, ordenados por llegada, que salen hasta ${`${laLas(until)}${last ? ', más el último que aparece en tu línea' : ''}`.replace(/\.$/, '')}. Solo horarios, no en vivo.`,
     arrives: (time: string, stop: string) => `llega a ${laLas(time)} a ${stop}`,
     acrossBoard: (stop: string) => `Súbete enfrente: ${stop}`,
     acrossHome: 'Te deja enfrente de tu parada',
