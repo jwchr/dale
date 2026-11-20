@@ -49,6 +49,7 @@ import { RiderGuide } from './RiderGuide';
 import { TicketGuide } from './TicketGuide';
 import { DEFAULT_SKIN, SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
 import { BusLockPanel } from './BusLockPanel';
+import { HowSure } from './HowSure';
 import { liveApiUrl } from '../domain/liveBus';
 import { loadLiveSchedule } from '../data/liveSchedule';
 import { useLiveBus } from './useLiveBus';
@@ -1314,6 +1315,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
         keepAwake={keepAwake} onKeepAwake={onKeepAwake} onEvent={onLockEvent} onAdvanceDemo={onAdvanceDemo} onUnlock={onUnlock}
         gateText={(o) => { const g = departureGate(ds, o.dep); return g && gateLine(t, g); }}
         badge={(routeId) => <RouteBadge ds={ds} routeId={routeId} />} onOpenBackup={onOpenBackup} onAlternatives={onRescue} onPenn={onPenn} />}
+      {busSession && <HowSure ds={ds} dep={busSession.departure} lang={ctx.lang} api={LIVE_API} />}
       <button className="boarding-open" onClick={onBoarding}>{t.boarding.open}</button>
       <div className="card trip-ticket">
         <p className="trip-ticket-label">{t.tripCard}</p>

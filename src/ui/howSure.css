@@ -1,0 +1,40 @@
+/* "How sure are we?" (#91, mock-up 03). Shared tokens, so every style keeps its own colors. */
+.how-sure-head h2 { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
+.how-sure-icon { color: var(--brand-text); font-size: 0.85em; letter-spacing: -0.08em; }
+.how-sure-badge { border: 1px solid var(--line); border-radius: 8px; padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.how-sure-lead { font-family: var(--heading-font, inherit); color: var(--heading); font-size: 1.6rem; font-weight: 700; line-height: 1.15; margin: 0.6rem 0 0.25rem; }
+.how-sure-help { margin: 0 0 0.75rem; }
+.how-sure-when { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;
+  border-top: 1px solid var(--line); padding-top: 0.75rem; }
+.how-sure-when h3 { margin: 0 0 0.2rem; font-size: 1.1rem; color: var(--heading); }
+.how-sure-when p { margin: 0.1rem 0; }
+.how-sure-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.how-sure-toggle button { min-height: 44px; min-width: 64px; border: 0; border-radius: 0; background: transparent; color: var(--text); font-weight: 600; }
+.how-sure-toggle button[aria-pressed='true'] { background: var(--heading); color: var(--brand-ink); }
+.how-sure-cols { display: flex; justify-content: space-between; margin: 0.9rem 0 0.35rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--muted); font-size: 0.72rem; }
+.how-sure-bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: max-content 1fr 4.2rem; align-items: center; gap: 0.4rem 0.75rem; }
+.how-sure-bars.scroll { max-height: 15rem; overflow-y: auto; overscroll-behavior: contain; }
+.how-sure-bars li { display: contents; }
+.how-sure-time { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 0.9rem; white-space: nowrap; }
+.how-sure-track { height: 0.9rem; border-radius: 4px; background: color-mix(in srgb, var(--line) 55%, transparent); overflow: hidden; }
+.how-sure-track > span { display: block; height: 100%; border-radius: 4px; background: #4f7fa6; min-width: 0; }
+.how-sure-pct { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.how-sure-pct strong { color: #2b5a82; }
+.how-sure-pct span { font-size: 0.75rem; color: var(--muted); }
+.how-sure-records { border: 1px solid var(--line); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0.8rem 0 0.5rem; }
+.how-sure-records > .row-between { flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+.how-sure-cap { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.how-sure-record-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.how-sure-record-grid > div + div { border-left: 1px solid var(--line); padding-left: 0.75rem; }
+.how-sure-record-grid p { margin: 0.15rem 0; }
+.how-sure-record-grid .clock { display: block; }
+.how-sure-worst strong { color: #8a4b08; font-size: 1.15rem; }
+.how-sure-best strong { color: var(--brand-text); font-size: 1.15rem; }
+.how-sure-explain { display: flex; gap: 0.5rem; background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 0.6rem 0.75rem; margin: 0.6rem 0 0; }
+@media (max-width: 380px) {
+  .how-sure-bars { grid-template-columns: max-content 1fr 3.8rem; column-gap: 0.5rem; }
+  .how-sure-record-grid { grid-template-columns: 1fr; }
+  .how-sure-record-grid > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 0.5rem; }
+}

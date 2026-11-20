@@ -8,7 +8,7 @@ import type { VehicleObservation } from './lock';
 import { validServiceDate } from './liveBus';
 import { isServiceActive, tripTimeAt } from './schedule';
 import { weekdayIndex } from './time';
-import type { Dataset, ServiceCalendar } from './types';
+import type { Dataset, Departure, ServiceCalendar } from './types';
 
 export type ServiceDayType = 'weekday' | 'saturday' | 'sunday';
 export const DAY_TYPES: readonly ServiceDayType[] = ['weekday', 'saturday', 'sunday'];
@@ -202,3 +202,57 @@ export function parseConfidenceQuery(params: URLSearchParams, ds: Dataset): Conf
   if (!ds.patterns.some((p) => routeIds.has(p.routeId) && p.directionId === direction && p.stopIds.includes(stopId))) return;
   return { route, direction, stopId, schedMinute: Number(time[1]) * 60 + Number(time[2]), dayType: day as ServiceDayType };
 }
+
+/**
+ * The query for one departure, exactly as the Worker keys its counts. None for routes outside the corridor,
+ * a stop time Dale estimated (only NJ Transit's own times are counted) or an unknown trip or calendar.
+ */
+export function confidenceKeyFor(ds: Dataset, dep: Pick<Departure, 'tripId' | 'serviceDate' | 'route' | 'pattern' | 'stopIndex'>): ConfidenceKey | undefined {
+  const trip = ds.trips.find((t) => t.id === dep.tripId), calendar = trip && ds.calendars[trip.serviceId];
+  const seconds = trip?.times[dep.stopIndex], stopId = dep.pattern.stopIds[dep.stopIndex];
+  if (!trip || !calendar || !stopId || !CONFIDENCE_ROUTES.includes(dep.route.shortName) || trip.estimated?.includes(dep.stopIndex)) return;
+  if (seconds === undefined || !Number.isSafeInteger(seconds) || seconds < 0 || seconds >= 48 * 3600) return;
+  return { route: dep.route.shortName, direction: dep.pattern.directionId, stopId, schedMinute: Math.floor(seconds / 60), dayType: dayTypeOf(calendar, dep.serviceDate) };
+}
+
+/** The endpoint's query string for a key, in the parameter order `parseConfidenceQuery` accepts. */
+export const confidenceQueryString = (key: ConfidenceKey) =>
+  new URLSearchParams({ route: key.route, stop: key.stopId, dir: String(key.direction), sched: hhmm(key.schedMinute), day: key.dayType }).toString();
+
+const isInt = (v: unknown, min: number, max: number): v is number => Number.isSafeInteger(v) && (v as number) >= min && (v as number) <= max;
+const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && validServiceDate(v.replaceAll('-', ''));
+const isRecord = (v: unknown): v is ConfidenceRecord => {
+  const r = v as ConfidenceRecord | null;
+  return !!r && typeof r === 'object' && isInt(r.minutes, -60, 180) && isInt(r.delaySeconds, -MAX_EARLY_SECONDS, MAX_LATE_SECONDS)
+    && isDate(r.serviceDate) && isInt(r.arrivedAt, 0, 8.64e15);
+};
+const bucketsMatch = (list: unknown, expected: readonly ConfidenceBucket[]) => Array.isArray(list) && list.length === expected.length
+  && list.every((b: ConfidenceBucket, i) => !!b && b.fromMinute === expected[i]!.fromMinute && b.toMinute === expected[i]!.toMinute && isInt(b.count, 0, 1e6));
+// The bucket edges every valid answer has, taken from summarize() itself so the two never drift apart.
+const BUCKET_SHAPE = (() => {
+  const shape = summarize({ c: new Array<number>(BUCKET_COUNT).fill(1), d: '', f: '20260101', l: '20260101', w: [0, '20260101', 0], b: [0, '20260101', 0], e: [0, '20260101', 0], u: [0, 0] },
+    { route: '165', direction: 0, stopId: 'x', schedMinute: 0, dayType: 'weekday' }, '');
+  return shape.state === 'ready' ? { one: shape.oneMinute, five: shape.fiveMinute } : { one: [], five: [] };
+})();
+
+/**
+ * Strict check of the Worker's answer for the asked key. Anything else (another stop or time, a missing field,
+ * counts that do not add up) is rejected, so the card shows "unavailable" instead of someone else's pattern.
+ */
+export function parseConfidenceAnswer(raw: unknown, key: ConfidenceKey): ConfidenceAnswer | undefined {
+  const a = raw as ConfidenceAnswer | null;
+  if (!a || typeof a !== 'object' || a.v !== 1 || !isInt(a.samples, 0, 1e6) || a.minimumSamples !== MIN_CONFIDENCE_SAMPLES) return;
+  const q = a.query, want = confidenceKeyEcho(key);
+  if (!q || q.route !== want.route || q.direction !== want.direction || q.stopId !== want.stopId || q.scheduled !== want.scheduled || q.dayType !== want.dayType) return;
+  if (a.state === 'insufficient') return a.samples < MIN_CONFIDENCE_SAMPLES ? { v: 1, state: 'insufficient', samples: a.samples, minimumSamples: a.minimumSamples, query: q } : undefined;
+  if (a.state !== 'ready' || a.samples < MIN_CONFIDENCE_SAMPLES || a.measurement !== 'first-official-stopped-at-sample') return;
+  if (typeof a.source !== 'string' || a.source.length > 120 || !isDate(a.firstServiceDate) || !isDate(a.lastServiceDate) || a.firstServiceDate > a.lastServiceDate) return;
+  if (!bucketsMatch(a.oneMinute, BUCKET_SHAPE.one) || !bucketsMatch(a.fiveMinute, BUCKET_SHAPE.five)) return;
+  if (a.oneMinute.reduce((s, b) => s + b.count, 0) !== a.samples || a.fiveMinute.reduce((s, b) => s + b.count, 0) !== a.samples) return;
+  if (!isRecord(a.worst) || !isRecord(a.best) || !isRecord(a.earliest)) return;
+  const u = a.uncertainty;
+  if (!u || !isInt(u.boundedSamples, 0, a.samples) || !(u.meanWindowSeconds === null || isInt(u.meanWindowSeconds, 0, 86400))) return;
+  return a;
+}
+const confidenceKeyEcho = (key: ConfidenceKey): ConfidenceQueryEcho =>
+  ({ route: key.route, direction: key.direction, stopId: key.stopId, scheduled: hhmm(key.schedMinute), dayType: key.dayType });
