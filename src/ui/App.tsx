@@ -1053,18 +1053,14 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
   const verified = ds.meta.stopCities?.state === 'verified';
   const routeIds = useMemo(() => {
     if (!saved) return [];
-    const ids = new Set(ds.patterns.filter(p => { const a = p.stopIds.indexOf(saved.fromStopId); return a >= 0 && p.stopIds.indexOf(saved.toStopId, a + 1) > a; }).map(p => p.routeId));
+    // Count a route only where riders may board at the saved stop and get off at the other (GTFS pickup/drop-off rules).
+    const ids = new Set(ds.patterns.filter(p => p.stopIds.some((id, a) => id === saved.fromStopId && !p.noPickup?.includes(a)
+      && p.stopIds.some((id2, b) => b > a && id2 === saved.toStopId && !p.noDropOff?.includes(b)))).map(p => p.routeId));
     return ds.routes.filter(x => ids.has(x.id)).map(x => x.id);
   }, [ds, saved?.fromStopId, saved?.toStopId]);
-  if (!saved || !routeIds.length) return null;
-  const from = ds.stops.find(s => s.id === saved.fromStopId), to = ds.stops.find(s => s.id === saved.toStopId);
-  const town = from?.terminal === 'PABT' ? d.portAuthority : verified && from?.city ? from.city : stopLabel(from?.name ?? '').town;
-  const place = to?.terminal === 'PABT' ? t.commuteNewYork : commutePlace(to, to?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verified).name;
-  const shownRoutes = only && routeIds.includes(only) ? [only] : routeIds;
-  const leg: Leg = { fromStopId: saved.fromStopId, toStopId: saved.toStopId, routeIds: shownRoutes };
-  const deps = upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: shownRoutes }, now, count).ahead.slice(0, count);
-  const next = deps[0];
-  const routeName = (id: string) => ds.routes.find(x => x.id === id)?.shortName ?? id;
+  // The saved stop's card takes focus when the tab opens, so a phone does not scroll past it to the stop search.
+  const title = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { title.current?.focus(); }, []);
   // Same two buttons as the Dashboard: which way the saved trip runs (#101 mock-up 01).
   const endOf = (rv: boolean) => ds.stops.find(s => s.id === (legFor(ds, fav, rv)?.toStopId ?? (rv ? fav.fromStopId : fav.toStopId)));
   const outEnd = endOf(false), backEnd = endOf(true);
@@ -1074,13 +1070,25 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
     return { key: rv ? 'back' : 'out', label, icon: ny ? 'ny' : 'nj', pressed: reversed === rv, onPress: onReverse };
   };
   const nyIsBack = outEnd?.terminal !== 'PABT' && backEnd?.terminal === 'PABT';
+  const directions = <DirectionPanel t={t} choices={nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)]} />;
+  // A return leg with no bus keeps the direction buttons, so the rider can switch back.
+  if (!saved) return reversed ? <>{directions}<p className="warn" role="alert">{t.noReturnStop}</p></> : null;
+  if (!routeIds.length) return reversed ? directions : null;
+  const from = ds.stops.find(s => s.id === saved.fromStopId), to = ds.stops.find(s => s.id === saved.toStopId);
+  const town = from?.terminal === 'PABT' ? d.portAuthority : verified && from?.city ? from.city : stopLabel(from?.name ?? '').town;
+  const place = to?.terminal === 'PABT' ? t.commuteNewYork : commutePlace(to, to?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verified).name;
+  const shownRoutes = only && routeIds.includes(only) ? [only] : routeIds;
+  const leg: Leg = { fromStopId: saved.fromStopId, toStopId: saved.toStopId, routeIds: shownRoutes };
+  const deps = upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: shownRoutes }, now, count).ahead.slice(0, count);
+  const next = deps[0];
+  const routeName = (id: string) => ds.routes.find(x => x.id === id)?.shortName ?? id;
   return <>
-    <DirectionPanel t={t} choices={nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)]} />
+    {directions}
     <section className="dash-panel routes-stop" aria-labelledby="routes-stop-title">
       <div className="dash-section-head">
         <div>
           <p className="dash-eyebrow">{r.eyebrow}</p>
-          <h2 id="routes-stop-title" className="dash-title"><SignText text={ctx.stopName(saved.fromStopId)} /></h2>
+          <h2 id="routes-stop-title" ref={title} tabIndex={-1} className="dash-title"><SignText text={ctx.stopName(saved.fromStopId)} /></h2>
         </div>
         <button type="button" className="dash-outline" onClick={onChangeStop}>{r.changeStop}<ArrowRight /></button>
       </div>
@@ -1100,6 +1108,7 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
             <span className="dep-route dep-led">
               <RouteBadge ds={ds} routeId={dep.route.id} />
               <span className="dep-dest"><span className="dep-dest-main">{dest.main}</span>{dest.sub && <span className="dep-dest-sub">{dest.sub}</span>}</span>
+              <span className="sr-only">, <TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />, {t.busCountdown(minutes)}</span>
             </span>
             <MinutesTile t={t} minutes={minutes} text={t.busCountdown(minutes)} />
           </button>
@@ -1234,7 +1243,13 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     const stops = towns.find(town => town.city === city)?.stops ?? [];
     return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
   }, [ds, q, city, towns]);
-  useEffect(() => { if (!stop) heading.current?.focus(); }, [city, stop]);
+  // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search waits for a tap.
+  const firstFocus = useRef(true);
+  useEffect(() => {
+    const skip = firstFocus.current && !!document.getElementById('routes-stop-title');
+    firstFocus.current = false;
+    if (!stop && !skip) heading.current?.focus();
+  }, [city, stop]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;

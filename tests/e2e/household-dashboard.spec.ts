@@ -261,6 +261,14 @@ for (const lang of ['en', 'es'] as const) test(`Routes & stops: the saved stop, 
   await expect(rows.first().locator('.dep-board')).toContainText('165');
   await expect(rows.locator('.dep-board', { hasText: '165T' })).toHaveCount(0);
   await expect(card.getByRole('button', { name: r.fullDayFor(t.dash.portAuthority) })).toBeVisible();
+  // The card's title is focused first, and each bus button names its time for screen readers.
+  await expect(card.getByRole('heading', { level: 2 })).toBeFocused();
+  await expect(rows.first().locator('button.dep')).toContainText(/\d:\d\d/);
+  // The other direction has no printed bus: the direction buttons stay so the rider can switch back.
+  await page.getByRole('group', { name: t.dash.direction }).locator('[aria-pressed="false"]').click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole('group', { name: t.dash.direction }).locator('[aria-pressed="false"]').click();
+  await expect(card).toBeVisible();
   // The lock button opens that exact bus's trip screen, where the rider confirms the lock.
   await rows.first().getByRole('button', { name: t.lockBus }).click();
   await expect(card).toHaveCount(0);
