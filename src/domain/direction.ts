@@ -71,15 +71,30 @@ export function checkDirection(
 export function alightingStopFor(ds: Dataset, fromStopId: string, toStopId: string, routeIds?: string[], radiusM = 250): Stop | undefined {
   const target = ds.stops.find((s) => s.id === toStopId);
   if (!target) return undefined;
-  if (reaches(ds, fromStopId, toStopId, routeIds)) return target;
+  const reachable = reachableFrom(ds, fromStopId, routeIds);
+  if (reachable.has(toStopId)) return target;
   const twin = twinOf(ds, target);
-  if (twin && reaches(ds, fromStopId, twin.id, routeIds)) return twin;
-  if (!located(target)) return undefined;
+  if (twin && reachable.has(twin.id)) return twin;
+  if (!located(target) || !reachable.size) return undefined;
+  // Distance first (cheap), then the reach check, so a big live dataset stays fast (Nov 20, 2026: taps took seconds).
   return ds.stops
-    .filter((s) => s.id !== toStopId && located(s) && reaches(ds, fromStopId, s.id, routeIds))
+    .filter((s) => s.id !== toStopId && located(s) && reachable.has(s.id))
     .map((s) => ({ s, d: distanceM(target, s as Located) }))
     .filter(({ d }) => d <= radiusM)
     .sort((a, b) => a.d - b.d)[0]?.s;
+}
+
+/** Every stop some pattern drops off at after picking up at `fromStopId` (same rules as `reaches`). */
+function reachableFrom(ds: Dataset, fromStopId: string, routeIds?: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of ds.patterns) {
+    if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) continue;
+    p.stopIds.forEach((id, i) => {
+      if (id !== fromStopId || p.noPickup?.includes(i)) return;
+      p.stopIds.forEach((to, j) => { if (j > i && !p.noDropOff?.includes(j)) out.add(to); });
+    });
+  }
+  return out;
 }
 
 /**
@@ -88,6 +103,16 @@ export function alightingStopFor(ds: Dataset, fromStopId: string, toStopId: stri
  * one within `radiusM` when stops have coordinates); get off at home or its twin. Undefined if none works.
  */
 export function returnLeg(ds: Dataset, fromStopId: string, toStopId: string, routeIds?: string[], radiusM = 250): { fromStopId: string; toStopId: string } | undefined {
+  // Cached per dataset: every render of every saved trip asks this, and the answer only changes with the data.
+  let cache = returnLegCache.get(ds);
+  if (!cache) returnLegCache.set(ds, (cache = new Map()));
+  const key = JSON.stringify([fromStopId, toStopId, routeIds ?? [], radiusM]);
+  if (!cache.has(key)) cache.set(key, computeReturnLeg(ds, fromStopId, toStopId, routeIds, radiusM));
+  return cache.get(key);
+}
+const returnLegCache = new WeakMap<Dataset, Map<string, { fromStopId: string; toStopId: string } | undefined>>();
+
+function computeReturnLeg(ds: Dataset, fromStopId: string, toStopId: string, routeIds: string[] | undefined, radiusM: number): { fromStopId: string; toStopId: string } | undefined {
   const work = ds.stops.find((s) => s.id === toStopId);
   if (!work) return undefined;
   const near = located(work)
