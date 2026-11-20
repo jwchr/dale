@@ -699,3 +699,22 @@ main { flex: 1; padding-bottom: 24px; }
 .gg-walk-button .icon-next { inline-size: 1.3em; block-size: 1.3em; }
 .gates-heading { margin-block-start: 0; }
 @media (max-width: 360px) { .gg-steps li { grid-template-columns: 1.8em 2.8rem 1fr; } .gg-icon { inline-size: 2.8rem; block-size: 2.8rem; } .gg-icon svg { inline-size: 1.8rem; block-size: 1.8rem; } }
+/* Routes & stops card (#101 part 2). */
+.routes-stop { margin-block-end: 14px; }
+.routes-stop-facts { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; margin: 4px 0 12px; padding-block-end: 12px; border-block-end: 1px solid var(--line); color: var(--muted); }
+.routes-arrivals-head { align-items: center; margin-block-end: 10px; }
+.routes-arrivals-head h3 { margin: 0; }
+.routes-stop-facts > span { display: inline-flex; align-items: center; gap: 6px; }
+.routes-stop-facts .dash-icon { inline-size: 1.1em; block-size: 1.1em; flex: none; }
+.routes-filter { position: relative; display: inline-flex; align-items: center; max-inline-size: 100%; }
+.routes-filter .icon-filter { position: absolute; inset-inline-start: 10px; inline-size: 1.1em; block-size: 1.1em; pointer-events: none; }
+.routes-filter select { min-block-size: 44px; border-radius: 10px; padding: 6px 10px 6px 2.1em; font: inherit; font-weight: 600; max-inline-size: 100%; }
+.routes-boards > li { margin-block-end: 10px; }
+.routes-row-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 4px 4px 0; }
+.routes-row-foot > span { flex: 1 1 7.5rem; display: inline-flex; align-items: center; gap: 6px; min-inline-size: 0; overflow-wrap: anywhere; }
+.routes-when-text { display: flex; flex-direction: column; line-height: 1.25; }
+.routes-when-text > span:first-child { font-weight: 600; }
+.routes-row-foot .icon-bus { inline-size: 1.1em; block-size: 1.1em; flex: none; }
+.routes-lock { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; padding: 6px 12px; font-size: .92rem; margin-inline-start: auto; border-radius: 10px; font-weight: 600; max-inline-size: 100%; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; }
+.routes-stop .dash-fullday > span { flex: 1 1 auto; min-inline-size: 0; overflow-wrap: anywhere; }
+.routes-lock .icon-next { inline-size: 1em; block-size: 1em; }

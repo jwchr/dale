@@ -38,7 +38,7 @@ import { StopChoice } from './StopChoice';
 import { StopSign } from './StopSign';
 import { TourGuide } from './TourGuide';
 import { NearMe } from './NearMe';
-import { ArrowRight, BetaPill, BusIcon, DirectionPanel, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
+import { ArrowRight, BetaPill, BusIcon, DirectionPanel, FilterIcon, Pin, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
 import { HomeConnection } from './HomeConnection';
 import { stopLabel } from './StripMap';
 import type { VehicleObservation } from '../domain/lock';
@@ -506,9 +506,13 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
           {liveMode && <><p>{t.live.intro}</p><p className="small">{t.live.privacy}</p><p className="small">{t.live.limits}</p></>}
           <a className="link" href={sourceHref(!liveMode)}>{liveMode ? t.live.backup : t.live.open}</a>
         </details>}
-        {screen.name === 'search' && (
+        {screen.name === 'search' && <>
+          {!screen.nearMe && favorites[0] && <RoutesStop ctx={ctx} fav={favorites[0]} reversed={reversedIds.has(favorites[0].id)} count={settings.count} onReverse={() => toggleReversed(favorites[0]!.id)}
+            onChangeStop={() => { const f = favorites[0]!; const reversed = reversedIds.has(f.id); pickerFocus.current = { favoriteId: f.id, end: 'from', level: 'stop' }; setScreen({ name: 'commute', favoriteId: f.id, reversed, end: 'from', level: 'stop' }); }}
+            onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
+            onGuide={() => setScreen({ name: 'guide' })} />}
           <Search ctx={ctx} nearMe={screen.nearMe} onSave={(f) => { setFavorites((l) => addFavorite(l, f)); setScreen({ name: 'home' }); }} />
-        )}
+        </>}
         {screen.name === 'schedules' && <SchedulesScreen ctx={ctx} favorites={favorites} onAllDay={(leg, title) => setScreen({ name: 'timetable', leg, title })}
           onTrain={() => { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }} onFind={() => setScreen({ name: 'search' })} />}
         {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onGuide={() => setScreen({ name: 'guide' })} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
@@ -1034,6 +1038,95 @@ function SchedulesScreen({ ctx, favorites, onAllDay, onTrain, onFind }: { ctx: C
   </section>;
 }
 
+/**
+ * Routes & stops (#101 part 2), drawn to docs/design/mockups/01-routes-and-stops.jpg: the saved trip's boarding
+ * stop with its town and how many routes reach the trip's end, the next scheduled buses on every one of those
+ * routes, and the same connection map as Home. Scheduled times only, labeled; live times stay on Home and the trip.
+ */
+function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDeparture, onAllDay, onGuide }: {
+  ctx: Ctx; fav: Favorite; reversed: boolean; count: number; onReverse: () => void; onChangeStop: () => void;
+  onDeparture: (d: Departure, leg: Leg) => void; onAllDay: (leg: Leg, title: string) => void; onGuide: () => void;
+}) {
+  const { ds, t, now } = ctx, d = t.dash, r = d.routes;
+  const saved = legFor(ds, fav, reversed);
+  const [only, setOnly] = useState('');
+  const verified = ds.meta.stopCities?.state === 'verified';
+  const routeIds = useMemo(() => {
+    if (!saved) return [];
+    // Count a route only where riders may board at the saved stop and get off at the other (GTFS pickup/drop-off rules).
+    const ids = new Set(ds.patterns.filter(p => p.stopIds.some((id, a) => id === saved.fromStopId && !p.noPickup?.includes(a)
+      && p.stopIds.some((id2, b) => b > a && id2 === saved.toStopId && !p.noDropOff?.includes(b)))).map(p => p.routeId));
+    return ds.routes.filter(x => ids.has(x.id)).map(x => x.id);
+  }, [ds, saved?.fromStopId, saved?.toStopId]);
+  // The saved stop's card takes focus when the tab opens, so a phone does not scroll past it to the stop search.
+  const title = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { title.current?.focus(); }, []);
+  // Same two buttons as the Dashboard: which way the saved trip runs (#101 mock-up 01).
+  const endOf = (rv: boolean) => ds.stops.find(s => s.id === (legFor(ds, fav, rv)?.toStopId ?? (rv ? fav.fromStopId : fav.toStopId)));
+  const outEnd = endOf(false), backEnd = endOf(true);
+  const choice = (rv: boolean): DirectionChoice => {
+    const end = rv ? backEnd : outEnd, other = rv ? outEnd : backEnd, ny = end?.terminal === 'PABT';
+    const label = ny ? d.toNewYork : other?.terminal === 'PABT' ? d.toNewJersey : d.toPlace(commutePlace(end, end?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verified).name);
+    return { key: rv ? 'back' : 'out', label, icon: ny ? 'ny' : 'nj', pressed: reversed === rv, onPress: onReverse };
+  };
+  const nyIsBack = outEnd?.terminal !== 'PABT' && backEnd?.terminal === 'PABT';
+  const directions = <DirectionPanel t={t} choices={nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)]} />;
+  // A direction with no bus keeps the direction buttons while the other way still runs, so the rider can switch back.
+  if (!saved) return reversed ? <>{directions}<p className="warn" role="alert">{t.noReturnStop}</p></> : null;
+  if (!routeIds.length) return reversed || legFor(ds, fav, true) ? directions : null;
+  const from = ds.stops.find(s => s.id === saved.fromStopId), to = ds.stops.find(s => s.id === saved.toStopId);
+  const town = from?.terminal === 'PABT' ? d.portAuthority : verified && from?.city ? from.city : stopLabel(from?.name ?? '').town;
+  const place = to?.terminal === 'PABT' ? t.commuteNewYork : commutePlace(to, to?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verified).name;
+  const shownRoutes = only && routeIds.includes(only) ? [only] : routeIds;
+  const leg: Leg = { fromStopId: saved.fromStopId, toStopId: saved.toStopId, routeIds: shownRoutes };
+  const deps = upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: shownRoutes }, now, count).ahead.slice(0, count);
+  const next = deps[0];
+  const routeName = (id: string) => ds.routes.find(x => x.id === id)?.shortName ?? id;
+  return <>
+    {directions}
+    <section className="dash-panel routes-stop" aria-labelledby="routes-stop-title">
+      <div className="dash-section-head">
+        <div>
+          <p className="dash-eyebrow">{r.eyebrow}</p>
+          <h2 id="routes-stop-title" ref={title} tabIndex={-1} className="dash-title"><SignText text={ctx.stopName(saved.fromStopId)} /></h2>
+        </div>
+        <button type="button" className="dash-outline" onClick={onChangeStop}>{r.changeStop}<ArrowRight /></button>
+      </div>
+      <p className="routes-stop-facts"><span><Pin />{town}</span><span><BusIcon />{r.routesTo(routeIds.length, place)}</span></p>
+      <div className="dash-section-head routes-arrivals-head">
+        <h3 className="dash-title">{d.nextArrivals}</h3>
+        {routeIds.length > 1 && <label className="routes-filter"><span className="sr-only">{r.filter}</span><FilterIcon />
+          <select value={only} onChange={e => setOnly(e.currentTarget.value)}>
+            <option value="">{r.allRoutes(routeIds.length)}</option>
+            {routeIds.map(id => <option key={id} value={id}>{routeName(id)}</option>)}
+          </select></label>}
+      </div>
+      {deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : <ul className="deps dep-boards routes-boards">{deps.map(dep => {
+        const dest = boardDestination(ds, dep, t), minutes = minutesUntil(now, dep.departs);
+        return <li key={dep.tripInstanceId} data-trip-instance={dep.tripInstanceId}>
+          <button type="button" className="dep dep-board" onClick={() => onDeparture(dep, leg)}>
+            <span className="dep-route dep-led">
+              <RouteBadge ds={ds} routeId={dep.route.id} />
+              <span className="dep-dest"><span className="dep-dest-main">{dest.main}</span>{dest.sub && <span className="dep-dest-sub">{dest.sub}</span>}</span>
+              <span className="sr-only">, <TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />, {t.busCountdown(minutes)}</span>
+            </span>
+            <MinutesTile t={t} minutes={minutes} text={t.busCountdown(minutes)} />
+          </button>
+          <div className="routes-row-foot">
+            <span className="small routes-when"><BusIcon /><span className="routes-when-text"><span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />
+              {localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</>}</span>
+              <span className="muted">{r.scheduled}</span></span></span>
+            <button type="button" className="routes-lock" onClick={() => onDeparture(dep, leg)}>{t.lockBus}<ArrowRight /></button>
+          </div>
+        </li>;
+      })}</ul>}
+      <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, `${ctx.stopName(leg.fromStopId)} → ${place}`)}><BusIcon /><span>{r.fullDayFor(town)}</span><ArrowRight /></button>
+    </section>
+    {next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next} toStopId={leg.toStopId} onDetails={() => onDeparture(next, leg)} />}
+    <GuidanceBanner t={t} onOpen={onGuide} />
+  </>;
+}
+
 /** PABT gates tab (#101): the gate line Dale already shows for each next bus from Port Authority. Never inferred from a route. */
 function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx; favorites: Favorite[]; count: number; onGuide: () => void; onDeparture: (d: Departure, leg: Leg) => void }) {
   const { ds, t, now, stopName } = ctx, d = t.dash;
@@ -1150,7 +1243,11 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     const stops = towns.find(town => town.city === city)?.stops ?? [];
     return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
   }, [ds, q, city, towns]);
-  useEffect(() => { if (!stop) heading.current?.focus(); }, [city, stop]);
+  // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search never takes that focus away
+  // (also when development StrictMode runs this effect twice).
+  useEffect(() => {
+    if (!stop && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
+  }, [city, stop]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
