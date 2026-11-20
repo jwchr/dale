@@ -1,12 +1,14 @@
 // "Get me the fuck home" (issue #32): every scheduled way home in Dale's data, ranked by arrival,
 // with what was searched and what was not. Schedule only: it never claims a bus is running or that
-// no other way exists.
+// no other way exists. Routes from the wider official schedule load only when this screen opens.
 import type { ReactNode } from 'react';
-import { rescueOptions, type RescueOption } from '../domain/rescue';
+import { rescueOptions, type RescueOption, type RescueWider } from '../domain/rescue';
 import { formatTime12, localHour, localYmd } from '../domain/time';
 import type { Dataset } from '../domain/types';
 import { BackupPlans } from './BackupPlans';
 import type { Lang, Strings } from './i18n';
+import { rescueStrings } from './rescueStrings';
+import { useRescueSchedule } from './useRescueSchedule';
 
 interface Props {
   ds: Dataset;
@@ -25,50 +27,69 @@ interface Props {
 }
 
 export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId, label, gateText, onOpen, badge }: Props) {
-  const r = t.rescue;
-  const name = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
+  const r = t.rescue, w = rescueStrings[lang];
+  const loaded = useRescueSchedule(ds);
+  const wider: RescueWider = loaded.state === 'ready' ? { state: 'ready', schedule: loaded.schedule } : loaded;
+  const result = rescueOptions(ds, fromStopId, homeStopId, now, usualRouteId, undefined, undefined, wider);
+  const stops = new Map([...ds.stops, ...(loaded.state === 'ready' ? loaded.schedule.stops : [])].map((s) => [s.id, s] as const));
+  const name = (id: string) => stops.get(id)?.name ?? id;
   const clock = (at: number) => formatTime12(at, ds.meta.timezone, lang);
-  const result = rescueOptions(ds, fromStopId, homeStopId, now, usualRouteId);
   const soon = result.options.filter((o) => !o.lastOnLine || o.dep.departs <= result.searchedUntil);
   const today = localYmd(now, ds.meta.timezone);
   // A row on another calendar day says which day, so 1:10 AM tomorrow never reads as 1:10 AM today.
   const day = (at: number) => localYmd(at, ds.meta.timezone) === today ? ''
     : `${new Intl.DateTimeFormat(lang === 'es' ? 'es-US' : 'en-US', { weekday: 'short', timeZone: ds.meta.timezone }).format(new Date(at))} `;
+  const missing = loaded.state === 'missing' ? w.missing[loaded.reason] : undefined;
+
+  // Wider routes are not in the app's own schedule, so their rows are not opened as a trip screen.
+  const row = (o: RescueOption, extra?: ReactNode) => {
+    const gate = o.wider ? undefined : gateText(o);
+    const body = (
+      <>
+        {o.wider ? <span className="route-badge">{o.dep.route.shortName}</span> : badge(o.dep.route.id)}
+        <span className="dep-main">
+          <span className="dep-time">{day(o.dep.departs)}{o.dep.estimated ? '~' : ''}{clock(o.dep.departs)}</span>
+          <span className="dep-sub">{r.arrives(`${o.arrivesEstimated ? '~' : ''}${clock(o.arrives)}`, name(o.alightStopId))}</span>
+          {extra}
+          {o.acrossFromBoard && <span className="dep-sub">{r.acrossBoard(name(o.boardStopId))}</span>}
+          {o.acrossFromHome && <span className="dep-sub">{r.acrossHome}</span>}
+          {gate && <span className="dep-gate">{gate}</span>}
+        </span>
+        <span className="dep-right">
+          {o.lastOnLine && <span className="tag">{o.lastUnconfirmed ? r.lastUnconfirmed
+            : localHour(o.dep.departs, ds.meta.timezone) >= 4 && localHour(o.dep.departs, ds.meta.timezone) < 18 ? r.lastToday : r.lastOnLine}</span>}
+          {o.sameLine && !o.lastOnLine && <span className="muted small">{r.sameLine}</span>}
+          <span className="badge-sched">{o.wider ? w.widerTag : t.scheduledOnly}</span>
+        </span>
+      </>
+    );
+    return (
+      <li key={o.dep.tripInstanceId}>
+        {o.wider ? <div className="dep">{body}</div> : <button className="dep" onClick={() => onOpen(o)}>{body}</button>}
+      </li>
+    );
+  };
 
   return (
     <section className="rescue">
       <h1>{label === 'home' ? r.title : r.otherWays}</h1>
       <p className="leg">{r.leg(name(fromStopId), name(homeStopId))}</p>
       <p className="small">{r.scheduleOnly(clock(result.searchedUntil), result.options.some((o) => o.lastOnLine))}</p>
-      {!soon.length && <p className="warn" role="note">{r.none}</p>}
-      <ol className="rescue-list">
-        {result.options.map((o) => {
-          const gate = gateText(o);
-          return (
-            <li key={o.dep.tripInstanceId}>
-              <button className="dep" onClick={() => onOpen(o)}>
-                {badge(o.dep.route.id)}
-                <span className="dep-main">
-                  <span className="dep-time">{day(o.dep.departs)}{o.dep.estimated ? '~' : ''}{clock(o.dep.departs)}</span>
-                  <span className="dep-sub">{r.arrives(`${o.arrivesEstimated ? '~' : ''}${clock(o.arrives)}`, name(o.alightStopId))}</span>
-                  {o.acrossFromBoard && <span className="dep-sub">{r.acrossBoard(name(o.boardStopId))}</span>}
-                  {o.acrossFromHome && <span className="dep-sub">{r.acrossHome}</span>}
-                  {gate && <span className="dep-gate">{gate}</span>}
-                </span>
-                <span className="dep-right">
-                  {o.lastOnLine && <span className="tag">{o.lastUnconfirmed ? r.lastUnconfirmed
-                    : localHour(o.dep.departs, ds.meta.timezone) >= 4 && localHour(o.dep.departs, ds.meta.timezone) < 18 ? r.lastToday : r.lastOnLine}</span>}
-                  {o.sameLine && !o.lastOnLine && <span className="muted small">{r.sameLine}</span>}
-                  <span className="badge-sched">{t.scheduledOnly}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+      {loaded.state === 'loading' && <p className="muted small" role="status">{w.loading}</p>}
+      {!soon.length && !result.nearHome.length && <p className="warn" role="note">{r.none}{missing ? ` ${missing}` : ''}</p>}
+      <ol className="rescue-list">{result.options.map((o) => row(o))}</ol>
+      {result.nearHome.length > 0 && (
+        <>
+          <h2 className="small">{w.nearTitle}</h2>
+          <ol className="rescue-list">{result.nearHome.map((o) => row(o, <span className="dep-sub">{w.near(name(o.alightStopId), Math.round(o.straightLineM / 10) * 10)}</span>))}</ol>
+        </>
+      )}
       <BackupPlans t={t} />
       <p className="muted small" role="note">{r.coverage(result.routesSearched.join(', '))}</p>
-      <p className="muted small">{r.noWalking}</p>
+      {result.widerRoutes.length > 0 && <p className="muted small">{w.widerIncluded(result.widerRoutes.join(', '))}</p>}
+      {loaded.state === 'ready' && loaded.savedAt !== undefined && <p className="muted small">{w.savedCopy(clock(loaded.savedAt))}</p>}
+      {missing && (soon.length > 0 || result.nearHome.length > 0) && <p className="muted small">{missing}</p>}
+      <p className="muted small">{result.limitations.includes('no_walking_or_transfers') ? r.noWalking : w.walkNote}</p>
       {result.limitations.includes('printed_timepoints_only') && <p className="muted small">{r.printed}</p>}
     </section>
   );

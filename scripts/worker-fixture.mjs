@@ -23,3 +23,12 @@ if (previousGeometry !== 'null') {
   const temporary = new URL(`../worker/generated/geometry-${process.pid}.tmp`, import.meta.url);
   writeFileSync(temporary, 'null'); renameSync(temporary, geometryOutput);
 }
+
+// Wider rescue schedule (#32): also a separate delivery asset, absent in the synthetic bundle check.
+const rescueOutput = new URL('../worker/generated/rescue-schedule.json', import.meta.url);
+let previousRescue;
+try { previousRescue = readFileSync(rescueOutput, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+if (previousRescue !== 'null') {
+  const temporary = new URL(`../worker/generated/rescue-${process.pid}.tmp`, import.meta.url);
+  writeFileSync(temporary, 'null'); renameSync(temporary, rescueOutput);
+}

@@ -14,6 +14,7 @@ import { addStopCities } from './stop-cities.mjs';
 import { localYmd } from '../src/domain/time.ts';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
 import { requireCoverage, rolloverCapacity } from './schedule-rollover.mjs';
+import { buildRescueSchedule } from './rescue-schedule.mjs';
 // Owner confirmed 2026-11-12 (D68): in rollover-enabled mode only, a route-geometry failure
 // ships the new schedule with route distance off (never straight-line distance) instead of
 // stopping the weekly rollover; the aggregate diagnostic is printed so the cause can be fixed.
@@ -45,8 +46,9 @@ try {
   phase = 'static-download';
   const bytes = await njtRequest('getGTFS', { token }, 128 * 1024 * 1024, fetch, 120_000);
   phase = 'zip-decode';
-  const needed = new Set(['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt']);
-  const zip = unzipSync(bytes, { filter: (entry) => needed.has(entry.name.split('/').pop()) });
+  const needed = new Set(['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt', 'fare_attributes.txt', 'fare_rules.txt']);
+  const sourceFileNames = [];
+  const zip = unzipSync(bytes, { filter: (entry) => { const name = entry.name.split('/').pop(); sourceFileNames.push(name); return needed.has(name); } });
   const files = Object.fromEntries(Object.entries(zip).map(([name, value]) => [name.split('/').pop(), strFromU8(value)]));
   phase = 'corridor-validation';
   const sourceSHA256 = createHash('sha256').update(bytes).digest('hex');
@@ -95,8 +97,22 @@ try {
     if (!rollover) throw error;
     geometry = rolloverGeometryFallback(error);
   }
+  // Wider rescue schedule (#32, #31): a separate delivery file, built from the same official download and
+  // feed version as the corridor schedule. It never changes the corridor schedule or the history context,
+  // and any failure here ships no wider file (Rescue then says so) instead of stopping this preparation.
+  phase = 'rescue-schedule';
+  let rescue = null;
+  try {
+    const built = buildRescueSchedule(files, ds, { sourceFileNames });
+    rescue = built.schedule;
+    console.log(`Wider rescue schedule (aggregate counts and route numbers only): ${JSON.stringify(built.report)}`);
+  } catch {
+    console.log('Wider rescue schedule could not be built; Rescue will say other routes are unavailable. The corridor schedule is unaffected.');
+  }
+  phase = 'generated-files';
   mkdirSync(new URL('../worker/generated/', import.meta.url), { recursive: true });
   writeFileSync(new URL('../worker/generated/corridor.json', import.meta.url), preserve ? retained.text : JSON.stringify(ds));
+  writeFileSync(new URL('../worker/generated/rescue-schedule.json', import.meta.url), JSON.stringify(rescue));
   writeFileSync(new URL('../worker/generated/route-geometry.json', import.meta.url), JSON.stringify(geometry));
   if (rollover) writeFileSync(new URL('../worker/generated/rollover.json', import.meta.url), rolloverReceipt, { mode: 0o600 });
   if (preserve) {

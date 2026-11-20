@@ -105,7 +105,7 @@ export function interpolate(times) {
  * files: { [name]: string } with routes.txt, stops.txt, trips.txt, stop_times.txt and calendar.txt and/or calendar_dates.txt.
  * routeShortNames: which routes to include (the corridor).
  */
-export function buildDataset(files, { routeShortNames, feedVersion = 'unknown', builtAt = new Date().toISOString(), source = 'NJ Transit GTFS', splitVariants = false, scheduledOnly = false }) {
+export function buildDataset(files, { routeShortNames, feedVersion = 'unknown', builtAt = new Date().toISOString(), source = 'NJ Transit GTFS', splitVariants = false, scheduledOnly = false, patternPrefix = 'P' }) {
   const need = (n) => {
     if (files[n] === undefined) throw new Error(`missing ${n}`);
     return parseCsv(files[n]);
@@ -154,7 +154,7 @@ export function buildDataset(files, { routeShortNames, feedVersion = 'unknown', 
     const key = `${routeId}|${dir}|${headsign}|${stopIds.join('>')}|${noPickup}|${noDropOff}|${stopSequences}`;
     let p = patterns.get(key);
     if (!p) {
-      p = { id: `P${patterns.size + 1}`, routeId, directionId: dir, headsign, stopIds, stopSequences, ...(variant ? { variant } : {}), ...(noPickup.length ? { noPickup } : {}), ...(noDropOff.length ? { noDropOff } : {}) };
+      p = { id: `${patternPrefix}${patterns.size + 1}`, routeId, directionId: dir, headsign, stopIds, stopSequences, ...(variant ? { variant } : {}), ...(noPickup.length ? { noPickup } : {}), ...(noDropOff.length ? { noDropOff } : {}) };
       patterns.set(key, p);
     }
     const given = sts.map((s) => parseGtfsTime(s.departure_time || s.arrival_time));
