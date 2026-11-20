@@ -26,7 +26,8 @@ export function useRescueSchedule(ds: Dataset, api: string | undefined = API): W
       if (cache.size > 2) cache.delete(cache.keys().next().value!);
     }
     void pending.then((state) => {
-      if (state.state === 'missing' && state.reason === 'offline') cache.delete(key);
+      // No connection (with or without a saved copy): ask the server again next time Rescue opens.
+      if ((state.state === 'missing' && state.reason === 'offline') || (state.state === 'ready' && state.savedAt !== undefined)) cache.delete(key);
       if (active) setResult({ key, state });
     });
     return () => { active = false; };

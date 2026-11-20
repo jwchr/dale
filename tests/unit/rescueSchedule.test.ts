@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain ESM script without type declarations
 import { buildDataset } from '../../scripts/gtfs-lib.mjs';
 // @ts-expect-error plain ESM script without type declarations
@@ -234,6 +234,37 @@ describe('loading the wider routes on the phone', () => {
     ['offline', answer(503)],
   ])('says %s instead of showing no other routes', async (reason, net) => {
     expect(await loadRescueSchedule(api, corridor, signal, net)).toEqual({ state: 'missing', reason });
+  });
+  it('a timeout or dropped connection uses the saved copy for this feed version, and says offline only when there is none', async () => {
+    const store = new Map<string, Response>();
+    const fake = { open: async () => ({
+      keys: async () => [...store.keys()].map((u) => new Request(u)),
+      delete: async (r: Request) => store.delete(r.url),
+      put: async (u: string, res: Response) => { store.set(u, res); },
+      match: async (u: string) => store.get(u)?.clone(),
+    }) };
+    vi.stubGlobal('caches', fake);
+    try {
+      // The 15 s timer aborts the request: the fetch rejects with the signal already aborted.
+      const timedOut = () => { const c = new AbortController(); c.abort(); return c.signal; };
+      const aborting = (async (_u: string, init: RequestInit) => { throw init.signal?.aborted ? new DOMException('timeout', 'AbortError') : new TypeError('network'); }) as unknown as typeof fetch;
+      expect(await loadRescueSchedule(api, corridor, timedOut(), aborting)).toEqual({ state: 'missing', reason: 'offline' });
+      const ok = (async () => new Response(JSON.stringify(built.schedule))) as unknown as typeof fetch;
+      expect((await loadRescueSchedule(api, corridor, signal, ok)).state).toBe('ready');
+      const fromTimeout = await loadRescueSchedule(api, corridor, timedOut(), aborting);
+      expect(fromTimeout.state === 'ready' && fromTimeout.savedAt).toBeGreaterThan(0);
+      expect(fromTimeout.state === 'ready' && fromTimeout.schedule.trips.length).toBe(wider.trips.length);
+      const dropped = (async () => { throw new TypeError('network'); }) as unknown as typeof fetch;
+      expect((await loadRescueSchedule(api, corridor, signal, dropped)).state).toBe('ready');
+      // Cut off while the body was still arriving.
+      const cutOff = (async () => new Response(new ReadableStream({ start(c) { c.error(new DOMException('timeout', 'AbortError')); } }))) as unknown as typeof fetch;
+      expect((await loadRescueSchedule(api, corridor, signal, cutOff)).state).toBe('ready');
+      // A saved copy for another feed version is never used.
+      const next = { ...corridor, meta: { ...corridor.meta, feedVersion: 'synthetic02' } };
+      expect(await loadRescueSchedule(api, next, timedOut(), aborting)).toEqual({ state: 'missing', reason: 'offline' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
   it('asks nothing for printed or demo data, or without a server', async () => {
     const never = (async () => { throw new Error('must not fetch'); }) as unknown as typeof fetch;

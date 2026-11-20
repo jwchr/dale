@@ -19,19 +19,21 @@ export async function loadRescueSchedule(api: string | undefined, ds: Dataset, s
   if (ds.meta.demo || ds.meta.transcribed || ds.meta.realtime?.provider !== 'njt-bus-g2') return { state: 'missing', reason: 'not_official' };
   if (!api) return { state: 'missing', reason: 'not_configured' };
   const url = `${api}/v1/schedule?extra=rescue&feedVersion=${encodeURIComponent(ds.meta.feedVersion)}`;
-  let response: Response;
+  // A timeout (the caller aborts), a dropped connection or a server error all fall back to the
+  // saved copy for this same feed version; "offline" is said only when there is none.
+  let text: string;
   try {
-    response = await fetchImpl(url, { signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
+    const response = await fetchImpl(url, { signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
+    if (response.status === 409) return { state: 'missing', reason: 'feed_mismatch' };
+    if (response.status === 404) return { state: 'missing', reason: 'not_offered' };
+    if (!response.ok) return saved(url, ds);
+    text = await response.text();
   } catch {
-    if (signal.aborted) throw new Error('aborted');
     return saved(url, ds);
   }
-  if (response.status === 409) return { state: 'missing', reason: 'feed_mismatch' };
-  if (response.status === 404) return { state: 'missing', reason: 'not_offered' };
-  if (!response.ok) return saved(url, ds);
   let schedule: RescueSchedule;
   try {
-    schedule = parseRescueSchedule(await response.json(), ds);
+    schedule = parseRescueSchedule(JSON.parse(text), ds);
   } catch {
     // A Worker from before this change answers with the corridor schedule itself: not offered yet.
     return { state: 'missing', reason: 'not_offered' };
