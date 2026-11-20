@@ -257,6 +257,19 @@ export class HistoryJournal {
       state.reservedWrites += units; this.write(state); return true;
     });
   }
+  /** Optional derived work (arrival confidence, #91) may use only the spare margin: the rest of today's normal
+   * collection/archive/prune reservations stay reserved, plus `keep` units left for other optional work. */
+  reserveSpareWrites(units: number, now: number, keep = 0): boolean {
+    return this.storage.transactionSync(() => {
+      const state = this.read(now);
+      if (!state.enabled || !Number.isSafeInteger(units) || units < 1 || !Number.isSafeInteger(keep) || keep < 0) return false;
+      if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
+      const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
+      const normal = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+      if (DAILY_WRITE_BUDGET - state.reservedWrites - units < normal + keep) return false;
+      state.reservedWrites += units; this.write(state); return true;
+    });
+  }
   canCatchUpArchive(now: number) {
     const state = this.read(now), used = state.budgetDay === day(now) ? state.reservedWrites : 0;
     const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;

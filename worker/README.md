@@ -6,6 +6,10 @@ One free-plan Worker and one private SQLite-backed Durable Object. Canonical G2 
 
 `npm run worker:check` makes a synthetic fixture and verifies the bundle without deployment. The unit suite also exercises the real local Cloudflare/SQLite runtime with an entirely synthetic upstream. Production rejects the synthetic feed version. The manual reviewed-main workflow must prepare the official G2 feed before it can deploy.
 
+## Measured arrival patterns (#91, #101)
+
+`GET /v1/arrival-confidence` serves read-only aggregate arrival statistics from SQLite, folded hourly from spare write budget; an optional manual archive backfill is leased by the `ARRIVAL_BACKFILL` setting. Contract, limits, costs and operator steps: `docs/ARRIVAL_CONFIDENCE.md`.
+
 ## Stop alerts while the phone is locked (#176 step C)
 
 Design: `docs/LOCKED_STOP_ALERTS.md`. Code: `ride-alerts.ts` (rules, ride table, routes, per-alarm check) and `web-push.ts` (payload-less VAPID push, WebCrypto only). Routes, all JSON and `no-store`; POST and DELETE require Dale's Origin:
