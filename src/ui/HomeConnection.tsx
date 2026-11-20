@@ -7,7 +7,7 @@ import type { Dataset, Departure } from '../domain/types';
 import type { VehicleObservation } from '../domain/lock';
 import { tripStopTimes } from '../domain/schedule';
 import { formatTime12 } from '../domain/time';
-import { busOnTrip, fixPosition, hasLocations } from '../domain/tripProgress';
+import { busOnTrip, FIX_MAX_AGE_MS, fixPosition, hasLocations } from '../domain/tripProgress';
 import { townCounty } from '../data/townCounties';
 import { ArrowRight, ConnectionMap, type MapPoint } from './Dashboard';
 import { LiveIndicator } from './LiveIndicator';
@@ -51,7 +51,9 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
   const [showMe, setShowMe] = useState(false);
   const [street, setStreet] = useState(false);
   const { phone, gps: phoneState } = usePhoneFix(showMe && located, now);
-  const you = phone ? fixPosition(stops, 0, phone, now) : undefined;
+  // The same freshness limits as fixPosition: an old fix leaves both maps until the phone sends a new one.
+  const fresh = phone && now - phone.at <= FIX_MAX_AGE_MS && phone.at <= now + 60_000 ? phone : undefined;
+  const you = fresh ? fixPosition(stops, 0, fresh, now) : undefined;
   const route = dep.route.shortName;
 
   // The street map reuses the waiting map's pieces: official GPS, or the same straight-line timetable estimate.
@@ -66,7 +68,7 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
     return { lat: a.lat! + f * (b.lat! - a.lat!), lon: a.lon! + f * (b.lon! - a.lon!) };
   })();
 
-  return <section className="dash-panel dash-connection" aria-labelledby="dash-connection-title">
+  return <section className="dash-panel dash-connection" aria-labelledby="dash-connection-title" data-trip={dep.tripInstanceId}>
     <div className="dash-section-head">
       <div>
         <p className="dash-eyebrow">{d.yourConnection}</p>
@@ -81,11 +83,14 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
       <p className="small map-bus-status" data-bus={bus.kind}>
         {(bus.kind === 'gps' || bus.kind === 'estimate') && <span className="map-key map-key-bus" aria-hidden="true" />}
         <strong>{d.busKey(route)}: </strong>
-        {bus.kind === 'gps' ? <><LiveIndicator live />{t.progress.mapDotSeen}</>
+        {bus.kind === 'gps' ? <><LiveIndicator live />{t.progress.mapDotSeen} {d.busSeen(Math.max(0, Math.floor((now - bus.observedAt) / 1000)))}</>
           : bus.kind === 'estimate' ? <><LiveIndicator live={false} />{t.confidence.estimated}</>
           : bus.kind === 'not-started' ? t.live.rows.notStarted(formatTime12(bus.startsAt, ds.meta.timezone, lang))
           : t.live.positionUnknown}
       </p>
+      {/* Announces only a change in what the bus dot is (GPS, estimate, not started, unknown), never each new position or age. */}
+      <span className="sr-only" role="status">{d.busKey(route)}: {bus.kind === 'gps' ? t.progress.mapDotSeen : bus.kind === 'estimate' ? t.confidence.estimated
+        : bus.kind === 'not-started' ? t.live.rows.notStarted(formatTime12(bus.startsAt, ds.meta.timezone, lang)) : t.live.positionUnknown}</span>
       {located && <>
         <div className="choice-list map-actions">
           <button type="button" className="chip" aria-pressed={showMe} onClick={() => setShowMe(v => !v)}>{d.showMe}</button>
@@ -93,11 +98,11 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
         </div>
         {!showMe && <p className="muted small">{d.showMePrivacy}</p>}
         {showMe && <p className="small map-you-status">
-          {phone && you !== undefined && <span className="map-key map-key-you" aria-hidden="true" />}
-          {phoneState === 'on' && phone ? <>{d.gpsOn(Math.round(phone.accuracyM))}{you === undefined && <> {d.youOffMap}</>}</> : d.gps[phoneState]}
+          {you !== undefined && <span className="map-key map-key-you" aria-hidden="true" />}
+          {phoneState === 'on' && phone ? fresh ? <>{d.gpsOn(Math.round(fresh.accuracyM))}{you === undefined && <> {d.youOffMap}</>}</> : d.youWaiting : d.gps[phoneState]}
         </p>}
         <span className="sr-only" role="status">{showMe ? d.gps[phoneState] : ''}</span>
-        {street && <StreetMap text={t.maps} key={dep.tripInstanceId} stops={mapStops} bus={busPoint} you={phone && { lat: phone.lat, lon: phone.lon }} dark={!!mapIsDark()} label={t.live.mapLabel} loadingText={t.progress.mapLoading} failedText={t.progress.mapFailed} />}
+        {street && <StreetMap text={t.maps} key={dep.tripInstanceId} stops={mapStops} bus={busPoint} you={fresh && { lat: fresh.lat, lon: fresh.lon }} dark={!!mapIsDark()} label={t.live.mapLabel} loadingText={t.progress.mapLoading} failedText={t.progress.mapFailed} />}
       </>}
     </div>
   </section>;

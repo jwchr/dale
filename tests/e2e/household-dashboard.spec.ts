@@ -7,14 +7,15 @@ import type { DepartureBatch, DepartureReport, DepartureRequest } from '../../sr
 
 const API = 'https://dale-live.test.workers.dev';
 const favorite = { id: 'dash', label: 'My commute', fromStopId: '2', toStopId: '3', routeIds: ['10'] };
-type Mode = 'live' | 'gps' | 'failed';
+type Mode = 'live' | 'gps' | 'failed' | 'cancelled';
 
 function batch(queries: DepartureRequest[], mode: Mode, now: number): DepartureBatch {
   const observedAt = now - 20_000;
   const items: DepartureReport[] = queries.map(query => {
     if (query.tripId !== 'T1' || query.serviceDate !== '20261104') return { query };
     const gps = mode === 'gps' ? { gpsObservedAt: now - 15_000, gps: { tripInstanceId: 'T1@20261104', vehicleId: 'bus-A', observedAt: now - 15_000, lat: 40.875, lon: -74.0425 } } : {};
-    return { query, updatedAt: observedAt, ...gps, departure: { stopIndex: query.stopIndex, at: now + 300_000, observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + 2_400_000, observedAt, kind: 'arrival' } };
+    const cancelled = mode === 'cancelled' ? { cancelledAt: observedAt } : {};
+    return { query, updatedAt: observedAt, ...gps, ...cancelled, departure: { stopIndex: query.stopIndex, at: now + 300_000, observedAt, kind: 'departure' }, arrival: { stopIndex: query.toStopIndex, at: now + 2_400_000, observedAt, kind: 'arrival' } };
   });
   return { v: 1, source: LIVE_SOURCE, feedVersion: liveDataset.meta.feedVersion, receivedAt: now, vehicles: { state: 'ok', timestamp: now - 10_000 }, updates: { state: 'ok', timestamp: observedAt }, items };
 }
@@ -43,6 +44,8 @@ test('the LIVE pill appears only when a shown bus has live NJ Transit data', asy
   await setup(page, 'live');
   await expect(pill(page)).toHaveAttribute('data-live', 'true');
   await expect(pill(page)).toContainText('Live');
+  // A polite status region: a switch between Scheduled and Live is announced, the board is not read out.
+  await expect(pill(page)).toHaveAttribute('role', 'status');
   await expect(page.locator('.dep-boards > li[data-arrival-kind="live"]').first()).toBeVisible();
 });
 
@@ -119,6 +122,10 @@ test.describe('the home map', () => {
     const bus = page.getByTestId('map-bus');
     await expect(bus).toHaveAttribute('data-live', 'true');
     await expect(page.locator('.map-bus-status')).toHaveAttribute('data-bus', 'gps');
+    // The GPS dot names its source and the age of that GPS report, not of the arrival prediction.
+    await expect(page.locator('.map-bus-status')).toContainText(/Position from NJ Transit, 1\d s ago\./);
+    // Only the kind of dot is announced (GPS or estimate), never each new position or age.
+    await expect(page.locator('.map-status > [role="status"]').first()).toHaveText(/^Bus .+: The dot is where GPS last saw the bus\.$/);
     await expect(page.getByTestId('map-you')).toHaveCount(0);
     const showMe = page.getByRole('button', { name: 'Show me on the map' });
     await expect(showMe).toHaveAttribute('aria-pressed', 'false');
@@ -137,5 +144,66 @@ test.describe('the home map', () => {
     await expect(page.getByTestId('map-bus')).toHaveAttribute('data-live', 'false');
     await expect(page.locator('.map-bus-status')).toHaveAttribute('data-bus', 'estimate');
     await expect(page.locator('.map-bus-status')).toContainText(/estimad/i);
+    await expect(page.locator('.map-status > [role="status"]').first()).toHaveText(/^Autobús .+: .*estimad/i);
   });
+
+  // A phone fix the line map can't use: too old, or too imprecise. Mocked in the page; nothing leaves the device.
+  const phoneFix = (page: Page, fix: { accuracy: number; ageMs: number }) => page.addInitScript(({ accuracy, ageMs }) => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      watchPosition: (ok: PositionCallback) => { setTimeout(() => ok({ coords: { latitude: 40.8705, longitude: -74.0402, accuracy }, timestamp: Date.now() - ageMs } as GeolocationPosition), 50); return 1; },
+      clearWatch: () => {}, getCurrentPosition: () => {},
+    } });
+  }, fix);
+
+  for (const lang of ['en', 'es'] as const) {
+    const s = lang === 'en'
+      ? { showMe: 'Show me on the map', waiting: 'Waiting for a new location from your phone.', cannot: 'The line map can’t place your location on this route right now.', offRoute: /not near/i }
+      : { showMe: 'Mostrarme en el mapa', waiting: 'Esperando una nueva ubicación de tu teléfono.', cannot: 'El mapa de la línea no puede ubicarte en esta ruta ahora mismo.', offRoute: /no estás cerca/i };
+
+    test(`an expired phone fix leaves the map until a new one arrives (${lang})`, async ({ page }) => {
+      await phoneFix(page, { accuracy: 20, ageMs: 10 * 60_000 });
+      await setup(page, 'gps', lang);
+      await page.getByRole('button', { name: s.showMe }).click();
+      await expect(page.locator('.map-you-status')).toHaveText(s.waiting);
+      await expect(page.getByTestId('map-you')).toHaveCount(0);
+      await expect(page.locator('.map-key-you')).toHaveCount(0);
+    });
+
+    test(`an imprecise phone fix is not called off-route (${lang})`, async ({ page }) => {
+      await phoneFix(page, { accuracy: 500, ageMs: 0 });
+      await setup(page, 'gps', lang);
+      await page.getByRole('button', { name: s.showMe }).click();
+      await expect(page.locator('.map-you-status')).toContainText(s.cannot);
+      await expect(page.locator('.map-you-status')).not.toContainText(s.offRoute);
+      await expect(page.getByTestId('map-you')).toHaveCount(0);
+    });
+  }
+});
+
+test('a cancelled next bus stays on the board but is not drawn as the rider’s connection', async ({ page }) => {
+  await setup(page, 'cancelled');
+  await expect(page.locator('.dep-board').first()).toHaveAttribute('data-cancelled', 'true');
+  const connection = page.locator('.dash-connection');
+  // The fixture's next bus after the cancelled one carries the connection instead.
+  await expect(connection).toHaveAttribute('data-trip', /.+/);
+  await expect(connection).not.toHaveAttribute('data-trip', 'T1@20261104');
+});
+
+for (const lang of ['en', 'es'] as const) test(`PABT gates keep trips with different buses apart and date tomorrow’s buses (${lang})`, async ({ page }) => {
+  await page.addInitScript((lang) => {
+    localStorage.setItem('arriba.favorites.v1', JSON.stringify([
+      { id: 'a', label: 'Local', fromStopId: 'PABT', toStopId: 'W10', routeIds: ['R165'] },
+      { id: 'b', label: 'Turnpike', fromStopId: 'PABT', toStopId: 'W10', routeIds: ['R165T'] }]));
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'household', count: 3, tourSeen: true }));
+  }, lang);
+  await page.goto('/?printed=1&now=2026-11-04T23:58');
+  await page.getByRole('navigation', { name: lang === 'en' ? 'Main' : 'Principal' }).getByRole('button', { name: lang === 'en' ? 'PABT gates' : 'Puertas PABT', exact: true }).click();
+  const trips = page.locator('.gate-trip');
+  await expect(trips).toHaveCount(2);
+  await expect(trips.nth(0).locator('h2')).toHaveText(/\(165\)$/);
+  await expect(trips.nth(1).locator('h2')).toHaveText(/\(165T\)$/);
+  // After tonight's last bus, the next ones are tomorrow's, and each says so.
+  const date = trips.nth(0).locator('.gate-row .dep-date').first();
+  await expect(date).toBeVisible();
+  await expect(date).toHaveText(lang === 'en' ? '11/5/2026' : '5/11/2026');
 });

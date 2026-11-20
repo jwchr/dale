@@ -712,7 +712,8 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
       </section>
     );
   }
-  const card = (f: Favorite, i: number, dash?: DashboardParts) => <FavoriteCard ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
+  // Keyed by favorite, so a half-typed rename never carries over to a different trip after a reorder.
+  const card = (f: Favorite, i: number, dash?: DashboardParts) => <FavoriteCard key={f.id} ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
     onMove={(dlt) => setFavorites((l) => moveFavorite(l, f.id, dlt))}
     onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
     onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
@@ -962,7 +963,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
     const choices = nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)];
     const fromLabel = from?.terminal === 'PABT' ? t.commutePabt : stopPlace(stopName(fromId));
     const anyLive = rows.some(r => r.live?.kind === 'live');
-    const next = rows[0];
+    // The connection map follows the next bus that will actually carry the rider: a cancelled bus, or one that
+    // skips the rider's boarding or destination stop, stays on the board but is not drawn as their connection.
+    const next = rows.find(r => r.live?.kind !== 'cancelled' && r.live?.kind !== 'boarding-skipped' && r.live?.kind !== 'destination-skipped');
     return (
       <article className="card fav fav-dashboard" data-favorite-id={fav.id} aria-label={customName ? `${fav.label}: ${fullLeg}` : fullLeg}>
         <DirectionPanel t={t} choices={choices} fromLabel={fromLabel} onFrom={leg ? () => onChoose('from', 'stop') : undefined} onLocation={dash.onLocation} />
@@ -1034,10 +1037,12 @@ function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorit
   const { ds, t, now, stopName } = ctx, d = t.dash;
   const seen = new Set<string>();
   const legs = favorites.flatMap(f => [false, true].flatMap(rev => {
-    const leg = legFor(ds, f, rev), key = leg && `${leg.fromStopId}>${leg.toStopId}`;
+    const leg = legFor(ds, f, rev), key = leg && `${leg.fromStopId}>${leg.toStopId}>${[...leg.routeIds].sort().join(',')}`;
     if (!leg || !key || seen.has(key) || ds.stops.find(s => s.id === leg.fromStopId)?.terminal !== 'PABT') return [];
     seen.add(key);
-    return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
+    // Two saved trips between the same stops with different buses get their own lists, named by their routes.
+    const routes = leg.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? id).join(', ');
+    return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}${routes ? ` (${routes})` : ''}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
   }));
   return <section className="card tab-screen" aria-labelledby="gates-title">
     <h1 id="gates-title">{d.gatesTitle}</h1>
@@ -1048,7 +1053,7 @@ function GatesScreen({ ctx, favorites, count, onDeparture }: { ctx: Ctx; favorit
       {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
-          <span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
+          <span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
           <ArrowRight />
         </button>
       </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}

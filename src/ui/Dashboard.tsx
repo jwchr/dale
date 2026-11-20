@@ -50,9 +50,10 @@ export function DirectionPanel({ t, choices, fromLabel, onFrom, onLocation }: {
   </div>;
 }
 
-/** LIVE only when a shown row has a fresh NJ Transit prediction; otherwise the same pill says Scheduled. */
+/** LIVE only when a shown row has a fresh NJ Transit prediction; otherwise the same pill says Scheduled.
+ * A polite status region, so a switch between the two is announced without reading out the whole board. */
 export function StatusPill({ t, live }: { t: Strings; live: boolean }) {
-  return <p className="status-pill" data-live={live}>
+  return <p className="status-pill" data-live={live} role="status">
     <span className="status-dot" aria-hidden="true" /><span className="status-word">{live ? t.dash.live : t.dash.scheduled}</span>
     <span className="sr-only">. {live ? t.dash.liveNote : t.dash.scheduledNote}</span>
   </p>;
