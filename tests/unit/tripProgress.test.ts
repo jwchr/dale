@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixPosition, scheduledAt, stopReached, TAP_MAX_AGE_MS, timetablePosition, tripProgress, type Fix } from '../../src/domain/tripProgress';
+import { busOnTrip, fixPosition, scheduledAt, stopReached, TAP_MAX_AGE_MS, timetablePosition, tripProgress, type Fix } from '../../src/domain/tripProgress';
 import type { Stop } from '../../src/domain/types';
 
 const MIN = 60_000;
@@ -107,4 +107,16 @@ it('fresh bus GPS stays at its observed position between polls, without timetabl
   expect(p.basis).toBe('bus_gps');expect(p.position).toBeCloseTo(1);expect(p.projected).toBe(false);expect(p.observedAt).toBe(observed);
  }
  expect(tripProgress({...base,now:observed+121000,bus:fix}).basis).toBe('timetable');
+});
+
+describe('the next bus on the home map, issue 101', () => {
+  it('uses official GPS only when it lies on the route', () => {
+    expect(busOnTrip(stops, times, T0 + 5 * MIN, { lat: 40.925, lon: -74.0, observedAt: T0 + 4 * MIN })).toMatchObject({ kind: 'gps', position: expect.closeTo(2.5, 1) });
+    // Far off the route: never placed from GPS; the labeled timetable position is used instead.
+    expect(busOnTrip(stops, times, T0 + 5 * MIN, { lat: 41.5, lon: -74.5, observedAt: T0 + 4 * MIN })).toMatchObject({ kind: 'estimate', position: expect.closeTo(0.5, 2) });
+  });
+  it('before the trip starts there is no position, only its start time', () => {
+    expect(busOnTrip(stops, times, T0 - MIN)).toEqual({ kind: 'not-started', startsAt: T0 });
+    expect(busOnTrip(stops, [T0], T0)).toEqual({ kind: 'unknown' });
+  });
 });

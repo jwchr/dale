@@ -13,6 +13,7 @@ import { journeyStrings, confidenceStrings } from './journeyStrings';
 import { railEn, railEs } from './railStrings';
 import { stopSignStrings } from './stopSignStrings';
 import { tourStrings } from './tourStrings';
+import { dashboardStrings } from './dashboardStrings';
 import type { UncertainReason } from '../domain/rideGuide';
 import type { TripUpdate } from '../domain/tripUpdate';
 export type Lang = 'en' | 'es';
@@ -29,6 +30,7 @@ const en = {
   homePhoto: homePhotoStrings.en,
   lockedAlerts: lockedAlertStrings.en,
   slogans: openingSloganStrings.en,
+  dash: dashboardStrings.en,
   commuteChanges: commuteChangeStrings.en,
   distance: routeDistanceStrings.en,
   cityPicker: cityPickerStrings.en,
@@ -644,6 +646,7 @@ const es: Strings = {
   homePhoto: homePhotoStrings.es,
   lockedAlerts: lockedAlertStrings.es,
   slogans: openingSloganStrings.es,
+  dash: dashboardStrings.es,
   commuteChanges: commuteChangeStrings.es,
   distance: routeDistanceStrings.es,
   cityPicker: cityPickerStrings.es,

@@ -21,7 +21,8 @@ type State =
   | { status: 'done'; results: { stop: Stop; distanceM: number }[]; accuracyM: number }
   | { status: 'denied' | 'failed' | 'timeout' | 'unsupported' };
 
-export function NearMe({ ds, t, onPick }: { ds: Dataset; t: Strings; onPick: (s: Stop) => void }) {
+/** `autoAsk`: the rider already tapped "Use my location" on home, so ask once on opening instead of a second tap. */
+export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; onPick: (s: Stop) => void; autoAsk?: boolean }) {
   const n = t.nearMe;
   const [state, setState] = useState<State>({ status: 'idle' });
   const giveUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -30,8 +31,11 @@ export function NearMe({ ds, t, onPick }: { ds: Dataset; t: Strings; onPick: (s:
     setState({ status: 'idle' });
     return () => { requestId.current++; clearTimeout(giveUp.current); };
   }, [ds]);
+  const askRef = useRef<() => void>(undefined);
+  useEffect(() => { if (autoAsk) askRef.current?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!hasStopLocations(ds)) return <p className="muted small" role="note">{n.unavailable}</p>;
 
+  askRef.current = ask;
   function ask() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) { setState({ status: 'unsupported' }); return; }
     const id = ++requestId.current;

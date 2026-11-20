@@ -26,7 +26,7 @@ for (const lang of ['en', 'es'] as const) {
     await setup(page, lang);
     const before = await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'));
     await expect(page.locator('.bilingual-button-label')).toHaveCount(0);
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
     const group = page.getByRole('group', { name: t.bilingualButtons.title });
     await expect(group.getByRole('button', { name: t.bilingualButtons.off })).toHaveAttribute('aria-pressed', 'true');
     const enable = group.getByRole('button', { name: t.bilingualButtons.on });
@@ -39,12 +39,12 @@ for (const lang of ['en', 'es'] as const) {
     await expect(find.locator('small')).toHaveText(other.findStop); await expect(find.locator('small')).toHaveAttribute('lang', second);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await page.reload(); await expect(find).toBeVisible();
-    await page.getByRole('button', { name: t.settings, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
     await page.getByRole('button', { name: second === 'es' ? 'Español' : 'English', exact: true }).click();
     await page.getByRole('button', { name: other.back, exact: true }).click();
     const reversed = page.getByRole('button', { name: `${other.findStop} ${t.findStop}`, exact: true });
     await expect(reversed.locator('small')).toHaveAttribute('lang', lang);
-    await page.getByRole('button', { name: other.settings, exact: true }).click();
+    await page.getByRole('button', { name: other.dash.tabs.household, exact: true }).click();
     await page.getByRole('group', { name: other.bilingualButtons.title }).getByRole('button', { name: other.bilingualButtons.off }).click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).bilingualButtons)).toBe(false);
     await page.getByRole('button', { name: other.back, exact: true }).click();
@@ -151,7 +151,7 @@ test('remembered helper also works on the schedule-error controls', async ({ pag
 test('blocked preference storage keeps the helper usable for this page only', async ({ page }) => {
   await page.addInitScript(() => { Storage.prototype.getItem = () => { throw Error('Synthetic refusal'); }; Storage.prototype.setItem = () => { throw Error('Synthetic refusal'); }; });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Household', exact: true }).click();
   await page.getByRole('button', { name: strings.en.bilingualButtons.on, exact: true }).click();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByRole('button', { name: `${strings.en.findStop} ${strings.es.findStop}`, exact: true })).toBeVisible();

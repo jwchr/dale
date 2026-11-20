@@ -20,7 +20,7 @@ async function start(page: Page, lang: 'en' | 'es' = 'en', skin = 'garden') {
   await page.route(API + '/v1/live?**', route => route.abort());
   await page.route(API + '/v1/departures?**', route => route.abort());
   await page.goto('/?live=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: strings[lang].settings, exact: true }).click();
+  await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click();
 }
 async function fixture(page: Page, color = '#1a5874', type = 'image/png') {
   const data = await page.evaluate(({ color, type }) => {
@@ -58,7 +58,7 @@ for (const lang of ['en', 'es'] as const) test(`local photo persists, replaces a
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'personal');
   const first = await stored(page); expect(first).toMatchObject({ keys: ['blob', 'version'], type: 'image/jpeg', dimensions: [120, 180] });
   expect(first!.text).not.toContain('private-location');
-  await page.reload(); await page.getByRole('button', { name: strings[lang].settings, exact: true }).click();
+  await page.reload(); await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(s.saved, { timeout: PHOTO_SAVE_MS });
   await panel.getByLabel(s.replace, { exact: true }).setInputFiles({ name: 'new.png', mimeType: 'image/png', buffer: await fixture(page, '#9a3030') });
   await expect.poll(async () => (await stored(page))!.version, { timeout: PHOTO_SAVE_MS }).not.toBe(first!.version);
@@ -274,7 +274,7 @@ test('malformed stored records fail closed without deleting them or blocking tri
       tx.oncomplete = () => resolve(); tx.onabort = reject;
     }); db.close();
   }, DB);
-  await page.reload(); await page.getByRole('button', { name: strings.en.settings, exact: true }).click();
+  await page.reload(); await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.storage);
   await expect(panel.locator('input')).toBeDisabled();
   expect(await page.evaluate(async name => {

@@ -1,0 +1,156 @@
+/* Home dashboard and bottom tab bar (#101 part 2), shared by every style in its own tokens. The Household look
+   (docs/design/mockups/04-dashboard.jpg) is layered on top in household.css. */
+
+/* Room for the fixed tab bar: content, sticky buttons and keyboard focus never sit behind it. */
+html { scroll-padding-block-end: calc(var(--tab-bar-height, 72px) + 8px); }
+.app { padding-block-end: calc(var(--tab-bar-height, 72px) + 12px); }
+.trip-selection .save-trip { inset-block-end: calc(var(--tab-bar-height, 72px) + 12px); }
+
+.dash-icon { inline-size: 1.25em; block-size: 1.25em; flex: none; }
+
+/* The first saved trip is a column of panels rather than one card. */
+.fav.fav-dashboard { background: none; border: 0; box-shadow: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px;
+  -webkit-backdrop-filter: none; backdrop-filter: none; }
+.dash-panel { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 14px; box-shadow: var(--glass-shadow); min-inline-size: 0; }
+.dash-eyebrow { margin: 0; font-size: .72rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.dash-title { margin: 2px 0 0; font-size: 1.55rem; font-weight: 850; line-height: 1.12; letter-spacing: -0.015em; }
+.dash-section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 10px; margin-block-end: 10px; }
+.dash-section-head > div { min-inline-size: 0; }
+
+/* Direction buttons, then "From ..." and "Use my location". */
+.dash-direction { padding: 10px; }
+.dash-direction-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 8px; }
+.dash-dir { display: flex; align-items: center; gap: 10px; min-block-size: 52px; padding: 8px 14px; border-radius: 12px; font-weight: 750; font-size: 1.05rem; text-align: start;
+  background: var(--surface); color: var(--text); border: 1.5px solid var(--line); }
+.dash-dir .dash-icon { inline-size: 1.7em; block-size: 1.7em; }
+.dash-dir .icon-go { inline-size: 1.2em; block-size: 1.2em; margin-inline-start: auto; }
+
+.dash-dir-label { min-inline-size: 0; }
+.dash-dir[aria-pressed='true'] { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); cursor: default; }
+.dash-from-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 10px; margin-block-start: 6px; }
+.dash-from, .dash-locate { display: inline-flex; align-items: center; gap: 8px; min-block-size: 44px; padding: 6px 4px; margin: 0; border: 0; background: none; color: var(--text); font-size: .95rem; text-align: start; }
+.dash-from { min-inline-size: 0; }
+.dash-from-text { min-inline-size: 0; overflow-wrap: anywhere; }
+.dash-locate { margin-inline-start: auto; }
+
+/* LIVE only with live data; SCHEDULED otherwise. */
+.status-pill { display: inline-flex; align-items: center; gap: 7px; margin: 4px 0 0; padding: 6px 12px; border-radius: 999px; font-size: .78rem; font-weight: 800; letter-spacing: .14em;
+  text-transform: uppercase; background: var(--surface); color: var(--text); border: 1px solid var(--line); max-inline-size: 100%; }
+.status-word { min-inline-size: 0; overflow-wrap: anywhere; }
+.status-dot { inline-size: .62rem; block-size: .62rem; border-radius: 50%; background: var(--muted); flex: none; }
+.status-pill[data-live='true'] .status-dot { background: #2e7d32; box-shadow: 0 0 0 3px rgba(46, 125, 50, .2); }
+
+/* LED boards: route and destination on the board, minutes on the tile, clock times underneath. */
+.dep-boards { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.dep-boards > li { container-type: inline-size; }
+.dep.dep-board { -webkit-backdrop-filter: none; backdrop-filter: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'led tile' 'main main'; gap: 4px 8px; margin: 0; padding: 0;
+  background: none; border: 0; box-shadow: none; text-align: start; color: var(--text); }
+.dep-board > .dep-led { grid-area: led; display: flex; align-items: center; gap: 12px; min-inline-size: 0; min-block-size: 64px; padding: 8px 12px;
+  background: var(--led-bg); color: var(--led-ink); border-radius: 10px; border-inline-start: 5px solid var(--accent); }
+.dep-board .dep-led .route-badge { flex: none; min-inline-size: 0; min-block-size: 0; padding: 0 12px 0 0; background: none; color: inherit; border: 0; border-radius: 0;
+  border-inline-end: 1px solid color-mix(in srgb, currentColor 35%, transparent); box-shadow: none; font-size: 2.05rem; font-weight: 850; line-height: 1.05; }
+.dep-dest { display: grid; min-inline-size: 0; line-height: 1.1; text-transform: uppercase; }
+.dep-dest-main { font-size: 1.22rem; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
+.dep-dest-sub { font-size: .72rem; font-weight: 700; letter-spacing: .07em; overflow-wrap: anywhere; }
+.dep-tile { grid-area: tile; display: grid; place-content: center; justify-items: center; min-inline-size: 3.6rem; padding: 4px 8px; border-radius: 10px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); text-align: center; }
+.dep-tile-num { font-size: 1.75rem; font-weight: 850; line-height: 1; }
+.dep-tile-unit { font-size: .82rem; font-weight: 600; line-height: 1.2; }
+.dep-tile-text { font-size: .9rem; font-weight: 800; line-height: 1.15; max-inline-size: 5.5rem; }
+.dep-board[data-cancelled='true'] .dep-tile { color: var(--alert); }
+.dep-board > .dep-main { grid-area: main; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 0 4px; font-size: .8rem; color: var(--muted); min-inline-size: 0; }
+/* One short line under each board: "7:03 AM → 7:43 AM  Scheduled only". The stop names stay for screen readers
+   (the board already names the destination); live rows keep their badges, original times and source age. */
+.dep.dep-board .dep-paired { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: start; align-items: start; gap: 0 10px; }
+.dep.dep-board .dep-paired .dep-clock { display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 5px; grid-row: auto; min-inline-size: 0; }
+.dep.dep-board .dep-paired .destination-clock::before { content: '\2192' / ''; color: var(--muted); font-weight: 700; }
+.dep-board .dep-place { position: absolute; inline-size: 1px; block-size: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* When both clocks are timetable-only, say "Scheduled only" once, after the arrival time. */
+.dep-board .dep-paired:has(.destination-clock > .badge-sched) .boarding-clock > .badge-sched { position: absolute; inline-size: 1px; block-size: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dep-board .dep-clock-line { display: inline-flex; align-items: center; gap: 3px; color: var(--text); font-weight: 700; }
+.dep-board > .dep-main :is(.dep-time, .dep-arrival-time, .dep-arrival-scheduled) { font-size: .82rem; font-weight: 700; line-height: 1.3; }
+.dep-board > .dep-main .dep-place { font-size: .7rem; letter-spacing: .03em; text-transform: none; }
+.dep-board > .dep-main :is(.badge-sched, .badge-live, .badge-destination-live) { padding: 0; border: 0; background: none; font-size: .7rem; font-weight: 600; min-block-size: 0; }
+.dep-board > .dep-main .badge-sched { color: var(--muted); }
+.dep-board .live-symbol { inline-size: 1em; block-size: 1em; }
+.dep-board :is(.badge-live, .badge-sched, .badge-destination-live) { font-size: .72rem; }
+.dep-boards .dep-evidence { margin: 4px 4px 0; font-size: .78rem; color: var(--muted); }
+/* The next-express cue stays smaller than the clock times on the boards (secondary information). */
+.fav-dashboard .next-express { font-size: .76rem; }
+/* Large text or a narrow phone: the tile goes under the board, full width. */
+@container (max-width: 15rem) {
+  .dep.dep-board { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'led' 'tile' 'main'; }
+  .dep-board > .dep-led { flex-wrap: wrap; }
+  .dep-tile { display: flex; gap: 6px; align-items: baseline; justify-content: center; }
+  .dep.dep-board .dep-paired { grid-template-columns: minmax(0, 1fr); }
+}
+
+.dash-fullday { font-size: .95rem; display: flex; align-items: center; gap: 10px; inline-size: 100%; margin: 12px 0 0; padding: 12px 4px 4px; border: 0; border-block-start: 1px solid var(--line);
+  border-radius: 0; background: none; color: var(--text); font-weight: 600; text-align: start; }
+
+/* Your connection. */
+.dash-outline { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: transparent; border: 1.5px solid currentColor;
+  color: var(--text); font-size: .78rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.connection-map { display: block; inline-size: 100%; block-size: auto; border-radius: 14px; }
+.connection-map .cm-stop { font: 600 19px system-ui, sans-serif; fill: #14241b; paint-order: stroke; stroke: rgba(255, 255, 255, .8); stroke-width: 4px; }
+.connection-map .cm-area { font: 700 14px system-ui, sans-serif; letter-spacing: .2em; fill: #3e5a49; }
+.connection-map .cm-river { font: 700 13px system-ui, sans-serif; letter-spacing: .18em; fill: #234766; }
+@media (prefers-reduced-motion: no-preference) {
+  .connection-map .cm-bus-pulse { animation: cm-pulse 2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes cm-pulse { 0% { transform: scale(.7); opacity: .45; } 100% { transform: scale(1.35); opacity: 0; } }
+}
+.map-status { display: grid; gap: 6px; margin-block-start: 8px; }
+.map-status p { margin: 0; }
+.map-key { display: inline-block; inline-size: .8em; block-size: .8em; border-radius: 50%; margin-inline-end: 6px; vertical-align: -.05em; }
+.map-key-bus { background: #173d2b; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #173d2b; }
+.map-key-you { background: #1a73e8; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #1a73e8; }
+.map-bus-status .live-symbol { inline-size: 1em; block-size: 1em; margin-inline-end: 4px; vertical-align: -.12em; }
+.map-actions { margin: 0; }
+
+/* The first-ride guide banner. */
+.guidance-banner { display: flex; align-items: center; gap: 14px; inline-size: 100%; margin: 0; padding: 14px 16px; text-align: start; border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn-ink); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: var(--glass-shadow); }
+.guidance-banner .icon-signpost { inline-size: 2.1em; block-size: 2.1em; color: var(--express); }
+.guidance-text { display: grid; gap: 2px; min-inline-size: 0; flex: 1; }
+.guidance-text strong { font-size: 1.05rem; }
+.guidance-text span { font-size: .9rem; }
+.guidance-banner .icon-chevron { margin-inline-start: auto; }
+
+.dash-trip { display: grid; gap: 6px; }
+.dash-other-title { margin: 18px 4px 0; font-size: .78rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+
+/* Beta pill in the header. */
+.beta-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; font-size: .78rem; font-weight: 650; white-space: nowrap;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.beta-dot { inline-size: .55rem; block-size: .55rem; border-radius: 50%; background: #43a047; flex: none; }
+
+/* Schedules and gates tabs. */
+.tab-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.tab-row { display: flex; align-items: center; gap: 10px; inline-size: 100%; text-align: start; font-weight: 650; }
+.tab-row > span { min-inline-size: 0; flex: 1; overflow-wrap: anywhere; }
+.gate-row .dep-gate { display: block; font-weight: 500; font-size: .88rem; }
+
+/* The bottom tab bar: fixed, above the phone's home bar. */
+.tab-bar { position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 30; padding: 4px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+  background: var(--glass-strong); border-block-start: 1px solid var(--glass-edge); box-shadow: 0 -6px 20px rgba(0, 0, 0, .12); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .tab-bar { -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); } }
+.tab-bar ul { display: grid; grid-template-columns: repeat(5, minmax(0, auto)); justify-content: space-between; gap: 2px; max-inline-size: 560px; margin: 0 auto; padding: 0; list-style: none; }
+.tab { position: relative; display: grid; justify-items: center; align-content: center; gap: 3px; inline-size: 100%; min-block-size: 56px; padding: 6px 2px 8px; margin: 0;
+  border: 0; border-radius: 12px; background: none; color: var(--muted); font-size: .7rem; min-inline-size: min(3.6rem, 100%); padding-inline: 4px; font-weight: 600; line-height: 1.15; text-align: center; }
+/* Very large text on a narrow phone: the five tabs share the width and long labels wrap inside their own tab. */
+.tab-bar li { min-inline-size: 0; }
+.tab .dash-icon { inline-size: 1.6rem; block-size: 1.6rem; max-inline-size: 100%; }
+.tab-label { overflow-wrap: anywhere; hyphens: auto; }
+.tab[aria-current='page'] { color: var(--brand-text); font-weight: 800; }
+.tab[aria-current='page']::after { content: ''; position: absolute; inset-block-end: 2px; inset-inline: 22%; block-size: 3px; border-radius: 3px; background: currentColor; }
+.ride-full ~ .tab-bar, body:has(.ride-full) .tab-bar { display: none; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .dash-panel, .tab-bar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  .dash-panel, .dep-board > .dep-led, .dep-tile, .status-pill, .beta-pill, .guidance-banner, .tab-bar { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  .dep-board > .dep-led { -webkit-mask: none; mask: none; }
+  .tab[aria-current='page'] { color: Highlight; }
+  .dash-dir[aria-pressed='true'] { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+}

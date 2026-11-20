@@ -5,6 +5,7 @@ import { LiveIndicator } from './LiveIndicator';
 // the rider's own phone GPS (opt-in, on this phone only while ride mode is open, never saved or
 // sent), and the rider's taps on a stop. Without evidence it shows the timetable's position, labeled.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePhoneFix } from './usePhoneFix';
 import type { BusSession } from '../domain/busLock';
 import { DEFAULT_TIMING } from '../domain/lock';
 import { tripStopTimes } from '../domain/schedule';
@@ -28,8 +29,6 @@ export function stopLabel(name: string): { town: string; detail: string } {
   return i > 0 ? { town: plain.slice(0, i), detail: plain.slice(i + 3) } : { town: plain, detail: '' };
 }
 
-type GpsState = 'off' | 'asking' | 'on' | 'denied' | 'unsupported' | 'failed';
-
 export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Dataset; session: BusSession; alightIndex: number; now: number; t: Strings; lang: Lang }) {
   const p = t.progress;
   const dep = session.departure;
@@ -44,26 +43,8 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
   const [state, setState] = useState(() => kept.get(session.id) ?? { milestones: [], follow: false });
   const update = (next: typeof state) => { kept.set(session.id, next); setState(next); };
   const [undo, setUndo] = useState<Milestone[] | undefined>();
-  const [phone, setPhone] = useState<Fix | undefined>();
-  const [gps, setGps] = useState<GpsState>(state.follow ? 'asking' : 'off');
-  // A fix is stamped with Dale's own clock when it arrives (the same clock the timetable is read with).
-  const nowRef = useRef(now);
-  nowRef.current = now;
-
-  // The rider's phone position, only while they ask for it and ride mode is open. It stays in memory
-  // on this screen; nothing is stored, logged or sent.
-  useEffect(() => {
-    if (!state.follow || !located) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) { setGps('unsupported'); return; }
-    setGps('asking');
-    const id = navigator.geolocation.watchPosition(
-      // The fix's own age is kept (a cached or delayed fix is not "now"), on Dale's clock.
-      (pos) => { setGps('on'); setPhone({ lat: pos.coords.latitude, lon: pos.coords.longitude, at: nowRef.current - Math.max(0, Date.now() - (pos.timestamp || Date.now())), accuracyM: pos.coords.accuracy }); },
-      (e) => setGps(e.code === e.PERMISSION_DENIED ? 'denied' : 'failed'),
-      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
-    );
-    return () => { navigator.geolocation.clearWatch(id); setPhone(undefined); };
-  }, [state.follow, located]);
+  // The rider's phone position, only while they ask for it and ride mode is open (see usePhoneFix).
+  const { phone, gps } = usePhoneFix(state.follow && located, now);
 
   // The matched bus's own GPS, when Bus Lock has a fresh fix for it.
   const last = session.lock.last;
@@ -181,7 +162,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
       {undo && <button className="ghost" onClick={() => { update({ ...state, milestones: undo }); setUndo(undefined); }}>{p.undo}</button>}
 
       {located ? <>
-        <label className="lock-toggle"><input type="checkbox" checked={state.follow} onChange={(e) => { update({ ...state, follow: e.target.checked }); if (!e.target.checked) setGps('off'); }} />{p.follow}</label>
+        <label className="lock-toggle"><input type="checkbox" checked={state.follow} onChange={(e) => { update({ ...state, follow: e.target.checked }); }} />{p.follow}</label>
         <p className="muted small">{p.followPrivacy}</p>
         {/* Not a live region: the accuracy changes with every fix, which would be read out each time. */}
         {state.follow && <p className="small">{gps === 'on' && phone ? p.gpsOn(Math.round(phone.accuracyM)) : p.gps[gps]}</p>}

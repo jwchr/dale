@@ -13,7 +13,7 @@ for (const skin of ['household', 'turnpike', 'parkway', 'nyc', 'garden', 'clean'
     await page.getByRole('button', { name: /Irvington St\. \(to New York\)/ }).click();
     await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
     await page.getByRole('button', { name: t.selection.save, exact: true }).first().click();
-    await page.getByRole('button', { name: t.allDay }).click();
+    await page.getByRole('button', { name: /All day|full-day|todo el día/i }).first().click();
     for (const width of [305, 320, 390]) for (const scale of [100, 200]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(scale => { document.documentElement.style.fontSize = `${scale}%`; }, scale);

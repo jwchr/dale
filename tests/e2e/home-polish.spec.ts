@@ -24,13 +24,13 @@ for (const lang of ['en', 'es'] as const) test(`home top polish (${lang})`, asyn
     const layout = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const mode = box('.home-toolbar .travel-mode'), find = box('.home-toolbar .find-stop');
-      const wordmark = document.querySelector('.wordmark')!, mark = wordmark.getBoundingClientRect(), settings = box('.top-actions .icon-btn');
+      const wordmark = document.querySelector('.wordmark')!, mark = wordmark.getBoundingClientRect(), end = document.querySelector('.top-actions > *')?.getBoundingClientRect(); // Settings is a tab now (#101); Garden has no trailing control
       // Rendered lines per city name, and its font size.
       const words = [...document.querySelectorAll('.highway-name')].map(name => new Set([...name.querySelectorAll('.sign-word-part')].map(part => Math.round(part.getBoundingClientRect().top))).size);
       const signSizes = [...document.querySelectorAll('.highway-name')].map(name => parseFloat(getComputedStyle(name).fontSize));
       const photo = getComputedStyle(document.querySelector('.photo-backdrop')!);
       return { mode: mode.width, find: find.width, sameRow: Math.abs(mode.top - find.top) < 1, markSize: parseFloat(getComputedStyle(wordmark).fontSize),
-        centerGap: Math.abs((mark.top + mark.bottom) / 2 - (settings.top + settings.bottom) / 2), words, signSizes, photo: photo.backgroundPosition };
+        centerGap: end ? Math.abs((mark.top + mark.bottom) / 2 - (end.top + end.bottom) / 2) : 0, words, signSizes, photo: photo.backgroundPosition };
     });
     const detail = JSON.stringify({ width, layout });
     expect(layout.sameRow, detail).toBe(true);

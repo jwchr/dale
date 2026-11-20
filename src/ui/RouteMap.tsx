@@ -20,7 +20,7 @@ export const MAP_FILE = 'map/nj-nyc-20261104.pmtiles';
 const COVERS: [number, number, number, number] = [-74.25, 40.7, -73.9, 41.1];
 
 export interface MapStop { id: string; city?: string; lat: number; lon: number; name: string; current?: boolean; state: 'passed' | 'next' | 'alight' | 'ahead' }
-export interface RouteMapProps { stops: MapStop[]; bus?: { lat: number; lon: number }; dark: boolean; label: string; failedText: string; text: MapStrings; presentation?: 'street' | 'transit' }
+export interface RouteMapProps { stops: MapStop[]; bus?: { lat: number; lon: number }; /** The rider's own phone position, opt-in, never sent. */ you?: { lat: number; lon: number }; dark: boolean; label: string; failedText: string; text: MapStrings; presentation?: 'street' | 'transit' }
 
 let protocolAdded = false;
 
@@ -33,16 +33,16 @@ function followBus(m: MapLibreMap, bus: { lat: number; lon: number }, stops: Map
   m.jumpTo({ center: [bus.lon, bus.lat], zoom, padding });
 }
 
-export default function RouteMap({ stops, bus, dark, label, failedText, text, presentation = 'street' }: RouteMapProps) {
+export default function RouteMap({ stops, bus, you, dark, label, failedText, text, presentation = 'street' }: RouteMapProps) {
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<'bus' | 'route' | 'manual'>(bus ? 'bus' : 'route');
   const following = useRef(true);
-  const drawn = useRef({ stops: '', bus: '' });
+  const drawn = useRef({ stops: '', bus: '', you: '' });
   const camera = useRef<{ center: [number, number]; zoom: number } | undefined>(undefined);
   const el = useRef<HTMLElement>(null);
   const map = useRef<MapLibreMap | undefined>(undefined);
-  const latest = useRef({ stops, bus });
-  latest.current = { stops, bus };
+  const latest = useRef({ stops, bus, you });
+  latest.current = { stops, bus, you };
 
   useEffect(() => {
     if (failed || !el.current) return;
@@ -95,7 +95,8 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
       m.addSource('route', { type: 'geojson', data: routeData(latest.current.stops) });
       m.addSource('stops', { type: 'geojson', data: stopData(latest.current.stops) });
       m.addSource('bus', { type: 'geojson', data: busData(latest.current.bus) });
-      drawn.current = { stops: JSON.stringify(latest.current.stops), bus: JSON.stringify(latest.current.bus) ?? '' };
+      m.addSource('you', { type: 'geojson', data: busData(latest.current.you) });
+      drawn.current = { stops: JSON.stringify(latest.current.stops), bus: JSON.stringify(latest.current.bus) ?? '', you: JSON.stringify(latest.current.you) ?? '' };
       m.addLayer({ id: 'route-casing', type: 'line', source: 'route', paint: { 'line-color': '#000000', 'line-width': 9, 'line-opacity': 0.55 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
       m.addLayer({ id: 'route', type: 'line', source: 'route', paint: { 'line-color': presentation === 'transit' ? '#007e93' : '#ffb02e', 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
       m.addLayer({
@@ -116,6 +117,8 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
         filter: ['!', ['in', ['get', 'state'], ['literal', ['next', 'alight']]]],
         layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Medium'], 'text-size': 11, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-optional': true, 'text-padding': 8 },
         paint: { 'text-color': inkDark ? '#f2f4f7' : '#111827', 'text-halo-color': inkDark ? '#000000' : '#ffffff', 'text-halo-width': 1.6 } });
+      // The rider's phone: a blue dot with a white ring, the usual "you are here" mark, under the bus.
+      m.addLayer({ id: 'you', type: 'circle', source: 'you', paint: { 'circle-radius': 7, 'circle-color': '#1a73e8', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3 } });
       m.addLayer({ id: 'bus-glow', type: 'circle', source: 'bus', paint: { 'circle-radius': 16, 'circle-color': '#ffb02e', 'circle-opacity': 0.3, 'circle-blur': 0.6 } });
       m.addLayer({ id: 'bus', type: 'circle', source: 'bus', paint: { 'circle-radius': 7, 'circle-color': '#ffd36e', 'circle-stroke-color': '#111111', 'circle-stroke-width': 3 } });
     });
@@ -127,7 +130,8 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
   useEffect(() => {
     const m = map.current;
     if (!m || !m.isStyleLoaded()) return;
-    const stopKey = JSON.stringify(stops), busKey = JSON.stringify(bus) ?? '';
+    const stopKey = JSON.stringify(stops), busKey = JSON.stringify(bus) ?? '', youKey = JSON.stringify(you) ?? '';
+    if (drawn.current.you !== youKey) { (m.getSource('you') as GeoJSONSource | undefined)?.setData(busData(you)); drawn.current.you = youKey; }
     const stopsChanged = drawn.current.stops !== stopKey, busChanged = drawn.current.bus !== busKey;
     if (stopsChanged) {
       (m.getSource('stops') as GeoJSONSource | undefined)?.setData(stopData(stops));
@@ -137,7 +141,7 @@ export default function RouteMap({ stops, bus, dark, label, failedText, text, pr
     if (busChanged) { (m.getSource('bus') as GeoJSONSource | undefined)?.setData(busData(bus)); drawn.current.bus = busKey; }
     // Passing a stop changes which stops lie ahead, so re-aim the lead even if the bus has not moved.
     if ((stopsChanged || busChanged) && following.current && bus) { followBus(m, bus, stops, Math.max(13.5, m.getZoom())); setView('bus'); }
-  }, [stops, bus]);
+  }, [stops, bus, you]);
 
   // A labelled region, not an image: it holds the zoom buttons and the attribution link.
   if (failed) return <p className="warn small" role="note">{failedText}</p>;
