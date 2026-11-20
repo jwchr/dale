@@ -15,7 +15,7 @@ Updated 2026-11-19. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Home, trip tools, Bus Lock, Train preview and offline behavior as before: saved commutes in the rider's order, five skins, English and Spanish, 12-hour times, exact-bus lock that never switches buses silently, service-worker offline copy with its age.
 - Live bus pilot (#89, `docs/LIVE_BUS_PILOT.md`) on the Free plan; private corridor history collection (#91) ON at 30-second pacing.
 - Weekly schedule rollover (#148, D68) last ran 2026-11-13 (Actions run 43333818465): the Worker serves NJ Transit schedule `e84f5ae3b53b` (service dates 2026-11-09 to 2026-11-23). Next rollover pins: `expected_worker_version=1f582daa-b8dc-415e-8a32-3c284189456d`, `canonical_context_key=e84f5ae3b53b:1f4785c84ba5d07fe0bf709273395def8f4cc57627927977a8ab6838a8721559` (run `qualify-enabled` first to confirm them).
-- Rules (#173, D71): CodeRabbit-only review for simple pull requests, Codex or Argon also for risky ones; the history and rail runbooks name the builder, after the owner's go-ahead, in place of the old separate operator.
+- Rules (#173, D71): review rules live in `~/.claude/CLAUDE.md`; the history and rail runbooks name the builder, after the owner's go-ahead, in place of the old separate operator.
 - Route distance stays off (geometry-off fallback, D68): the last diagnostic was `no-matched-trips`, `tripStopDistance` 1,044 of 1,044 trips. Diagnostic v2 (#154, `scripts/route-geometry.mjs`, `docs/ROUTE_DISTANCE.md`) adds aggregate counts that separate a units mismatch between `shapes.txt` and `stop_times.txt` from terminal stops sitting away from the shape ends; delivered geometry is unchanged.
 
 ## Waiting on the owner
