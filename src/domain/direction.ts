@@ -89,10 +89,10 @@ function reachableFrom(ds: Dataset, fromStopId: string, routeIds?: string[]): Se
   const out = new Set<string>();
   for (const p of ds.patterns) {
     if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) continue;
-    p.stopIds.forEach((id, i) => {
-      if (id !== fromStopId || p.noPickup?.includes(i)) return;
-      p.stopIds.forEach((to, j) => { if (j > i && !p.noDropOff?.includes(j)) out.add(to); });
-    });
+    // Like `reaches`, only the first time a pattern lists a stop counts (loop routes list some stops twice).
+    const i = p.stopIds.indexOf(fromStopId);
+    if (i < 0 || p.noPickup?.includes(i)) continue;
+    p.stopIds.forEach((to, j) => { if (j > i && p.stopIds.indexOf(to) === j && !p.noDropOff?.includes(j)) out.add(to); });
   }
   return out;
 }

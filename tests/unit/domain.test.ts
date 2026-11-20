@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { demoDataset as ds, demoUsualGates } from '../../src/data/demo';
-import { alightingStopFor, checkDirection, destinationsFrom, searchStops } from '../../src/domain/direction';
+import type { Dataset } from '../../src/domain/types';
+import { alightingStopFor, checkDirection, reaches, destinationsFrom, searchStops } from '../../src/domain/direction';
 import { addFavorite, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, type Favorite } from '../../src/domain/favorites';
 import { gateChanged, gateFor, parseLaneGate } from '../../src/domain/gate';
 import { createLock, reduceLock, type VehicleObservation } from '../../src/domain/lock';
@@ -121,6 +122,15 @@ describe('direction guard', () => {
     expect(alightingStopFor(ds, 'PABT', 'D1')?.id).toBe('D1');
     expect(alightingStopFor(ds, 'D1', 'D4B')?.id).toBe('D4');
     expect(alightingStopFor(ds, 'PABT', 'D3', ['R165T'])).toBeUndefined();
+  });
+  it('counts only the first listing of a stop on a loop pattern, like reaches does', () => {
+    const loop = (stopIds: string[], extra: { noPickup?: number[]; noDropOff?: number[] }): Dataset => ({ ...ds, patterns: [{ ...ds.patterns[0]!, stopIds, ...extra }] });
+    const noDrop = loop(['D1', 'D3', 'PABT', 'D3'], { noDropOff: [1] });
+    expect(reaches(noDrop, 'D1', 'D3')).toBe(false);
+    expect(alightingStopFor(noDrop, 'D1', 'D3', undefined, 0)?.id).toBe(reaches(noDrop, 'D1', 'D3') ? 'D3' : undefined);
+    const noPick = loop(['D1', 'D3', 'D1', 'PABT'], { noPickup: [0] });
+    expect(reaches(noPick, 'D1', 'PABT')).toBe(false);
+    expect(alightingStopFor(noPick, 'D1', 'PABT', undefined, 0)).toBeUndefined();
   });
   it('offers every stop a bus reaches, terminal first, then the wrong side so the guard can send the rider across', () => {
     expect(destinationsFrom(ds, 'D2').map((s) => s.id)).toEqual(['PABT', 'D3', 'D4', 'D1']);
