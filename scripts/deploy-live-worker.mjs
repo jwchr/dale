@@ -58,10 +58,13 @@ async function run() {
   let config;
   try { config = JSON.parse(readFileSync(new URL('../worker/wrangler.jsonc', import.meta.url), 'utf8')); }
   catch { throw workerProofError('hosting-config-preflight-failed'); }
-  const existingNames = ['FEED', 'HISTORY_ARCHIVE', 'NJT_API_USERNAME', 'NJT_API_PASSWORD', 'HISTORY_COLLECTION'];
+  const existingNames = ['FEED', 'HISTORY_ARCHIVE', 'NJT_API_USERNAME', 'NJT_API_PASSWORD', 'HISTORY_COLLECTION', 'ARRIVAL_CONFIDENCE'];
+  // "How sure are we?" counts are public (owner decision D73, Nov 20, 2026): the only accepted value is 'public', as a plain variable.
+  const arrivalConfidenceOk = bindings => bindings.filter(b => b.name === 'ARRIVAL_CONFIDENCE').every(b => b.type === 'plain_text' && b.text === 'public');
   // The owner-set locked-phone alert secrets (docs/LOCKED_STOP_ALERTS.md) are optional and must be secrets; deploys keep them.
   const ownerSecrets = ['VAPID_PRIVATE_KEY', 'HOUSEHOLD_CODE_HASH'];
-  if (config.upload_source_maps !== false || config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled'
+  if (config.upload_source_maps !== false || config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled' || config.vars?.ARRIVAL_CONFIDENCE !== 'public'
+    || Object.keys(config.vars ?? {}).some(name => !['HISTORY_COLLECTION', 'ARRIVAL_CONFIDENCE'].includes(name)) || !arrivalConfidenceOk(before.bindings)
     || config.compatibility_date !== before.runtime.compatibility_date
     || JSON.stringify(config.compatibility_flags) !== JSON.stringify(before.runtime.compatibility_flags)
     || config.migrations?.length !== 1 || config.migrations[0].tag !== before.runtime.migration_tag
@@ -139,6 +142,7 @@ async function run() {
   const mutationAcknowledgedAt = Date.now();
   const uploaded = await verifyUploadedWorker(process.env, join(temporary, 'uploaded'), before);
   if (!uploaded.bindings.some(b => b.name === 'HISTORY_COLLECTION' && b.type === 'plain_text' && b.text === (targetEnabled ? 'enabled' : 'disabled'))) throw workerProofError('uploaded-mode-invalid');
+  if (!uploaded.bindings.some(b => b.name === 'ARRIVAL_CONFIDENCE' && b.type === 'plain_text' && b.text === 'public') || !arrivalConfidenceOk(uploaded.bindings)) throw workerProofError('uploaded-arrival-confidence-invalid');
   if (!pinned) {
     const health = await fetch(url + '/health', { signal: AbortSignal.timeout(15_000), redirect: 'error' });
     if (!health.ok || (await health.json()).feedVersion !== ds.meta.feedVersion) throw workerProofError('health-check-failed');

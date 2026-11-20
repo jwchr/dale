@@ -17,7 +17,8 @@ export async function verifyUploadedWorker(env, directory, before, options) {
   const response = new Response(form); response.headers.set('cf-entrypoint', 'index.js');
   const expected = await workerContentIdentity(response);
   const current = await readActiveWorkerIdentity(env, options);
-  const others = bindings => bindings.filter(b => b.name !== 'HISTORY_COLLECTION');
+  // The two declared mode variables are checked by name and value by the caller; every other binding must be unchanged.
+  const others = bindings => bindings.filter(b => b.name !== 'HISTORY_COLLECTION' && b.name !== 'ARRIVAL_CONFIDENCE');
   if (!isDeepStrictEqual(expected, current.content)) {
     console.error(`Upload module comparison: ${JSON.stringify(workerContentComparison(expected, current.content))}`);
     throw workerProofError('worker-upload-content-mismatch');
