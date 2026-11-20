@@ -90,7 +90,9 @@ html { scroll-padding-block-end: calc(var(--tab-bar-height, 72px) + 8px); }
 
 /* Your connection. */
 .dash-outline { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: transparent; border: 1.5px solid currentColor;
-  color: var(--text); font-size: .78rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  color: var(--text); font-size: .78rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  /* Wraps instead of pushing past a narrow phone's edge at large text (GitHub's wider font, #223). */
+  max-inline-size: 100%; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; }
 .connection-map { display: block; inline-size: 100%; block-size: auto; border-radius: 14px; }
 .connection-map .cm-stop { font: 600 19px system-ui, sans-serif; fill: #14241b; paint-order: stroke; stroke: rgba(255, 255, 255, .8); stroke-width: 4px; }
 .connection-map .cm-area { font: 700 14px system-ui, sans-serif; letter-spacing: .2em; fill: #3e5a49; }

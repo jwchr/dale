@@ -715,5 +715,6 @@ main { flex: 1; padding-bottom: 24px; }
 .routes-when-text { display: flex; flex-direction: column; line-height: 1.25; }
 .routes-when-text > span:first-child { font-weight: 600; }
 .routes-row-foot .icon-bus { inline-size: 1.1em; block-size: 1.1em; flex: none; }
-.routes-lock { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; padding: 6px 12px; font-size: .92rem; margin-inline-start: auto; border-radius: 10px; font-weight: 600; }
+.routes-lock { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; padding: 6px 12px; font-size: .92rem; margin-inline-start: auto; border-radius: 10px; font-weight: 600; max-inline-size: 100%; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; }
+.routes-stop .dash-fullday > span { flex: 1 1 auto; min-inline-size: 0; overflow-wrap: anywhere; }
 .routes-lock .icon-next { inline-size: 1em; block-size: 1em; }

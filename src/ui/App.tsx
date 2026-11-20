@@ -1071,9 +1071,9 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
   };
   const nyIsBack = outEnd?.terminal !== 'PABT' && backEnd?.terminal === 'PABT';
   const directions = <DirectionPanel t={t} choices={nyIsBack ? [choice(true), choice(false)] : [choice(false), choice(true)]} />;
-  // A return leg with no bus keeps the direction buttons, so the rider can switch back.
+  // A direction with no bus keeps the direction buttons while the other way still runs, so the rider can switch back.
   if (!saved) return reversed ? <>{directions}<p className="warn" role="alert">{t.noReturnStop}</p></> : null;
-  if (!routeIds.length) return reversed ? directions : null;
+  if (!routeIds.length) return reversed || legFor(ds, fav, true) ? directions : null;
   const from = ds.stops.find(s => s.id === saved.fromStopId), to = ds.stops.find(s => s.id === saved.toStopId);
   const town = from?.terminal === 'PABT' ? d.portAuthority : verified && from?.city ? from.city : stopLabel(from?.name ?? '').town;
   const place = to?.terminal === 'PABT' ? t.commuteNewYork : commutePlace(to, to?.name ?? t.unknownStop, !!ds.meta.transcribed, t, verified).name;
@@ -1243,12 +1243,10 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     const stops = towns.find(town => town.city === city)?.stops ?? [];
     return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
   }, [ds, q, city, towns]);
-  // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search waits for a tap.
-  const firstFocus = useRef(true);
+  // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search never takes that focus away
+  // (also when development StrictMode runs this effect twice).
   useEffect(() => {
-    const skip = firstFocus.current && !!document.getElementById('routes-stop-title');
-    firstFocus.current = false;
-    if (!stop && !skip) heading.current?.focus();
+    if (!stop && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
   }, [city, stop]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
