@@ -18,7 +18,7 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -411,6 +411,8 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
       }
       if (url.pathname === '/v1/arrival-confidence') {
         // Read-only aggregates (docs/ARRIVAL_CONFIDENCE.md). Strict input; no upstream call is possible on this path.
+        // Off until the owner decides the NJ Transit terms question; aggregates still build privately.
+        if (env.ARRIVAL_CONFIDENCE !== 'public') return reply('Not found', 404);
         if (request.url.length > 512 || !parseConfidenceQuery(url.searchParams, ds)) return reply('Invalid arrival confidence query', 400);
         try {
           const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(request);

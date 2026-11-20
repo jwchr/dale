@@ -101,7 +101,10 @@ describe('public arrival confidence endpoint', () => {
   it('the router refuses bad input without waking the Durable Object, and caches only a good answer', async () => {
     const router = createRouter(ds);
     let forwarded = 0, status = 200;
-    const env = { FEED: { idFromName: () => 'one', get: () => ({ fetch: async () => { forwarded++; return Response.json({ v: 1, state: 'insufficient' }, { status }); } }) } };
+    const env = { ARRIVAL_CONFIDENCE: 'public', FEED: { idFromName: () => 'one', get: () => ({ fetch: async () => { forwarded++; return Response.json({ v: 1, state: 'insufficient' }, { status }); } }) } };
+    const off = await router.fetch(new Request(`https://worker.test/v1/arrival-confidence?${query}`), { ...env, ARRIVAL_CONFIDENCE: undefined } as never);
+    expect(off.status).toBe(404);
+    expect(forwarded).toBe(0);
     const get = (q: string) => router.fetch(new Request(`https://worker.test/v1/arrival-confidence?${q}`), env as never);
     for (const bad of ['', 'route=165', `${query}&vehicle=1`, query.replace('07:00', '7am'), query.replace('stop=1', 'stop=9'), `${query}&pad=${'x'.repeat(600)}`]) {
       const response = await get(bad);
