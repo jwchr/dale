@@ -210,7 +210,9 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   // One change of bus, only where stop locations are known (the official schedule), and only when it
   // gets home before every direct bus found.
   const firstDirect = Math.min(...[...found.values()].map((o) => o.arrives));
-  const transfers = walkable ? oneChange(ds, boards, homes, from.id, home.id, now, until, usualRouteId, widerRouteIds)
+  // Every stop in a change (boarding, changing, getting off) must have a known location.
+  const locatedIds = new Set(ds.stops.filter(located).map((s) => s.id));
+  const transfers = walkable ? oneChange(ds, boards.filter(located), homes.filter(located), from.id, home.id, now, until, firstDirect, usualRouteId, widerRouteIds, locatedIds)
     .filter((x) => x.arrives < firstDirect).slice(0, TRANSFER_LIMIT) : [];
   return { ...base, options, nearHome, transfers };
 }
@@ -218,23 +220,35 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
 type StopRef = { id: string };
 
 /** Trips home with one change of bus at the same stop, soonest arrival first, one per second bus. */
-function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: string, homeId: string, now: number, until: number,
-  usualRouteId: string | undefined, widerRouteIds: Set<string>): RescueTransfer[] {
+// `beat` is the first direct arrival: a change that gets home at or after it is not worth offering.
+function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: string, homeId: string, now: number, until: number, beat: number,
+  usualRouteId: string | undefined, widerRouteIds: Set<string>, locatedIds: Set<string>): RescueTransfer[] {
   const tz = ds.meta.timezone;
   const homeIds = new Set(homes.map((h) => h.id));
   const boardIds = new Set(boards.map((b) => b.id));
   // Stops where a bus that lets riders off at home can be boarded: the only useful places to change.
-  const changeStops = new Set<string>();
+  const changeStops = new Map<string, Set<string>>(); // change stop -> patterns that go on from it to home
   const homePatterns = new Set<string>();
   for (const p of ds.patterns) {
-    const h = p.stopIds.findIndex((id, i) => homeIds.has(id) && !p.noDropOff?.includes(i));
+    // The last stop at home that lets riders off, so a pattern through both twin home stops still counts.
+    let h = -1;
+    p.stopIds.forEach((id, i) => { if (homeIds.has(id) && !p.noDropOff?.includes(i)) h = i; });
     if (h > 0) homePatterns.add(p.id);
-    for (let i = 0; i < h; i++) if (!p.noPickup?.includes(i) && !homeIds.has(p.stopIds[i]!) && !boardIds.has(p.stopIds[i]!)) changeStops.add(p.stopIds[i]!);
+    for (let i = 0; i < h; i++) {
+      const id = p.stopIds[i]!;
+      if (!p.noPickup?.includes(i) && !homeIds.has(id) && !boardIds.has(id) && locatedIds.has(id)) {
+        changeStops.set(id, (changeStops.get(id) ?? new Set()).add(p.id));
+      }
+    }
   }
   if (!changeStops.size) return [];
   // Per change stop and day: the buses that let riders off at home, with their arrival there, by departure time.
-  // Second buses come only from patterns that let riders off at home: searching just their trips keeps this fast.
-  const homeDs: Dataset = { ...ds, trips: ds.trips.filter((x) => homePatterns.has(x.patternId)) };
+  const tripsByPattern = new Map<string, Dataset['trips']>();
+  for (const x of ds.trips) {
+    if (!homePatterns.has(x.patternId)) continue;
+    const list = tripsByPattern.get(x.patternId);
+    if (list) list.push(x); else tripsByPattern.set(x.patternId, [x]);
+  }
   type Onward = { next: Departure; h: number; end: { at: number; estimated: boolean } };
   // Trip lookups by id (tripStopTimes searches the whole trip list on every call).
   const tripById = new Map(ds.trips.map((x) => [x.id, x] as const));
@@ -248,7 +262,9 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
     let list = cache.get(key);
     if (!list) {
       list = [];
-      for (const next of departuresOn(homeDs, { stopId, date })) {
+      // Only the trips that go on from this stop to home: searching just those keeps this fast.
+      const trips = [...changeStops.get(stopId) ?? []].flatMap((id) => tripsByPattern.get(id) ?? []);
+      for (const next of departuresOn({ ...ds, trips }, { stopId, date })) {
         const nIds = next.pattern.stopIds;
         const h = nIds.findIndex((id, k) => k > next.stopIndex && homeIds.has(id) && !next.pattern.noDropOff?.includes(k));
         if (h < 0) continue;
@@ -267,14 +283,15 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
   for (const board of boards) {
     for (const date of [today, addDays(today, 1)]) {
       for (const dep of departing(board.id, date)) {
-        if (dep.departs < now - 60_000 || dep.departs > until) continue;
+        if (dep.departs < now - 60_000 || dep.departs > until || dep.departs >= beat) continue;
         const ids = dep.pattern.stopIds;
-        // A bus that already reaches home is a direct option, not the first half of a change.
-        if (ids.some((id, i) => i > dep.stopIndex && homeIds.has(id) && !dep.pattern.noDropOff?.includes(i))) continue;
+        // A bus that also reaches home can still be the first half of a change to a faster bus, changing
+        // before home; the caller keeps a change only if it beats every direct bus.
+        const homeAt = ids.findIndex((id, i) => i > dep.stopIndex && homeIds.has(id) && !dep.pattern.noDropOff?.includes(i));
         ids.forEach((changeId, i) => {
-          if (i <= dep.stopIndex || !changeStops.has(changeId) || dep.pattern.noDropOff?.includes(i)) return;
+          if (i <= dep.stopIndex || (homeAt >= 0 && i >= homeAt) || !changeStops.has(changeId) || dep.pattern.noDropOff?.includes(i)) return;
           const at = timeAt(dep, i);
-          if (!at) return;
+          if (!at || at.at + MIN_CHANGE_MS >= beat) return;
           const dates = [...new Set([localYmd(at.at, tz), localYmd(at.at + MAX_CHANGE_WAIT_MS, tz)])];
           for (const d of dates) {
             const list = onward(changeId, d);
@@ -285,7 +302,7 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
               const { next, h, end } = list[k]!;
               const wait = next.departs - at.at;
               if (wait > MAX_CHANGE_WAIT_MS) break;
-              if (next.tripId === dep.tripId) continue;
+              if (next.tripId === dep.tripId || end.at >= beat) continue;
               const nIds = next.pattern.stopIds;
               const x: RescueTransfer = {
                 first: { dep, boardStopId: board.id, acrossFromBoard: board.id !== fromId, alightStopId: changeId, acrossFromHome: false, arrives: at.at, arrivesEstimated: at.estimated, ...tag(dep) },

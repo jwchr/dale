@@ -46,4 +46,25 @@ describe('rescue with one change of bus', () => {
     expect(r.transfers).toEqual([]);
     expect(r.limitations).toContain('no_walking_or_transfers');
   });
+  it('offers a change from a slow bus that also reaches home, when the change gets home first', () => {
+    const ds = build();
+    ds.patterns[1] = { ...ds.patterns[1]!, stopIds: ['A', 'C', 'H'] };
+    ds.trips[1] = { ...ds.trips[1]!, times: [64800, 66000, 72000] };
+    const x = rescueOptions(ds, 'A', 'H', now, 'R1').transfers;
+    expect(x.map((t) => [t.first.dep.tripId, t.second.dep.tripId])).toEqual([['T1', 'U1']]);
+  });
+  it('finds the second bus on a pattern that passes both twin home stops', () => {
+    const ds = build();
+    ds.stops = [...ds.stops.map((s) => s.id === 'H' ? { ...s, twin: 'H2' } : s), { id: 'H2', name: 'Home across', lat: 40.95, lon: -74 }];
+    ds.patterns[2] = { ...ds.patterns[2]!, stopIds: ['H', 'C', 'H2'] };
+    ds.trips[2] = { ...ds.trips[2]!, times: [65000, 66060, 67000] };
+    ds.trips[3] = { ...ds.trips[3]!, times: [65500, 66600, 67800] };
+    const x = rescueOptions(ds, 'A', 'H', now, 'R1').transfers;
+    expect(x.map((t) => [t.second.dep.tripId, t.second.alightStopId])).toEqual([['U1', 'H2']]);
+  });
+  it('offers no change at a stop with no known location', () => {
+    const ds = build();
+    ds.stops = ds.stops.map((s) => s.id === 'C' ? { id: 'C', name: 'Change' } : s);
+    expect(rescueOptions(ds, 'A', 'H', now, 'R1').transfers).toEqual([]);
+  });
 });
