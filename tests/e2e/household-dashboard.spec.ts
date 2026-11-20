@@ -121,9 +121,9 @@ for (const lang of ['en', 'es'] as const) test(`Get me home sits right under Nex
   const row = page.locator('.dash-arrivals').getByRole('button', { name: r.otherWays });
   await expect(row).toBeVisible();
   await expect(page.locator('.dash-trip').getByRole('button', { name: r.otherWays })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await row.click();
   await expect(page.locator('.rescue h1')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test.describe('the home map', () => {

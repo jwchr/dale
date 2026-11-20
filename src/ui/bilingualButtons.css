@@ -14,3 +14,7 @@
 .bilingual-buttons .home-toolbar > .find-stop { flex: 1 1 8rem; min-inline-size: min-content; }
 .bilingual-buttons .travel-mode { flex-wrap: wrap; }
 .bilingual-buttons .travel-mode button { min-inline-size: min-content; flex: 1 1 6rem; }
+/* Very large text: the arrow may drop to its own line, but a word is never cut. */
+.bilingual-buttons .dash-fullday { flex-wrap: wrap; }
+.bilingual-buttons .dash-fullday > span { min-inline-size: min-content; }
+.dash-fullday .bilingual-button-label { display: flex; align-items: flex-start; text-align: start; inline-size: 100%; }

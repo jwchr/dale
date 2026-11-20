@@ -986,7 +986,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           {leg && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
           {/* "Get me home" right under the buses, not deep in Your trip where it went unnoticed (#32 step 3). */}
           {leg && to && <button type="button" className="dash-fullday dash-rescue rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>
-            <RescueIcon /><span>{to.terminal ? t.rescue.otherWays : t.rescue.title}</span><ArrowRight /></button>}
+            <RescueIcon /><span><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></span><ArrowRight /></button>}
         </section>
         {leg && next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next.d} toStopId={leg.toStopId} gps={dash.gps(next.d, leg.toStopId)} onDetails={() => onDeparture(next.d, leg)} />}
         {dash.guidance}
