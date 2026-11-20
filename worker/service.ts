@@ -1,4 +1,5 @@
 import { parseRouteGeometry, MAX_GEOMETRY_BYTES } from '../src/domain/routeDistance';
+import { parseRescueSchedule, RESCUE_SCHEDULE_MAX_BYTES } from '../src/domain/rescueSchedule';
 import type { Dataset } from '../src/domain/types';
 import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
@@ -354,7 +355,7 @@ function rideMethod(path: string): 'GET' | 'POST' | 'DELETE' | undefined {
   return !match[2] ? 'DELETE' : match[2] === 'latest' ? 'GET' : 'POST';
 }
 
-export function createRouter(ds: Dataset, rawGeometry?: unknown) {
+export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unknown) {
   // Static delivery only: geometry is never passed to the recorder or upstream poller.
   let geometry: string | undefined;
   if (rawGeometry != null) {
@@ -362,6 +363,15 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
       const text = JSON.stringify(rawGeometry);
       if (new TextEncoder().encode(text).byteLength <= MAX_GEOMETRY_BYTES) geometry = JSON.stringify(parseRouteGeometry(rawGeometry, ds));
     } catch { /* Optional malformed geometry disables distance, never the recorder/router. */ }
+  }
+  // The wider rescue schedule (#32) is static delivery too: it never reaches the recorder, the
+  // upstream poller or the trip checks below, which use the corridor schedule only.
+  let rescue: string | undefined;
+  if (rawRescue != null) {
+    try {
+      const text = JSON.stringify(rawRescue);
+      if (new TextEncoder().encode(text).byteLength <= RESCUE_SCHEDULE_MAX_BYTES) { parseRescueSchedule(rawRescue, ds); rescue = text; }
+    } catch { /* A malformed or mismatched wider schedule is not served; the corridor schedule is unaffected. */ }
   }
   const schedule = JSON.stringify(ds), trips = new Map(ds.trips.map((t) => [t.id, t]));
   return {
@@ -401,6 +411,14 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown) {
       }
       if (request.method !== 'GET') return reply('Method not allowed', 405);
       if (url.pathname === '/health') { headers.set('content-type', 'application/json'); return reply(JSON.stringify({ v: 1, feedVersion: ds.meta.feedVersion, source: LIVE_SOURCE })); }
+      if (url.pathname === '/v1/schedule' && url.searchParams.has('extra')) {
+        if (url.searchParams.get('extra') !== 'rescue') return reply('Not found', 404);
+        if (url.searchParams.get('feedVersion') !== ds.meta.feedVersion) return reply('Feed mismatch', 409);
+        if (!rescue) return reply('Rescue schedule unavailable', 404);
+        headers.set('content-type', 'application/json');
+        headers.set('cache-control', 'public, max-age=300');
+        return reply(rescue);
+      }
       if (url.pathname === '/v1/schedule') { headers.set('content-type', 'application/json'); return reply(schedule); }
       if (url.pathname === '/v1/geometry') {
         if (url.searchParams.get('feedVersion') !== ds.meta.feedVersion) return reply('Feed mismatch', 409);
