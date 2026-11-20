@@ -221,6 +221,8 @@ for (const lang of ['en', 'es'] as const) test(`PABT gate guide: three steps, ho
   await expect(page.getByRole('heading', { level: 1, name: lang === 'en' ? 'Port Authority, made simpler.' : 'Port Authority, más fácil.' })).toBeVisible();
   const steps = page.locator('.gg-steps > li');
   await expect(steps).toHaveCount(3);
+  // The gate sign in the third picture is translated and never carries a gate number.
+  await expect(steps.nth(2).locator('.gg-icon text')).toHaveText(lang === 'en' ? 'GATE' : 'PUERTA');
   await expect(steps.nth(0)).toContainText(lang === 'en' ? 'Find your departure' : 'Encuentra tu salida');
   await expect(page.locator('.gg-num')).toHaveText(['01', '02', '03']);
   // The gate icon never shows a number.

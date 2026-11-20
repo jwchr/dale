@@ -37,7 +37,7 @@ export const dashboardStrings = {
     gatesIntro: 'Gates for your next buses leaving Port Authority. Dale shows a gate only when it has one, and says where it comes from.',
     gatesNone: 'None of your saved trips leaves from Port Authority. Save a trip from Port Authority to see its gates here.',
     gatesNoBuses: 'No more buses from Port Authority today on this trip.',
-    gateGuide: {
+    gateGuide: { gateSign: 'GATE',
       title: 'Port Authority, made simpler.', pill: 'Gate guide', subtitle: 'A few clear steps for the trip back to New Jersey.',
       steps: [
         { title: 'Find your departure', body: 'Check the terminal boards for your route, branch, departure time and current gate.' },
@@ -89,7 +89,7 @@ export const dashboardStrings = {
     gatesIntro: 'Puertas de tus próximos autobuses que salen de Port Authority. Dale muestra una puerta solo cuando la tiene, y dice de dónde viene.',
     gatesNone: 'Ninguno de tus viajes guardados sale de Port Authority. Guarda un viaje desde Port Authority para ver sus puertas aquí.',
     gatesNoBuses: 'No hay más autobuses desde Port Authority hoy en este viaje.',
-    gateGuide: {
+    gateGuide: { gateSign: 'PUERTA',
       title: 'Port Authority, más fácil.', pill: 'Guía de puertas', subtitle: 'Unos pasos claros para el viaje de vuelta a Nueva Jersey.',
       steps: [
         { title: 'Encuentra tu salida', body: 'Mira las pantallas de la terminal para tu ruta, ramal, hora de salida y puerta actual.' },
