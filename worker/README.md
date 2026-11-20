@@ -8,7 +8,7 @@ One free-plan Worker and one private SQLite-backed Durable Object. Canonical G2 
 
 ## Measured arrival patterns (#91, #101)
 
-`GET /v1/arrival-confidence` serves read-only aggregate arrival statistics from SQLite, folded hourly from spare write budget; an optional manual archive backfill is leased by the `ARRIVAL_BACKFILL` setting. Contract, limits, costs and operator steps: `docs/ARRIVAL_CONFIDENCE.md`.
+`GET /v1/arrival-confidence` serves read-only aggregate arrival statistics from SQLite, folded hourly from spare write budget; an optional manual archive backfill is leased by the `ARRIVAL_BACKFILL` setting. The address answers only while the plain variable `ARRIVAL_CONFIDENCE` is `public` (owner decision D73, Nov 20, 2026); `wrangler.jsonc` sets it and every deploy refuses any other value or type. A rollback reference recorded before that variable existed no longer matches the active bindings, so run `qualify-enabled` after the first deploy that adds it. Contract, limits, costs and operator steps: `docs/ARRIVAL_CONFIDENCE.md`.
 
 ## Stop alerts while the phone is locked (#176 step C)
 

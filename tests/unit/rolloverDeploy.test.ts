@@ -70,7 +70,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),
         ...(scenario==='ride-secrets'?[{name:'VAPID_PRIVATE_KEY',type:'secret_text'},{name:'HOUSEHOLD_CODE_HASH',type:'secret_text'}]:[]),
         ...(scenario==='ride-secret-plain'?[{name:'HOUSEHOLD_CODE_HASH',type:'plain_text',text:'0'.repeat(64)}]:[]),
         ...(scenario==='unknown-binding'?[{name:'OTHER_SECRET',type:'secret_text'}]:[])];
@@ -116,6 +116,7 @@ it.each([
   ['served-not-old', 'enabled-continuity-unverified'], ['local-equals-served', 'rollover-schedule-invalid'],
   ['quota', 'rollover-capacity-refused'], ['receipt-other-context', 'rollover-receipt-unverified'],
   ['ride-secret-plain', 'worker-existing-configuration-mismatch'], ['unknown-binding', 'worker-existing-configuration-mismatch'],
+  ['confidence-off', 'uploaded-arrival-confidence-invalid'],
 ])('refuses %s with %s, no automatic rollback or stop, and names the recovery', (scenario, reason) => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   const lines = r.stderr.trim().split('\n');

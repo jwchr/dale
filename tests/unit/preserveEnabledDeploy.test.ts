@@ -58,7 +58,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:uploaded&&scenario==='namespace-change'?'changed':'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'}];
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[])];
       let result;
       if(path==='/deployments')result={deployments:[{versions:[{version_id:id,percentage:100}]}]};
       else if(path==='/versions')result={items:[{id}]};
