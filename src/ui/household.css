@@ -257,3 +257,8 @@
 :root[data-skin='household'] .gg-link { color: #1e4f6e; font-weight: 500; }
 :root[data-skin='household'] .gg-walk-title { text-transform: none; letter-spacing: -0.02em; font-size: 1.85rem; line-height: 1.1; margin: 4px 0 6px; }
 :root[data-skin='household'] .gg-walk-button { background: linear-gradient(180deg, #24597a, #1c4a66); border: 1px solid #143a50; box-shadow: 0 2px 6px rgba(20, 58, 80, .3); }
+/* Routes & stops card (#101 part 2), drawn to docs/design/mockups/01-routes-and-stops.jpg. */
+:root[data-skin='household'] .routes-stop-facts { color: #26352d; border-color: rgba(38, 53, 45, .15); }
+:root[data-skin='household'] .routes-filter select { background: #fffdf8; border: 1.5px solid #d9d1bc; color: var(--heading); }
+:root[data-skin='household'] .routes-row-foot > span { color: #26352d; }
+:root[data-skin='household'] .routes-lock { background: #e3ecf3; color: #1e4f6e; border: 0; }

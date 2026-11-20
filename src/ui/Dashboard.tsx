@@ -21,8 +21,9 @@ export const ArrowUpRight = () => <Icon className="icon-go"><path d="M7 17 17 7M
 export const ArrowRight = () => <Icon className="icon-next"><path d="M4.5 12h15M13.5 6l6 6-6 6" /></Icon>;
 const ChevronDown = () => <Icon className="icon-caret"><path d="m6.5 9.5 5.5 5.5 5.5-5.5" /></Icon>;
 const ChevronRight = () => <Icon className="icon-chevron"><path d="m9 5.5 6.5 6.5L9 18.5" /></Icon>;
-const Pin = () => <Icon className="icon-pin"><path d="M12 21.2s-6.4-5.8-6.4-11a6.4 6.4 0 0 1 12.8 0c0 5.2-6.4 11-6.4 11z" /><circle cx="12" cy="10.2" r="2.3" /></Icon>;
+export const Pin = () => <Icon className="icon-pin"><path d="M12 21.2s-6.4-5.8-6.4-11a6.4 6.4 0 0 1 12.8 0c0 5.2-6.4 11-6.4 11z" /><circle cx="12" cy="10.2" r="2.3" /></Icon>;
 const Locate = () => <Icon className="icon-locate"><circle cx="12" cy="12" r="6.6" /><circle cx="12" cy="12" r="2.4" fill="currentColor" /><path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4" /></Icon>;
+export const FilterIcon = () => <Icon className="icon-filter"><path d="M3.5 7h9M16.5 7h4M3.5 17h4M11.5 17h9" /><circle cx="14.5" cy="7" r="2" /><circle cx="9.5" cy="17" r="2" /></Icon>;
 export const BusIcon = () => <Icon className="icon-bus"><path d="M6.5 3h11A2.5 2.5 0 0 1 20 5.5V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5A2.5 2.5 0 0 1 6.5 3zM4 11.5h16M4 7h16M7.5 18v2.5M16.5 18v2.5M7.8 14.8h.01M16.2 14.8h.01" /></Icon>;
 const Signpost = () => <Icon className="icon-signpost"><path d="M12 2.5v19M8.5 21.5h7M4.5 6.5h12.2l2.8 2.6-2.8 2.6H4.5zM19.5 13.5H7.3l-2.8 2.4 2.8 2.4h12.2z" /></Icon>;
 
@@ -34,7 +35,7 @@ export function BetaPill({ t, title }: { t: Strings; title?: string }) {
 export interface DirectionChoice { key: string; label: string; icon: 'ny' | 'nj'; pressed: boolean; onPress: () => void }
 /** The two big direction buttons, then the stop the rider leaves from and the near-me shortcut. */
 export function DirectionPanel({ t, choices, fromLabel, onFrom, onLocation }: {
-  t: Strings; choices: DirectionChoice[]; fromLabel: string; onFrom?: () => void; onLocation?: () => void;
+  t: Strings; choices: DirectionChoice[]; fromLabel?: string; onFrom?: () => void; onLocation?: () => void;
 }) {
   return <div className="dash-panel dash-direction">
     <div className="dash-direction-buttons" role="group" aria-label={t.dash.direction}>
@@ -42,11 +43,11 @@ export function DirectionPanel({ t, choices, fromLabel, onFrom, onLocation }: {
         {c.icon === 'ny' ? <BuildingIcon /> : <NewJerseyIcon />}<span className="dash-dir-label">{c.label}</span><ArrowUpRight />
       </button>)}
     </div>
-    <div className="dash-from-row">
+    {fromLabel !== undefined && <div className="dash-from-row">
       {onFrom ? <button type="button" className="dash-from" onClick={onFrom}><Pin /><span className="dash-from-text">{t.dash.from} {fromLabel}<span className="sr-only">, {t.dash.changeFrom}</span></span><ChevronDown /></button>
         : <p className="dash-from"><Pin /><span className="dash-from-text">{t.dash.from} {fromLabel}</span></p>}
       {onLocation && <button type="button" className="dash-locate" onClick={onLocation}><Locate /><span>{t.dash.useLocation}</span></button>}
-    </div>
+    </div>}
   </div>;
 }
 

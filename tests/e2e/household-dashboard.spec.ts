@@ -3,6 +3,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { LIVE_SOURCE } from '../../src/domain/liveBus';
+import { strings } from '../../src/ui/i18n';
 import type { DepartureBatch, DepartureReport, DepartureRequest } from '../../src/domain/liveDepartures';
 
 const API = 'https://dale-live.test.workers.dev';
@@ -237,4 +238,31 @@ for (const lang of ['en', 'es'] as const) test(`PABT gate guide: three steps, ho
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: lang === 'en' ? 'Walk me through it' : 'Guíame paso a paso' }).click();
   await expect(page.locator('.guide h1')).toBeVisible();
+});
+
+for (const lang of ['en', 'es'] as const) test(`Routes & stops: the saved stop, its routes, a route filter and the next buses with a lock button (${lang})`, async ({ page }) => {
+  const t = strings[lang], r = t.dash.routes;
+  await page.addInitScript((lang) => {
+    localStorage.setItem('arriba.favorites.v1', JSON.stringify([{ id: 'a', label: 'Local', fromStopId: 'PABT', toStopId: 'W10', routeIds: ['R165'] }]));
+    localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin: 'household', count: 3, tourSeen: true }));
+  }, lang);
+  await page.goto('/?printed=1&now=2026-11-04T17:30');
+  await page.getByRole('navigation', { name: t.dash.tabs.label }).getByRole('button', { name: t.dash.tabs.routes, exact: true }).click();
+  const card = page.locator('.routes-stop');
+  await expect(card.getByRole('heading', { level: 2 })).toHaveText(/Port Authority/);
+  await expect(page.getByRole('group', { name: t.dash.direction })).toBeVisible();
+  // Every route the printed timetable runs from this stop to the saved one, counted, never guessed.
+  const filter = card.getByRole('combobox', { name: r.filter });
+  await expect(filter.locator('option')).toHaveText([r.allRoutes(2), '165', '165T']);
+  const rows = card.locator('.routes-boards > li');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText(r.scheduled);
+  await filter.selectOption({ label: '165' });
+  await expect(rows.first().locator('.dep-board')).toContainText('165');
+  await expect(rows.locator('.dep-board', { hasText: '165T' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: r.fullDayFor(t.dash.portAuthority) })).toBeVisible();
+  // The lock button opens that exact bus's trip screen, where the rider confirms the lock.
+  await rows.first().getByRole('button', { name: t.lockBus }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByRole('button', { name: t.lockBus, exact: true })).toBeVisible();
 });

@@ -51,6 +51,12 @@ export const dashboardStrings = {
       walk: 'Walk me through it',
       app: 'NJ Transit app & tickets',
     },
+    routes: {
+      eyebrow: 'Routes & stops', changeStop: 'Change stop',
+      routesTo: (n: number, place: string) => `${n} ${n === 1 ? 'route' : 'routes'} to ${place}`,
+      allRoutes: (n: number) => `All routes (${n})`, filter: 'Show buses for',
+      fullDayFor: (place: string) => `See full schedules for ${place}`, scheduled: 'Scheduled', findAnother: 'Find another stop',
+    },
   },
   es: {
     beta: 'Hogar Beta',
@@ -102,6 +108,12 @@ export const dashboardStrings = {
       walkBody: 'Encuentra tu puerta, prepara tu pasaje y sube con confianza.',
       walk: 'Guíame paso a paso',
       app: 'App y boletos de NJ Transit',
+    },
+    routes: {
+      eyebrow: 'Rutas y paradas', changeStop: 'Cambiar parada',
+      routesTo: (n: number, place: string) => `${n} ${n === 1 ? 'ruta' : 'rutas'} a ${place}`,
+      allRoutes: (n: number) => `Todas las rutas (${n})`, filter: 'Mostrar autobuses de',
+      fullDayFor: (place: string) => `Ver horarios completos de ${place}`, scheduled: 'Programado', findAnother: 'Buscar otra parada',
     },
   },
 };
