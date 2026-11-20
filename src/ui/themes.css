@@ -1,0 +1,103 @@
+/* NYC, Parkway and Turnpike (#101 part 6), drawn from the owner's theme boards, docs/design/mockups/05-07.
+   Each is the Household layout (household.css, under data-look='household') with its own palette, mark and signs.
+   Original artwork only: no subway line colors or bullets, no Parkway or Turnpike shields, no official logos.
+   Loaded after household.css, so these win at the same specificity. */
+
+/* ---------- The mark: the Dale arrow in a theme-shaped badge, then "Dale" ---------- */
+:root:is([data-skin='nyc'], [data-skin='parkway'], [data-skin='turnpike']) .wordmark::before {
+  content: ''; padding: 0; color: transparent;
+  background: no-repeat center / 62% url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 18 17.5 6.5M9 6h9v9' fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"), var(--mark-bg);
+  border: 2px solid var(--mark-rim); border-radius: var(--mark-radius); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); }
+:root:is([data-skin='nyc'], [data-skin='parkway'], [data-skin='turnpike']) .wordmark::after { content: 'Dale'; font-weight: 850; letter-spacing: -0.035em; }
+
+/* ---------- NYC: white cards, black signs and buttons, Helvetica, blue for links and the open tab ---------- */
+:root[data-skin='nyc'] {
+  --bg: #0d0f13; --surface: #f7f6f2; --text: #1d2026; --muted: #4a4f58; --line: #d4d2cb; --heading: #111418;
+  --brand: #16181d; --brand-ink: #ffffff; --brand-text: #1a5fb4; --accent: #f2b81f; --express: #8c6106; --focus: #1a5fb4;
+  --glass: rgba(248, 247, 243, 0.95); --glass-strong: rgba(250, 249, 246, 0.98);
+  --glass-edge: rgba(17, 20, 24, 0.14);
+  --mark-bg: #111; --mark-rim: #fff; --mark-radius: 9px;
+}
+:root[data-skin='nyc'] body { font-family: 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif; }
+:root[data-skin='nyc'] .top { background: linear-gradient(180deg, rgba(5, 6, 9, 0.8), rgba(5, 6, 9, 0.45) 70%, rgba(5, 6, 9, 0)); }
+/* Station-style signs: black face, a thin white rule along the top, white capitals. */
+:root[data-skin='nyc'] .highway-sign { background: #111214; color: #fff; border: 0; border-radius: 8px; box-shadow: inset 0 3px 0 #fff, 0 4px 10px rgba(0, 0, 0, 0.35); }
+:root[data-skin='nyc'] .highway-name { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: -0.01em; }
+:root[data-skin='nyc'] :is(.highway-label, .sign-change) { background: #fff; color: #111; }
+:root[data-skin='nyc'] .dash-panel { --glass-strong: rgba(250, 249, 246, 0.97); }
+:root[data-skin='nyc'] :is(.dash-title, .dash-eyebrow) { color: #111418; }
+:root[data-skin='nyc'] .dash-dir[aria-pressed='true'] { background: linear-gradient(180deg, #262a31, #15171b); border-color: #000; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+:root[data-skin='nyc'] .status-pill { background: #ecebe6; color: #1d2026; }
+:root[data-skin='nyc'] .commute-reverse { color: #111418; }
+:root[data-skin='nyc'] .tab[aria-current='page'] { color: #1a5fb4; }
+:root[data-skin='nyc'] .tab[aria-current='page']::after { background: #1a5fb4; }
+:root[data-skin='nyc'] .tab-bar { background: rgba(250, 249, 246, 0.96); }
+:root[data-skin='nyc'] :is(.link, .gg-link) { color: #1a5fb4; }
+:root:is([data-skin='nyc'], [data-skin='parkway']) .gg-num { color: #8a5f05; }
+
+/* ---------- Parkway: cream cards, deep forest green, gold-ringed round mark and signs ---------- */
+:root[data-skin='parkway'] {
+  --brand: #1d5a37; --heading: #163a28; --accent: #f2c230; --focus: #1d5a37;
+  --mark-bg: radial-gradient(circle at 40% 35%, #2a7a4b, #165232 70%); --mark-rim: #f2c230; --mark-radius: 50%;
+}
+:root[data-skin='parkway'] .top { background: linear-gradient(180deg, rgba(8, 32, 20, 0.62), rgba(8, 32, 20, 0.32) 70%, rgba(8, 32, 20, 0)); }
+:root[data-skin='parkway'] .highway-sign { background: linear-gradient(180deg, #1b6e43, #145432); border: 2px solid #f2c230; border-radius: 16px; box-shadow: 0 0 0 2px #145432, 0 6px 14px rgba(18, 34, 25, 0.3); }
+:root[data-skin='parkway'] :is(.highway-label, .sign-change) { background: #f2c230; color: #10261b; }
+:root[data-skin='parkway'] .dash-dir[aria-pressed='true'] { background: linear-gradient(180deg, #226943, #18502f); border-color: #10391f; }
+:root[data-skin='parkway'] .tab[aria-current='page'] { color: #1d5a37; }
+:root[data-skin='parkway'] .tab[aria-current='page']::after { background: #f2c230; block-size: 4px; }
+
+/* ---------- Turnpike: highway-sign green cards with a white rule, white text, light tiles ---------- */
+:root[data-skin='turnpike'] {
+  --bg: #0b2a1b; --surface: #0f4d2f; --text: #ffffff; --muted: #d6e8dc; --line: rgba(255, 255, 255, 0.32); --heading: #ffffff;
+  --brand: #f6f3e8; --brand-ink: #0f4d2f; --brand-text: #ffe27a; --accent: #f2c230; --express: #ffe27a; --focus: #ffd23f;
+  --warn-bg: #3a2f0b; --warn-ink: #ffe08a; --alert: #ffb4ab; --alert-fill: #c62828;
+  --glass: rgba(16, 80, 49, 0.95); --glass-strong: rgba(14, 72, 44, 0.97);
+  --glass-border: rgba(255, 255, 255, 0.55); --glass-edge: rgba(255, 255, 255, 0.3);
+  --glass-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --mark-bg: #0f5a35; --mark-rim: #fff; --mark-radius: 7px;
+  color-scheme: dark;
+}
+:root[data-skin='turnpike'] .top { background: linear-gradient(180deg, rgba(4, 24, 14, 0.66), rgba(4, 24, 14, 0.34) 70%, rgba(4, 24, 14, 0)); }
+/* A thin inner white rule, as on a highway sign. */
+:root[data-skin='turnpike'] :is(.dash-panel, .card, main > section:not(.card)) { box-shadow: inset 0 0 0 3px #0e4a2d, inset 0 0 0 4px rgba(255, 255, 255, 0.55), var(--glass-shadow); }
+:root[data-skin='turnpike'] .dash-panel { --glass-strong: rgba(15, 77, 47, 0.96); border-color: rgba(255, 255, 255, 0.25); }
+:root[data-skin='turnpike'] :is(.dash-title, .dash-eyebrow, .dash-from, .dash-locate, .dash-fullday, .dash-rescue, .map-status, .dash-other-title) { color: #fff; }
+:root[data-skin='turnpike'] :is(.dash-from, .dash-locate, .dash-fullday, .dash-rescue) .dash-icon { color: #e6f2ea; }
+:root[data-skin='turnpike'] .dash-fullday { border-block-start-color: rgba(255, 255, 255, 0.25); }
+:root[data-skin='turnpike'] .dash-dir { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.75); }
+:root[data-skin='turnpike'] .dash-dir[aria-pressed='true'] { background: #f6f3e8; color: #0f4d2f; border-color: #fff; }
+:root[data-skin='turnpike'] .status-pill { background: rgba(255, 255, 255, 0.16); color: #fff; }
+:root[data-skin='turnpike'] .status-pill .status-dot { background: #cfd8d2; }
+:root[data-skin='turnpike'] .status-pill[data-live='true'] .status-dot { background: #8be08f; }
+:root[data-skin='turnpike'] .dash-outline { color: #fff; border-color: rgba(255, 255, 255, 0.65); background: transparent; }
+:root[data-skin='turnpike'] .dep.dep-board { --text: #ffffff; --muted: #d6e8dc; --alert: #ffb4ab; }
+:root[data-skin='turnpike'] .dep-board > .dep-main, :root[data-skin='turnpike'] .dep-board > .dep-main .dep-place { color: #d6e8dc; }
+:root[data-skin='turnpike'] .dep-board > .dep-main :is(.dep-time, .dep-arrival-time, .dep-arrival-scheduled), :root[data-skin='turnpike'] .dep-boards .dep-gate { color: #fff; }
+:root[data-skin='turnpike'] .dep-board .live-symbol[data-live='true'] { color: #8be08f; }
+/* The light minutes tiles keep dark ink. */
+:root[data-skin='turnpike'] :is(.dep-board .dep-tile, .fav:not(.fav-dashboard) .deps .dep-min) { color: #142a1e; }
+:root[data-skin='turnpike'] .highway-sign { border-width: 3px; }
+:root[data-skin='turnpike'] :is(.travel-mode, .commute-controls .chip:not([aria-pressed='true']), .find-stop) { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.75); }
+:root[data-skin='turnpike'] .commute-reverse { color: #0f4d2f; }
+:root[data-skin='turnpike'] button:not(.dep, .icon-btn, .ghost, .link, .link-cell, .travel-mode button) { border-color: rgba(255, 255, 255, 0.7); }
+:root[data-skin='turnpike'] :is(.gg-sub, .gg-text > span, .routes-stop-facts, .routes-row-foot > span) { color: #e6f2ea; }
+:root[data-skin='turnpike'] .routes-stop-facts { border-color: rgba(255, 255, 255, 0.25); }
+:root[data-skin='turnpike'] .gg-text strong { color: #fff; }
+:root[data-skin='turnpike'] .gg-num { color: #f2c230; }
+/* Cream inserts keep dark green ink. */
+:root[data-skin='turnpike'] .routes-filter select { color: #0f4d2f; }
+:root[data-skin='turnpike'] :is(main > .guidance-banner, .guidance-banner) { background: linear-gradient(100deg, #fbf3dc, #f5e7c2); color: #26352d; }
+:root[data-skin='turnpike'] :is(.link, .gg-link) { color: #cfe6ff; }
+:root[data-skin='turnpike'] .tab-bar { background: rgba(12, 66, 40, 0.97); border-block-start-color: rgba(255, 255, 255, 0.3); }
+:root[data-skin='turnpike'] .tab { color: #d6e8dc; }
+:root[data-skin='turnpike'] .tab[aria-current='page'] { color: #fff; }
+:root[data-skin='turnpike'] .tab[aria-current='page']::after { background: #f2c230; }
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-skin='turnpike'] :is(.dash-panel, .tab-bar) { background: #0f4d2f; }
+  :root[data-skin='nyc'] .top { background: #111214; }
+}
+@media (forced-colors: active) {
+  :root:is([data-skin='nyc'], [data-skin='parkway'], [data-skin='turnpike']) .wordmark::before { forced-color-adjust: none; }
+}

@@ -5,6 +5,7 @@ import './ui/styles.css';
 import './ui/dashboard.css';
 import './ui/skins.css';
 import './ui/household.css';
+import './ui/themes.css';
 import './ui/howSure.css';
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

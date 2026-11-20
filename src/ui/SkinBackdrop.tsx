@@ -9,6 +9,8 @@ import { useHomePhoto } from './HomePhoto';
 export type Skin = 'household' | 'garden' | 'turnpike' | 'parkway' | 'nyc' | 'clean';
 export const SKINS: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'nyc', 'clean'];
 export const DEFAULT_SKIN: Skin = 'household';
+/** Skins drawn on the Household layout (household.css), each with its own palette and mark (themes.css). */
+export const HOUSEHOLD_LOOK: readonly Skin[] = ['household', 'nyc', 'parkway', 'turnpike'];
 /** Street maps follow the page: dark under the night styles, light under Household and light Clean. */
 export function mapIsDark(): boolean {
   const { skin, theme } = document.documentElement.dataset;

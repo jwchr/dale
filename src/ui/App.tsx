@@ -47,7 +47,7 @@ import { PennGuide, useJourneyChecklist, type JourneyModel } from './PennGuide';
 import { TravelModeSelector } from './TravelModeSelector';
 import { RiderGuide } from './RiderGuide';
 import { TicketGuide } from './TicketGuide';
-import { DEFAULT_SKIN, SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
+import { DEFAULT_SKIN, HOUSEHOLD_LOOK, SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
 import { BusLockPanel } from './BusLockPanel';
 import { HowSure } from './HowSure';
 import { liveApiUrl } from '../domain/liveBus';
@@ -239,6 +239,8 @@ function useSettings() {
     if (settings.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.skin = settings.skin;
+    // Household, NYC, Parkway and Turnpike share one layout (#101 part 6); each skin then sets its own colors and mark.
+    document.documentElement.dataset.look = HOUSEHOLD_LOOK.includes(settings.skin) ? 'household' : settings.skin;
     document.documentElement.dataset.liveMotion = settings.liveMotion ? 'on' : 'off';
   }, [settings]);
   return [settings, change] as const;
