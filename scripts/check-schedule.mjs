@@ -9,6 +9,7 @@ import { authenticate, njtRequest } from '../worker/njt-client.ts';
 import { parseDataset } from '../src/domain/dataset.ts';
 import { localYmd } from '../src/domain/time.ts';
 import { buildDataset } from './gtfs-lib.mjs';
+import { FARE_FILES, fareInventory } from './fare-inventory.mjs';
 import { readCanonicalBytes } from './enabled-continuity.mjs';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
 
@@ -23,8 +24,9 @@ try {
   phase = 'static-download';
   const bytes = await njtRequest('getGTFS', { token }, 128 * 1024 * 1024, fetch, 120_000);
   phase = 'zip-decode';
-  const needed = new Set(['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
-  const zip = unzipSync(bytes, { filter: (entry) => needed.has(entry.name.split('/').pop()) });
+  const needed = new Set(['agency.txt', 'routes.txt', 'stops.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', ...FARE_FILES]);
+  const entryNames = [];
+  const zip = unzipSync(bytes, { filter: (entry) => { entryNames.push(entry.name); return needed.has(entry.name.split('/').pop()); } });
   const files = Object.fromEntries(Object.entries(zip).map(([name, value]) => [name.split('/').pop(), strFromU8(value)]));
   phase = 'candidate-build';
   const sourceSHA256 = createHash('sha256').update(bytes).digest('hex');
@@ -38,6 +40,8 @@ try {
   const summary = compareSchedules(deployed.ds, candidate, { today, days: windowDays(deployed.ds, candidate, today) });
   console.log(`Schedule check (aggregate counts and dates only): ${JSON.stringify({ ...summary, sameSourceFile: summary.candidate.feedVersion === summary.deployed.feedVersion, deployedContext: deployed.context, checkerCommit: process.env.GITHUB_SHA })}`);
   console.log(`Plain summary: ${plainVerdict(summary)}`);
+  // Whether the official file can supply fare zones (#31): file names and counts only.
+  console.log(`Fare data (counts only): ${JSON.stringify(fareInventory(entryNames, files, candidate.stops.map((s) => s.id)))}`);
   console.log('Read-only: nothing on Dale\'s server was changed and no NJ Transit data was saved.');
 } catch {
   // Only the fixed phase name; the error message is never printed.
