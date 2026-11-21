@@ -36,6 +36,10 @@ describe('railText', () => {
     // NJ Transit sends the airplane without the closing semicolon (seen live Nov 20, 2026, #242).
     expect(railText('LONG BRANCH -SEC &#9992')).toBe('LONG BRANCH -SEC ✈');
     expect(railText('Newark Airport &#x2708 x')).toBe('Newark Airport ✈ x');
+    // Every digit is read before the code point is checked (CodeRabbit, #243).
+    expect(railText('Newark Airport &#x00002708;')).toBe('Newark Airport ✈');
+    expect(railText('Newark Airport &#0000009992')).toBe('Newark Airport ✈');
+    expect(railText('A &#99999999999 B')).toBe('A B');
     expect(railText('Newark Airport &#9992;')).toBe('Newark Airport ✈');
     expect(railText('  <b>New&nbsp;York</b>\u0007 ')).toBe('New York');
     expect(railText(' ')).toBeNull();

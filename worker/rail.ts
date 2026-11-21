@@ -77,7 +77,7 @@ export function railText(value: unknown, max = 64): string | null {
   if (typeof value !== 'string' || value.length > max * 8) return null;
   const text = value
     .replace(/<[^>]*>/g, ' ')
-    .replace(/&#(\d{1,7});?|&#x([0-9a-f]{1,6});?|&([a-z]{2,6});/gi, (all, dec, hex, name) => {
+    .replace(/&#(\d+);?|&#x([0-9a-f]+);?|&([a-z]{2,6});/gi, (all, dec, hex, name) => {
       const code = dec ? Number(dec) : hex ? parseInt(hex, 16) : undefined;
       if (code !== undefined) return code > 31 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) && code !== 127 ? String.fromCodePoint(code) : ' ';
       return ENTITIES[String(name).toLowerCase()] ?? all;
