@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createBusSession } from '../../src/domain/busLock';
 import { reaches } from '../../src/domain/direction';
+import { loadLock, saveLock } from '../../src/domain/lockStore';
 import { requestFor } from '../../src/domain/liveDepartures';
 import { boardIndex, dropIndex, placeIndex, samePlace } from '../../src/domain/place';
 import { departuresOn } from '../../src/domain/schedule';
@@ -70,5 +72,16 @@ describe('Port Authority is one place', () => {
     expect(dropIndex(ds, drop, 'P-DROP', 1)).toBe(1);
     expect(dropIndex(ds, { ...drop, noDropOff: [2] }, 'P-NIGHT', 1)).toBe(1);
     expect(dropIndex(ds, { ...drop, noDropOff: [1, 2] }, 'P-NIGHT', 1)).toBe(-1);
+  });
+  it('a locked late bus from another Port Authority stop ID survives a reload (Codex, #241)', () => {
+    const m = new Map<string, string>();
+    const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
+    const dep = departuresOn(ds, { stopId: 'P-DAY', toStopId: 'H', date: '20261120' }).find((d) => d.tripId === 'night')!;
+    const leg = { fromStopId: 'P-DAY', toStopId: 'H', routeIds: ['R'] };
+    const now = dep.departs - 10 * 60_000;
+    saveLock(store, ds, { dep, leg, session: createBusSession(dep, now) }, now);
+    expect(loadLock<typeof leg>(store, ds, now + 60_000)?.dep.tripInstanceId).toBe(dep.tripInstanceId);
+    saveLock(store, ds, { dep, leg: { ...leg, fromStopId: 'H' }, session: createBusSession(dep, now) }, now);
+    expect(loadLock(store, ds, now + 60_000)).toBeUndefined();
   });
 });

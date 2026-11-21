@@ -6,6 +6,7 @@ import { validDestinationArrival } from './destinationArrival';
 import type { BusSession } from './busLock';
 import type { Dataset, Departure } from './types';
 import { tripTimeAt } from './schedule';
+import { samePlace } from './place';
 
 export const LOCK_KEY = 'arriba.lock.v1';
 /** Where live mode keeps its lock (App's storageKey adds `.g2` for live GTFS stops); locked-phone rides only come from it. */
@@ -92,9 +93,11 @@ function validFor<L>(ds: Dataset, s: SavedLock<L>, now: number): boolean {
     && Number.isInteger(r.stopIndex) && r.stopId === dep.pattern.stopIds[r.stopIndex] && r.tripInstanceId === dep.tripInstanceId
     && (r.kind !== 'capacity' || ['seats', 'standing', 'full'].includes(r.capacity ?? '')))) return false;
   const leg = s.leg as { fromStopId?: unknown; toStopId?: unknown; routeIds?: unknown } | null;
-  if (session.destinationArrival && (!validDestinationArrival(session.destinationArrival) || session.destinationArrival.tripInstanceId !== dep.tripInstanceId || session.destinationArrival.stopId !== leg?.toStopId || dep.pattern.stopIds[session.destinationArrival.stopIndex] !== session.destinationArrival.stopId || session.destinationArrival.at < session.lock.lockedAt || session.destinationArrival.recordedAt > now)) return false;
+  if (session.destinationArrival && (!validDestinationArrival(session.destinationArrival) || session.destinationArrival.tripInstanceId !== dep.tripInstanceId || typeof leg?.toStopId !== 'string' || !samePlace(ds, session.destinationArrival.stopId, leg.toStopId) || dep.pattern.stopIds[session.destinationArrival.stopIndex] !== session.destinationArrival.stopId || session.destinationArrival.at < session.lock.lockedAt || session.destinationArrival.recordedAt > now)) return false;
   if (!leg || typeof leg.fromStopId !== 'string' || typeof leg.toStopId !== 'string' || !Array.isArray(leg.routeIds)
-    || !leg.routeIds.every((id) => typeof id === 'string') || leg.fromStopId !== dep.pattern.stopIds[dep.stopIndex]) return false;
+    || !leg.routeIds.every((id) => typeof id === 'string') || !samePlace(ds, leg.fromStopId, String(dep.pattern.stopIds[dep.stopIndex]))) return false;
+  // Any Port Authority stop ID is the same place: a saved Port Authority commute can lock a late bus that leaves
+  // from another Port Authority stop ID (Codex, #241); the exact trip and its stop index stay pinned above.
   const trip = ds.trips.find((t) => t.id === dep.tripId);
   const pattern = ds.patterns.find((p) => p.id === dep.pattern?.id);
   if (!trip || !pattern || trip.patternId !== pattern.id || pattern.stopIds.join() !== dep.pattern.stopIds.join()) return false;
