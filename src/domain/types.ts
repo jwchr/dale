@@ -19,6 +19,8 @@ export interface PublishedFares {
   source: string;
   /** YYYYMMDD the printed fares took effect. */
   effective: string;
+  /** Hand-checked trip-planner source and YYYYMMDD check date, when available. */
+  checked?: { source: string; date: string };
   /** Zone band per stop id, counted from New York = 1 along the line: [lo, hi], with lo < hi when the stop is drawn on a boundary. */
   stopZones: Record<string, [number, number]>;
   /** Stop ids in New York; a trip touching one uses the to/from New York table. */

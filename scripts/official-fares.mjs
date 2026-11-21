@@ -1,6 +1,6 @@
 // Fares on NJ Transit's official route 165 stops, from the printed timetable's fare-zone map (#31 step 2,
 // plan docs/plans/2026-11-20-official-stop-fares.md, checked by Codex in #238). NJ Transit's schedule file has
-// no fare data (#231), so the printed map stays the only source. A zone is never narrowed by guessing: a stop
+// no fare data (#231), so the printed map supplies the initial bands. A zone is never narrowed by guessing: a stop
 // gets "zone X or Y" wherever the printed map and the stop match allow either, and no zone when they allow more.
 
 const DIRS = ['toWestwood', 'toNewYork'];
@@ -29,6 +29,17 @@ export function town(name) {
 const sameStreets = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1];
 const adjacent = (lo, hi) => hi - lo <= 1;
 
+// GTFS direction_id is per route: variants can share a number with opposite meanings (CodeRabbit, #246).
+const dirKey = (p) => `${p.routeId}|${p.directionId}`;
+function directionsOf(patterns, pabt) {
+  const dirs = new Map();
+  for (const p of patterns) {
+    if (pabt.has(p.stopIds[0]) && !pabt.has(p.stopIds.at(-1))) dirs.set(dirKey(p), 'toWestwood');
+    else if (pabt.has(p.stopIds.at(-1)) && !pabt.has(p.stopIds[0])) dirs.set(dirKey(p), 'toNewYork');
+  }
+  return dirs;
+}
+
 /**
  * Adds publishedFares to an official schedule. Returns the dataset (unchanged when the floor is not met)
  * and an aggregate report: anchors per direction and stops with one zone, two zones or none. No stop IDs.
@@ -47,13 +58,7 @@ export function addOfficialFares(ds, doc) {
 
   // Direction of each pattern: printed order runs from Port Authority (toWestwood) or toward it (toNewYork).
   const patterns = ds.patterns.filter((p) => routeIds.includes(p.routeId));
-  const dirOf = new Map();
-  // GTFS direction_id is per route: a 165 and a 165T pattern can share one with opposite meaning (CodeRabbit, #246).
-  const dirKey = (p) => `${p.routeId}|${p.directionId}`;
-  for (const p of patterns) {
-    if (pabt.has(p.stopIds[0]) && !pabt.has(p.stopIds.at(-1))) dirOf.set(dirKey(p), 'toWestwood');
-    else if (pabt.has(p.stopIds.at(-1)) && !pabt.has(p.stopIds[0])) dirOf.set(dirKey(p), 'toNewYork');
-  }
+  const dirOf = directionsOf(patterns, pabt);
 
   const anchored = { toWestwood: new Set(), toNewYork: new Set() };
   /** Every band each stop received, and stops a pattern placed in a gap wider than two adjacent zones. */
@@ -127,4 +132,58 @@ export function addOfficialFares(ds, doc) {
     matched: true,
   };
   return { ds: { ...ds, publishedFares }, report };
+}
+
+/** Apply hand-checked trip-planner zones only to uniquely identified official stops. Report counts only. */
+export function addZoneChecks(ds, checks) {
+  const text = (v) => typeof v === 'string' && v.trim().length > 0;
+  if (!text(checks?.source)) throw new Error('Zone checks: source must be non-blank text');
+  const date = checks.checked;
+  if (typeof date !== 'string' || !/^\d{8}$/.test(date)) throw new Error('Zone checks: checked must be a valid YYYYMMDD date');
+  const y = Number(date.slice(0, 4)), m = Number(date.slice(4, 6)), d = Number(date.slice(6, 8));
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() !== m - 1 || parsed.getUTCDate() !== d) throw new Error('Zone checks: checked must be a valid YYYYMMDD date');
+  if (!Array.isArray(checks.stops)) throw new Error('Zone checks: stops must be an array');
+  const names = new Set();
+  const entries = checks.stops.map((s, i) => {
+    if (!DIRS.includes(s?.direction)) throw new Error(`Zone checks: stops[${i}].direction must be toWestwood or toNewYork`);
+    if (!text(s.name) || !text(s.town)) throw new Error(`Zone checks: stops[${i}] name and town must be non-blank text`);
+    if (!Number.isSafeInteger(s.zone) || s.zone < 1) throw new Error(`Zone checks: stops[${i}].zone must be a whole number >= 1`);
+    const name = s.name.trim().toUpperCase(), city = town(s.town);
+    const key = JSON.stringify([s.direction, name, city]);
+    if (names.has(key)) throw new Error(`Zone checks: duplicate entry at stops[${i}]`);
+    names.add(key);
+    return { direction: s.direction, name, town: city, zone: s.zone };
+  });
+  const report = { entries: entries.length, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0 };
+  const f = ds.publishedFares;
+  if (f?.matched !== true) return { ds, report };
+
+  const pabt = new Set(ds.stops.filter((s) => s.terminal === 'PABT').map((s) => s.id));
+  const patterns = ds.patterns.filter((p) => f.routeIds?.includes(p.routeId));
+  const dirOf = directionsOf(patterns, pabt);
+  const served = Object.fromEntries(DIRS.map((dir) => [dir, new Set(patterns.filter((p) => dirOf.get(dirKey(p)) === dir).flatMap((p) => p.stopIds))]));
+  const answers = new Map();
+  for (const entry of entries) {
+    const hits = new Set(ds.stops.filter((s) => !pabt.has(s.id) && served[entry.direction].has(s.id)
+      && s.name.trim().toUpperCase() === entry.name && s.city && town(s.city) === entry.town).map((s) => s.id));
+    if (hits.size !== 1) { report.unmatched++; continue; }
+    const [id] = hits;
+    if (!answers.has(id)) answers.set(id, new Set());
+    answers.get(id).add(entry.zone);
+  }
+
+  // Resolve both directions before changing bands so entry order cannot hide a disagreement.
+  const stopZones = { ...f.stopZones };
+  for (const [id, zones] of answers) {
+    if (zones.size !== 1) { delete stopZones[id]; report.disagree++; continue; }
+    const [zone] = zones, band = stopZones[id];
+    if (!band) report.filled++;
+    else if (band[0] === zone && band[1] === zone) report.same++;
+    else if (band[0] <= zone && zone <= band[1]) report.narrowed++;
+    else report.conflicts++;
+    stopZones[id] = [zone, zone];
+    report.applied++;
+  }
+  return { ds: { ...ds, publishedFares: { ...f, stopZones, checked: { source: checks.source, date } } }, report };
 }

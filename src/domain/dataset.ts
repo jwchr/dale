@@ -111,6 +111,7 @@ function validateFares(v: unknown, stopIds: Set<string>): void {
   requireValid(record(v) && id(v.source) && date(v.effective) && record(v.stopZones)
     && strings(v.newYorkStopIds) && v.newYorkStopIds.every((stopId) => stopIds.has(stopId))
     && (v.routeIds === undefined || strings(v.routeIds)) && (v.matched === undefined || typeof v.matched === 'boolean'));
+  if (v.checked !== undefined) requireValid(record(v.checked) && id(v.checked.source) && date(v.checked.date));
   for (const [stopId, zones] of Object.entries(v.stopZones)) {
     requireValid(stopIds.has(stopId) && Array.isArray(zones) && zones.length === 2
       && whole(zones[0]) && zones[0] > 0 && whole(zones[1]) && zones[1] >= zones[0] && zones[1] - zones[0] <= 1);
