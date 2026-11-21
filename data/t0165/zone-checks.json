@@ -1,0 +1,342 @@
+{
+  "source": "NJ Transit trip planner (njtransit.com), checked by hand",
+  "checked": "20261121",
+  "stops": [
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT LOZIER AVE",
+      "town": "EMERSON",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD 140'N OF ALLISON WAY",
+      "town": "EMERSON",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT PARK PL",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT HOMESTEAD PL",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT EAST DR",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT LOTUS AVE",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT MACKAY AVE",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT MONROE AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT MANNING AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT WINDSOR RD",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT WAYNE AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD AT HOWLAND AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD 50'S OF RESERVOIR AVE.",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "KINDERKAMACK RD 220' N OF RUTGERS PL.",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "RT-46 AT RIDGEFIELD AVE",
+      "town": "RIDGEFIELD PARK",
+      "zone": 3
+    },
+    {
+      "direction": "toNewYork",
+      "name": "US-46 112' W of TEANECK RD #",
+      "town": "RIDGEFIELD PARK",
+      "zone": 3
+    },
+    {
+      "direction": "toNewYork",
+      "name": "WOODCLIFF AVE AT ANDERSON AVE",
+      "town": "NORTH BERGEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toNewYork",
+      "name": "WOODCLIFF AVE AT PALISADE PLAZA",
+      "town": "NORTH BERGEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toNewYork",
+      "name": "WOODCLIFF AVE AT PALISADE AVE",
+      "town": "NORTH BERGEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toNewYork",
+      "name": "BLVD EAST AT 79TH ST",
+      "town": "NORTH BERGEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toNewYork",
+      "name": "BOULEVARD EAST AT HUDSON PL",
+      "town": "WEEHAWKEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toWestwood",
+      "name": "WOODCLIFF AVE AT PALISADE PLAZA",
+      "town": "NORTH BERGEN TWP",
+      "zone": 2
+    },
+    {
+      "direction": "toWestwood",
+      "name": "FAIRVIEW AVE AT WENDELL PL",
+      "town": "FAIRVIEW",
+      "zone": 2
+    },
+    {
+      "direction": "toWestwood",
+      "name": "US-46 at LAUREL ST #",
+      "town": "RIDGEFIELD PARK",
+      "zone": 3
+    },
+    {
+      "direction": "toWestwood",
+      "name": "RT-46 AT RIDGEFIELD AVE",
+      "town": "RIDGEFIELD PARK",
+      "zone": 3
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT HOWLAND AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT WINDSOR RD",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT MANNING AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT MONROE AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT CONTINENTAL AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT CHRISTIE AVE",
+      "town": "RIVER EDGE",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT ARGYLE ST",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT BROOKSIDE AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT RIDGEWOOD AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT PARK AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT ORADELL AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT LOTUS AVE",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT SOLDIER HILL RD",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT EAST DR",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT HOMESTEAD PL",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toWestwood",
+      "name": "KINDERKAMACK RD AT PARK PL",
+      "town": "ORADELL",
+      "zone": 5
+    },
+    {
+      "direction": "toWestwood",
+      "name": "G.S. PKWY EXIT 165 AT NORTHEAST PARK/RIDE LOT",
+      "town": "PARAMUS",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "ORADELL AVE AT EAST DR",
+      "town": "PARAMUS",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "ORADELL AVE AT SUMMIT AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toWestwood",
+      "name": "RT-4 AT BELLE AVE",
+      "town": "TEANECK TWP",
+      "zone": 3
+    },
+    {
+      "direction": "toWestwood",
+      "name": "RT-4 AT RIVER RD",
+      "town": "TEANECK TWP",
+      "zone": 3
+    },
+    {
+      "direction": "toWestwood",
+      "name": "RT-4 370' W OF HACKENSACK AVE",
+      "town": "HACKENSACK",
+      "zone": 3
+    },
+    {
+      "direction": "toWestwood",
+      "name": "SOLDIER HILL RD AT MANCHESTER WAY#",
+      "town": "PARAMUS",
+      "zone": 5
+    },
+    {
+      "direction": "toNewYork",
+      "name": "RT-4 350' E OF HACKENSACK AVE",
+      "town": "HACKENSACK",
+      "zone": 3
+    },
+    {
+      "direction": "toNewYork",
+      "name": "RT-4 AT RIVER RD",
+      "town": "TEANECK TWP",
+      "zone": 3
+    },
+    {
+      "direction": "toNewYork",
+      "name": "ORADELL AVE AT KINDERKAMACK RD",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "ORADELL AVE AT FOREST AVE",
+      "town": "ORADELL",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "ORADELL AVE AT EAST DR",
+      "town": "PARAMUS",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "ORADELL AVE AT WILSEY CT#",
+      "town": "PARAMUS",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "GARDEN STATE PARKWAY UNDER RIDGEWOOD AVE",
+      "town": "PARAMUS",
+      "zone": 4
+    },
+    {
+      "direction": "toNewYork",
+      "name": "SOLDIER HILL RD AT LIVINGSTON CT#",
+      "town": "EMERSON",
+      "zone": 5
+    }
+  ]
+}

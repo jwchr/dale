@@ -4,14 +4,14 @@ import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity } from './worker-content-identity.mjs';
 import { preservationPins, requireEnabledResources, readPreservedCanonical, observedCanonicalIdentity } from './enabled-continuity.mjs';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { authenticate, njtRequest } from '../worker/njt-client.ts';
 import { parseDataset } from '../src/domain/dataset.ts';
 import { buildDataset } from './gtfs-lib.mjs';
 import { buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic } from './route-geometry.mjs';
 import { addStopCities } from './stop-cities.mjs';
-import { addOfficialFares } from './official-fares.mjs';
+import { addOfficialFares, addZoneChecks } from './official-fares.mjs';
 import { localYmd } from '../src/domain/time.ts';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
 import { requireCoverage, rolloverCapacity } from './schedule-rollover.mjs';
@@ -70,6 +70,14 @@ try {
     const fares = addOfficialFares(ds, JSON.parse(readFileSync(new URL('../data/t0165/transcription.json', import.meta.url), 'utf8')));
     ds = fares.ds;
     console.log(`Printed fare zones: ${fares.report.added ? 'added' : 'not added'}; anchors ${fares.report.anchors.toWestwood}/${fares.report.of.toWestwood} to Westwood, ${fares.report.anchors.toNewYork}/${fares.report.of.toNewYork} to New York; stops with one zone ${fares.report.oneZone}, two zones ${fares.report.twoZones}, none ${fares.report.noZone}.`);
+    const checksFile = new URL('../data/t0165/zone-checks.json', import.meta.url);
+    if (existsSync(checksFile)) {
+      const checks = addZoneChecks(ds, JSON.parse(readFileSync(checksFile, 'utf8')));
+      ds = checks.ds;
+      const r = checks.report;
+      if (r.stale) console.log('Trip planner zone checks: stale, not applied.');
+      else console.log(`Trip planner zone checks: entries ${r.entries}, applied ${r.applied}, narrowed ${r.narrowed}, filled ${r.filled}, same ${r.same}, conflicts ${r.conflicts}, disagree ${r.disagree}, unmatched ${r.unmatched}.`);
+    } else console.log('Trip planner zone checks: no checks present.');
     console.log(`Verified stop city labels: ${ds.stops.filter(s => s.city).length}/${ds.stops.length}. Missing or conflicting labels remain unknown.`);
   }
   parseDataset(ds);
