@@ -26,8 +26,8 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await expect(page.locator('.rail-preview')).toHaveCount(1);
     await expect(page.locator('.rail-board-title')).toHaveText(r.departures);
     await expect(page.locator('.rail-info-strip')).toHaveText(r.transfer);
-    await expect(page.locator('.journey-controls legend')).toHaveClass('sr-only');
-    await expect(page.getByRole('button', { name: 'HACKENSACK', exact: true })).toBeVisible();
+    await expect(page.getByRole('group', { name: j.direction, exact: true })).toBeVisible();
+    await expect(page.locator('.journey-direction .journey-end strong')).toHaveText([j.returning, j.outbound]);
     expect(await page.locator('.rail-clocks .flap-char').count()).toBeGreaterThan(0);
     await expect(page.locator('.rail-option')).toHaveCount(3);
     await expect(page.locator('.rail-option').first().locator('summary')).toContainText('PVL 1602');
@@ -40,8 +40,9 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await expect(first.getByText(r.arrivalTime, { exact: true })).toBeVisible();
     await first.locator('summary').press('Space');
     await expect(first).not.toHaveAttribute('open');
-    await page.getByRole('button', { name: j.returning, exact: true }).click();
-    await expect(page.getByRole('button', { name: j.returning, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: t.reverse, exact: true }).click();
+    await expect(page.getByRole('button', { name: t.reverse, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.journey-direction .journey-end strong')).toHaveText([j.outbound, j.returning]);
     await expect(first.locator('.rail-clocks small').last()).toContainText(r.stationTime);
     await first.locator('summary').click();
     await expect(first.getByText(r.callTime, { exact: true })).toBeVisible();
@@ -97,7 +98,7 @@ for (const lang of ['en', 'es'] as const) for (const station of ['anderson', 'es
     await expect(first).not.toHaveAttribute('open');
     await expect(first.locator('.rail-number')).toHaveText(`PVL 1602 ${from} ${home}`);
     await expect(first.locator('.rail-clocks strong')).toHaveText([station === 'anderson' ? '5:49 AM' : '5:52 AM', '6:29 AM']);
-    await page.getByRole('button', { name: j.returning, exact: true }).click();
+    await page.getByRole('button', { name: t.reverse, exact: true }).click();
     await expect(first).not.toHaveAttribute('open');
     await expect(first.locator('.rail-number')).toHaveText(`PVL 1605 ${from} Secaucus Junction`);
     await expect(first.locator('.rail-clocks small').first()).toContainText('New York Penn');

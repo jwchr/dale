@@ -50,7 +50,7 @@ for (const lang of ['en', 'es'] as const) test(`compact home, legacy label and t
   await expect(first).toContainText('5:49 AM');
   await expect(first).toContainText('6:29 AM');
   await expect(first.getByText(t.rail.outTransfer, { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: j.returning, exact: true }).click();
+  await page.getByRole('button', { name: t.reverse, exact: true }).click();
   await expect(rail).toContainText('PVL 1651');
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
   await expect(rail).not.toContainText('PVL 1651');
