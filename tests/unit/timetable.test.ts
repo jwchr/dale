@@ -209,7 +209,7 @@ describe("NJ Transit's printed holiday list", () => {
 });
 
 describe("NJ Transit's printed fares and fare zones", () => {
-  const quote = (a: string, b: string) => fareBetween(ds, a, b);
+  const quote = (a: string, b: string) => fareBetween(ds, 'R165', a, b);
 
   it('gives every stop a zone band that never falls moving away from New York', () => {
     const z = ds.publishedFares!.stopZones;
@@ -249,7 +249,7 @@ describe("NJ Transit's printed fares and fare zones", () => {
   it('shows no fare without a fare table', () => {
     expect(demoDataset.publishedFares).toBeUndefined();
     const [a, b] = demoDataset.stops;
-    expect(fareBetween(demoDataset, a!.id, b!.id)).toBeUndefined();
+    expect(fareBetween(demoDataset, demoDataset.routes[0]!.id, a!.id, b!.id)).toBeUndefined();
   });
 });
 

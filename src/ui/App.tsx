@@ -1396,7 +1396,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   // The printed Park/Ride note is about Parkway express (P, FP) trips only; other trips stop there as usual.
   const alightNote = alightStop?.noteId && (alightStop.noteId !== 'parkride-request' || ['P', 'FP'].includes(dep.pattern.variant ?? '')) ? t.stopNotes[alightStop.noteId] : undefined;
   const atPabt = boardStop?.terminal === 'PABT';
-  const fare = boardStop && alightStop ? fareBetween(ds, boardStop.id, alightStop.id) : undefined;
+  const fare = boardStop && alightStop ? fareBetween(ds, dep.pattern.routeId, boardStop.id, alightStop.id) : undefined;
   const gate = departureGate(ds, dep);
   // From the trip's first stop (read as printed) to where the rider gets off: a change before boarding
   // still shifts the rider's times, a change after getting off does not.
@@ -1452,9 +1452,9 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
           <h2>{t.fareTitle} · {t.fareZones(fare.zones.min, fare.zones.max)}</h2>
           <div className="row-between"><span>{t.fareAdult}</span><strong>{money(fare.adult)}</strong></div>
           <div className="row-between"><span>{t.fareReduced}</span><strong>{money(fare.reduced)}</strong></div>
-          {fare.zones.min !== fare.zones.max && <p className="warn small" role="note">{t.fareBoundary}</p>}
+          {fare.zones.min !== fare.zones.max && <p className="warn small" role="note">{ds.publishedFares.matched ? t.fareBoundaryMatched : t.fareBoundary}</p>}
           <p className={atPabt ? 'warn small' : 'small'}>{atPabt ? t.fareAtPabt : t.fareCash}</p>
-          <p className="muted small">{t.fareNote(fmtYmd(ds.publishedFares.effective, ctx.lang))}</p>
+          <p className="muted small">{t.fareNote(fmtYmd(ds.publishedFares.effective, ctx.lang))}{ds.publishedFares.matched ? ` ${t.fareMatched}` : ''}</p>
         </div>
       )}
 

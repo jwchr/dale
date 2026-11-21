@@ -14,12 +14,17 @@ export interface FareQuote {
   reduced: { min: number; max: number };
 }
 
-/** Undefined when the dataset has no fare table, a stop has no zone, or the table has no price for the count. */
-export function fareBetween(ds: Dataset, fromStopId: string, toStopId: string): FareQuote | undefined {
+/**
+ * Undefined when the dataset has no fare table, the trip's route is not one the printed table covers
+ * (zones are per route: a 163 or 164 between the same stops is priced differently, #238), a stop has no zone,
+ * or the table has no price for the count.
+ */
+export function fareBetween(ds: Dataset, routeId: string, fromStopId: string, toStopId: string): FareQuote | undefined {
   const f = ds.publishedFares;
-  const a = f?.stopZones[fromStopId];
-  const b = f?.stopZones[toStopId];
-  if (!f || !a || !b) return undefined;
+  if (!f?.routeIds?.includes(routeId)) return undefined;
+  const a = f.stopZones[fromStopId];
+  const b = f.stopZones[toStopId];
+  if (!a || !b) return undefined;
   const min = Math.max(0, Math.max(a[0], b[0]) - Math.min(a[1], b[1])) + 1;
   const max = Math.max(a[1], b[1]) - Math.min(a[0], b[0]) + 1;
   const newYork = f.newYorkStopIds.includes(fromStopId) || f.newYorkStopIds.includes(toStopId);

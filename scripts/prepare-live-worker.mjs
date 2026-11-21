@@ -4,13 +4,14 @@ import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity } from './worker-content-identity.mjs';
 import { preservationPins, requireEnabledResources, readPreservedCanonical, observedCanonicalIdentity } from './enabled-continuity.mjs';
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { authenticate, njtRequest } from '../worker/njt-client.ts';
 import { parseDataset } from '../src/domain/dataset.ts';
 import { buildDataset } from './gtfs-lib.mjs';
 import { buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic } from './route-geometry.mjs';
 import { addStopCities } from './stop-cities.mjs';
+import { addOfficialFares } from './official-fares.mjs';
 import { localYmd } from '../src/domain/time.ts';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
 import { requireCoverage, rolloverCapacity } from './schedule-rollover.mjs';
@@ -65,6 +66,10 @@ try {
       feedVersion: sourceSHA256.slice(0, 12), source: 'NJ Transit GTFS BUS G2' });
     ds.meta.realtime = { provider: 'njt-bus-g2' };
     ds = await addStopCities(ds);
+    // Printed route 165 fare zones on official stops (#31 step 2, #238). Aggregate counts only; below the anchor floor no fares are added.
+    const fares = addOfficialFares(ds, JSON.parse(readFileSync(new URL('../data/t0165/transcription.json', import.meta.url), 'utf8')));
+    ds = fares.ds;
+    console.log(`Printed fare zones: ${fares.report.added ? 'added' : 'not added'}; anchors ${fares.report.anchors.toWestwood}/${fares.report.of.toWestwood} to Westwood, ${fares.report.anchors.toNewYork}/${fares.report.of.toNewYork} to New York; stops with one zone ${fares.report.oneZone}, two zones ${fares.report.twoZones}, none ${fares.report.noZone}.`);
     console.log(`Verified stop city labels: ${ds.stops.filter(s => s.city).length}/${ds.stops.length}. Missing or conflicting labels remain unknown.`);
   }
   parseDataset(ds);

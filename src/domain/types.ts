@@ -26,6 +26,10 @@ export interface PublishedFares {
   /** Cents by zones traveled ("2", "3", ...). "reduced" is children 5-11 and seniors 62 and older. */
   withinNewJersey: { adult: Record<string, number>; reduced: Record<string, number> };
   toFromNewYork: { adult: Record<string, number>; reduced: Record<string, number> };
+  /** Route ids the printed table covers. Zones are per route, so no fare shows for any other route between the same stops (#238). */
+  routeIds?: string[];
+  /** True when Dale matched the printed map's zones to official stops (#31 step 2); the rider is told so. */
+  matched?: boolean;
 }
 
 /** Gate rules NJ Transit prints by service type and time of day. A rule applies by the departure's clock time at the terminal. */
