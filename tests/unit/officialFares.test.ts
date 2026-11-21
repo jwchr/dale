@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { addOfficialFares, crossStreets, MIN_ANCHORS, town } from '../../scripts/official-fares.mjs';
 import { parseDataset } from '../../src/domain/dataset';
 import { fareBetween } from '../../src/domain/fare';
+import { strings } from '../../src/ui/i18n';
 import type { Dataset } from '../../src/domain/types';
 
 // Synthetic only: a printed route with 18 timepoints, Port Authority first, and an official schedule whose
@@ -125,10 +126,26 @@ describe('printed fare zones on official stops', () => {
     expect(far.A5).toBeUndefined();
   });
 
+  it('reads direction per route: a 165T bound for New York may share a direction number with a 165 leaving it (CodeRabbit, #246)', () => {
+    const ds = official();
+    const shared = { ...ds, patterns: ds.patterns.map((p) => (p.id === 'in' ? { ...p, directionId: 0 as const } : p)) };
+    expect(run(shared).report).toMatchObject({ added: true, anchors: { toWestwood: N, toNewYork: N } });
+  });
+
   it('prices route 165 and 165T trips, never a 163 between the same stops', () => {
     const { ds } = run(official());
     expect(fareBetween(ds, 'R165', 'P1', 'A9')?.zones).toEqual({ min: 4, max: 4 });
     expect(fareBetween(ds, 'R165T', 'A9', 'P1')?.newYork).toBe(true);
     expect(fareBetween(ds, 'R163', 'P1', 'A9')).toBeUndefined();
+  });
+});
+
+describe('fare zone label', () => {
+  it('says "or" for two adjacent counts and the whole range when a third is possible (CodeRabbit, #246)', () => {
+    expect(strings.en.fareZones(3, 3)).toBe('3 zones');
+    expect(strings.en.fareZones(2, 3)).toBe('2 or 3 zones');
+    expect(strings.en.fareZones(2, 4)).toBe('2 to 4 zones');
+    expect(strings.es.fareZones(2, 3)).toBe('2 o 3 zonas');
+    expect(strings.es.fareZones(2, 4)).toBe('entre 2 y 4 zonas');
   });
 });

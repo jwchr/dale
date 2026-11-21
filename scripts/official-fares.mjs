@@ -48,9 +48,11 @@ export function addOfficialFares(ds, doc) {
   // Direction of each pattern: printed order runs from Port Authority (toWestwood) or toward it (toNewYork).
   const patterns = ds.patterns.filter((p) => routeIds.includes(p.routeId));
   const dirOf = new Map();
+  // GTFS direction_id is per route: a 165 and a 165T pattern can share one with opposite meaning (CodeRabbit, #246).
+  const dirKey = (p) => `${p.routeId}|${p.directionId}`;
   for (const p of patterns) {
-    if (pabt.has(p.stopIds[0]) && !pabt.has(p.stopIds.at(-1))) dirOf.set(p.directionId, 'toWestwood');
-    else if (pabt.has(p.stopIds.at(-1)) && !pabt.has(p.stopIds[0])) dirOf.set(p.directionId, 'toNewYork');
+    if (pabt.has(p.stopIds[0]) && !pabt.has(p.stopIds.at(-1))) dirOf.set(dirKey(p), 'toWestwood');
+    else if (pabt.has(p.stopIds.at(-1)) && !pabt.has(p.stopIds[0])) dirOf.set(dirKey(p), 'toNewYork');
   }
 
   const anchored = { toWestwood: new Set(), toNewYork: new Set() };
@@ -59,7 +61,7 @@ export function addOfficialFares(ds, doc) {
   const give = (id, band) => { if (!bands.has(id)) bands.set(id, []); bands.get(id).push(band); };
 
   for (const p of patterns) {
-    const dir = dirOf.get(p.directionId);
+    const dir = dirOf.get(dirKey(p));
     if (!dir) continue;
     const tps = printed[dir];
     // Candidate index per printed timepoint: exactly one matching stop in this pattern, else none.
