@@ -1,4 +1,5 @@
-import { transitContextLayers } from './mapStyle';
+import { bundledLabelLayers, bundledMapLabel, transitContextLayers } from './mapStyle';
+import { isFatalMapError } from './mapErrors';
 import type { MapStrings } from './mapStrings';
 import { leadPadding } from './leadPadding';
 // The ride on a street map (owner decision 2026-11-04: self-hosted OpenStreetMap). Everything is served
@@ -50,7 +51,7 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
     const base = new URL(import.meta.env.BASE_URL, location.href).href;
     const flavor = presentation === 'transit' ? 'light' : dark ? 'dark' : 'light';
     const inkDark = flavor === 'dark';
-    const baseLayers = layers('protomaps', namedFlavor(flavor), { lang: 'en' });
+    const baseLayers = bundledLabelLayers(layers('protomaps', namedFlavor(flavor), { lang: 'en' }));
     const contextLayers = presentation === 'street' ? baseLayers : transitContextLayers(baseLayers);
     const lons = stops.map((s) => s.lon), lats = stops.map((s) => s.lat);
     let m: MapLibreMap;
@@ -82,15 +83,21 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
       setFailed(true);
       return;
     }
-    // Tile/archive/style failures arrive after construction (for example an offline first map load).
-    m.on('error', () => setFailed(true));
+    let styleLoaded = false, recoverableErrors = 0;
+    m.getContainer().dataset.mapErrors = '0';
+    // Count only, without retaining/logging URLs, feature IDs, coordinates or error payloads.
+    m.on('error', event => {
+      if (isFatalMapError(event, styleLoaded)) setFailed(true);
+      else m.getContainer().dataset.mapErrors = String(++recoverableErrors);
+    });
     m.on('webglcontextlost', () => setFailed(true));
     m.touchZoomRotate.disableRotation();
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     const userMoved = () => { following.current = false; setView('manual'); };
     m.on('dragstart', userMoved);
     m.on('zoomstart', e => { if (e.originalEvent) userMoved(); });
-    m.on('load', () => {
+    m.on('style.load', () => {
+      styleLoaded = true;
       if (following.current && latest.current.bus) { followBus(m, latest.current.bus, latest.current.stops, Math.max(13.5, m.getZoom())); setView('bus'); }
       m.addSource('route', { type: 'geojson', data: routeData(latest.current.stops) });
       m.addSource('stops', { type: 'geojson', data: stopData(latest.current.stops) });
@@ -148,14 +155,14 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
   return <><div className="choice-list map-camera-controls">
     <button type="button" className="chip" disabled={!bus} aria-pressed={view === 'bus'} onClick={() => { if (!map.current || !bus) return; following.current = true; setView('bus'); followBus(map.current, bus, stops, 13.5); }}>{text.close}</button>
     <button type="button" className="chip" aria-pressed={view === 'route'} onClick={() => { if (!map.current || !stops.length) return; following.current = false; setView('route'); map.current.fitBounds([[Math.min(...stops.map(s => s.lon)), Math.min(...stops.map(s => s.lat))], [Math.max(...stops.map(s => s.lon)), Math.max(...stops.map(s => s.lat))]], { padding: 36, maxZoom: 14, duration: 0, absolutePadding: true }); }}>{text.route}</button>
-  </div><section className="route-map" ref={el} aria-label={label} data-camera={view} data-presentation={presentation} /></>;
+  </div><section className="route-map" ref={el} aria-label={label} data-camera={view} data-presentation={presentation} data-map-errors="0" /></>;
 }
 
 function routeData(stops: MapStop[]): Feature {
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: stops.map((s) => [s.lon, s.lat]) } };
 }
 function stopData(stops: MapStop[]): FeatureCollection {
-  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: s.city ? `${s.name} · ${s.city}` : s.name, state: s.state, current: !!s.current }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
+  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: bundledMapLabel(s.city ? `${s.name} · ${s.city}` : s.name), state: s.state, current: !!s.current }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
 }
 function busData(bus?: { lat: number; lon: number }): FeatureCollection {
   return { type: 'FeatureCollection', features: bus ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [bus.lon, bus.lat] } }] : [] };
