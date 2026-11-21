@@ -1,6 +1,8 @@
-# Private bus history (#91 / D60)
+# Private history collection (#91 / D60 / D74)
 
 ## Requirement and current status
+
+**Scope since November 21, 2026:** [D74](DECISIONS.md) authorizes private indefinite statewide bus and readable rail history, replacing the corridor-only archive boundary (Jeff: "Let's store everything"; reason: build the data he wants). The [statewide history plan](plans/2026-11-21-statewide-history.md) is the single design for that expansion, live trains and daily miles for #260. This runbook describes the existing corridor implementation and its operational safeguards, not completed statewide collection. Existing corridor tables keep serving the app. No code, deployment, collection switch or spending is changed by the decision record.
 
 Keep normalized bus evidence **indefinitely** for historical analysis. Original evidence and canonical context remain in private immutable R2 objects without expiration. Local hot copies may be removed only after the original and its manifest have been checksum/readback verified; lossy summaries cannot replace them. The72-hour acceptance window is a quality observation period, **not retention**.
 
@@ -10,12 +12,12 @@ SQLite is durable primary/hot storage. The same Worker writes compressed immutab
 
 ## Architecture and evidence
 
-- Reuse `dale-live`, SQLite `BusFeed/corridor-v1`, canonical G2 normalization, token reuse and the same globally paced30-second refresh. Demand and native alarm work serialize/coalesce. No second poller, scheduler, vendor, service, package, rider tracking or rail access.
+- Current implementation reuses `dale-live`, SQLite `BusFeed/corridor-v1`, canonical G2 normalization, token reuse and the same globally paced30-second refresh. Demand and native alarm work serialize/coalesce. No second poller, scheduler, vendor, service, package or rider tracking. D74 authorizes statewide bus and rail expansion through the linked plan, within the same owner and shared limits; rail is not implemented by this runbook.
 - One private SQL bundle per completed attempt holds normalized GPS observations, source-generation/observation/receipt clocks, static version, route/direction/service-date identity and quality diagnostics. Separate cancellation/skip context retains its own source clock; predicted arrival values are not treated as actual arrivals. A stopped-at sample does not identify the exact instant of arrival.
-- A compact corridor-only per-poll vehicle/trip/source-timestamp census retains unchanged and rejected presence. Deduplicated GPS counts remain separate. An absent bus is not assumed unchanged, cancelled or arrived. Unknown census/oversized omissions stay explicit.
+- The current compact corridor per-poll vehicle/trip/source-timestamp census retains unchanged and rejected presence. D74's linked plan replaces that archive input limit with every statewide feed entity while keeping this corridor interpretation for the app. Deduplicated GPS counts remain separate. An absent bus is not assumed unchanged, cancelled or arrived. Unknown census/oversized omissions stay explicit.
 - Before recording under each static version, retain the complete canonical trip/pattern/stop/calendar/timezone context in private atomic chunks. Old versions are not removed. This preserves retrospective arrival analysis after schedule rollover. Unknown/expired matches remain unknown; refresh finite static coverage through the existing manual reviewed-main workflow.
 - Context keys include a SHA256 of the complete canonical build, so converter/context changes under an unchanged upstream feed version cannot silently reuse different historical schedules. Old context may leave hot SQLite only after its complete original archive and manifest are verified; its durable archive remains.
-- Bundle and dedupe checkpoint commit atomically; a failed write rolls back both. Watermark expiry only removes short-lived dedupe metadata, not historical bundles. Quality-only rows retain missing/stale/invalid/empty polls and omissions. No raw systemwide feed, rider location, credential or token is archived.
+- Bundle and dedupe checkpoint commit atomically; a failed write rolls back both. Watermark expiry only removes short-lived dedupe metadata, not historical bundles. Quality-only rows retain missing/stale/invalid/empty polls and omissions. The current implementation does not archive original statewide feeds; D74 authorizes that private expansion through the linked plan. Rider locations, credentials and tokens remain excluded.
 - `/v1/collection` exposes read-only health/counts/clocks/reasons/size/alarm state, never bus identities, coordinates, datasets or private watermarks. Reading it does not poll upstream. There is no public raw-history/export/start endpoint.
 
 ## Explicit capacity and cost boundaries
@@ -56,7 +58,7 @@ Actual live payload/physical/archive-reservation growth and remaining runway mus
 
 ## Enable, stop and acceptance
 
-1. Full `npm run verify`, exact-head CI, one independent HIGH review (Argon or Codex, never the author) and the builder's merge under `CLAUDE.md` "How we work" (D66, which replaced the separate merger role). Deployment of reviewed main stays a separate step that needs the owner's explicit go-ahead.
+1. Full `npm run verify`, exact-head CI, independent risky-change review under the standing review rules (never the author) and the builder's merge under `CLAUDE.md` "How we work" (D66, which replaced the separate merger role). Codex-authored Worker/history changes go to Jeff's Gemini Neon review. Reason: protect live service, private evidence and the Free budget (Jeff's Nov 21 review rule). Deployment of reviewed main stays a separate step that needs the owner's explicit go-ahead.
 2. Recheck actual Workers plan/shared headroom, existing token permissions, finite canonical coverage and data rights. An old secret name or successful job is insufficient.
 3. Existing main-only manual workflow input `history_collection` defaults to `disabled`. Explicit `enabled` prepares the official schedule and deploys reviewed code with `HISTORY_COLLECTION:enabled`. Disabled runs only the authenticated Cloudflare settings stop below, with no installation, NJ Transit authentication or static download. No timer/public request enables it.
 4. Read back enabled state, persisted alarm, accepted official evidence, current verified canonical-context/evidence archives and exact-bus validation. The deployment script uses read-only health while waiting for native alarm archive acknowledgments. A failed deployment/validation may have deployed code: **do not infer inactive from a failed job**.
@@ -70,7 +72,7 @@ Cloudflare documents [settings-only editing and inherited bindings](https://deve
 
 ## Agency cadence measurement
 
-Actual per-bus update frequency and synchronized/staggered behavior have **not yet been measured**.30-second polling is not agency cadence. Use the same collector's actual per-poll census, agency `observedAt`, feed `generatedAt` and receipt clocks over an initial10–15minute active-service window. Report per-bus timestamp-delta quantiles, duplicate proportions, missing/rejected/gap counts and exact-source-timestamp cohorts separately from changes seen in the same poll. Label sample dates/routes/counts and30-second resolution/aliasing limits. Corridor samples cannot establish whole-fleet synchronization. No additional poller, higher request rate, token request or raw systemwide coordinate archive.
+Actual per-bus update frequency and synchronized/staggered behavior have **not yet been measured**.30-second polling is not agency cadence. Use the same collector's actual per-poll census, agency `observedAt`, feed `generatedAt` and receipt clocks over an initial10–15minute active-service window. Report per-bus timestamp-delta quantiles, duplicate proportions, missing/rejected/gap counts and exact-source-timestamp cohorts separately from changes seen in the same poll. Label sample dates/routes/counts and30-second resolution/aliasing limits. Corridor samples cannot establish whole-fleet synchronization. This measurement adds no poller, higher request rate or token request. D74's linked plan separately authorizes private statewide vehicle-coordinate evidence from the existing polls to build the data Jeff wants; no public raw archive follows.
 
 ## Verification and remaining gates
 
