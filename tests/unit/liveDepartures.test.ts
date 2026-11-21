@@ -103,7 +103,7 @@ describe('exact stop-specific upcoming arrivals', () => {
     expect(set.candidates.some(d => d.tripId === 'T1')).toBe(true);
     expect(selectUpcoming(set, () => undefined, now, 3).some(d => d.tripInstanceId === 'T1@20261104')).toBe(false);
     const rows = selectUpcoming(set, d => d.tripInstanceId === 'T1@20261104' ? { kind: 'live', boarding: { stopIndex: 1, at: now + 300_000, observedAt: now, kind: 'departure' } } : undefined, now, 3);
-    expect(rows[0]?.tripInstanceId).toBe('T1@20261104'); expect(requestFor(rows[0]!, '3')).toEqual(q); expect(rows[0]?.departs).toBe(NOW);
+    expect(rows[0]?.tripInstanceId).toBe('T1@20261104'); expect(requestFor(ds, rows[0]!, '3')).toEqual(q); expect(rows[0]?.departs).toBe(NOW);
   });
 });
 describe('bounded read-only departure batch on the existing relay', () => {

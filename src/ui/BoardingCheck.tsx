@@ -2,6 +2,7 @@
 // to show the driver. It checks the scheduled trip the rider picked, never the physical bus: a route
 // number alone does not identify a bus, so the card asks the driver to confirm.
 import { useEffect, useRef, useState } from 'react';
+import { dropIndex } from '../domain/place';
 import { tripStopTimes } from '../domain/schedule';
 import { formatTime12 } from '../domain/time';
 import type { Dataset, Departure } from '../domain/types';
@@ -31,7 +32,7 @@ export function BoardingCheck({ ds, dep, toStopId, t, lang, gate }: Props) {
   useEffect(() => { if (switched.current) (card ? cardHeading.current : showButton.current)?.focus(); switched.current = true; }, [card]);
   const name = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
   const clock = (at: number) => formatTime12(at, ds.meta.timezone, lang);
-  const alightIndex = dep.pattern.stopIds.indexOf(toStopId, dep.stopIndex + 1);
+  const alightIndex = dropIndex(ds, dep.pattern, toStopId, dep.stopIndex + 1);
   const at = alightIndex > dep.stopIndex ? tripStopTimes(ds, dep)[alightIndex] : undefined;
   const dest = name(toStopId);
   const variant = dep.pattern.variant ? t.variantNotes[dep.pattern.variant] : undefined;

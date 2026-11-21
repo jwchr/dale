@@ -1,4 +1,5 @@
 import { addDays, localYmd, serviceTimeToInstant, type TimeBase, weekdayIndex } from './time';
+import { boardIndex, dropIndex } from './place';
 import { type Dataset, type Departure, type Pattern, type ServiceCalendar, type Trip, tripInstanceId } from './types';
 
 export function isServiceActive(cal: ServiceCalendar | undefined, ymd: string): boolean {
@@ -63,8 +64,8 @@ export function departuresOn(ds: Dataset, q: DepartureQuery): Departure[] {
     for (const trip of ds.trips) {
       if (!isServiceActive(ds.calendars[trip.serviceId], serviceDate)) continue;
       const pattern = patterns.get(trip.patternId);
-      if (!pattern || !matchesPattern(pattern, q)) continue;
-      const stopIndex = pattern.stopIds.indexOf(q.stopId);
+      if (!pattern || !matchesPattern(ds, pattern, q)) continue;
+      const stopIndex = boardIndex(ds, pattern, q.stopId);
       if (stopIndex < 0 || stopIndex === pattern.stopIds.length - 1 || pattern.noPickup?.includes(stopIndex)) continue;
       const secs = trip.times[stopIndex];
       const endSecs = trip.times[trip.times.length - 1];
@@ -89,12 +90,12 @@ export function departuresOn(ds: Dataset, q: DepartureQuery): Departure[] {
   return out.sort((a, b) => a.departs - b.departs || a.route.shortName.localeCompare(b.route.shortName));
 }
 
-function matchesPattern(p: Pattern, q: DepartureQuery): boolean {
+function matchesPattern(ds: Dataset, p: Pattern, q: DepartureQuery): boolean {
   if (q.routeIds && q.routeIds.length && !q.routeIds.includes(p.routeId)) return false;
   if (q.directionId !== undefined && p.directionId !== q.directionId) return false;
   if (q.toStopId) {
-    const from = p.stopIds.indexOf(q.stopId);
-    const to = p.stopIds.indexOf(q.toStopId);
+    const from = boardIndex(ds, p, q.stopId);
+    const to = from < 0 ? -1 : dropIndex(ds, p, q.toStopId, from + 1);
     if (from < 0 || to <= from || p.noDropOff?.includes(to)) return false;
   }
   return true;

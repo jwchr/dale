@@ -1,4 +1,5 @@
 import type { VehicleObservation } from './lock';
+import { dropIndex } from './place';
 import { isServiceActive } from './schedule';
 import { LIVE_MAX_AGE_MS, LIVE_SOURCE, parseLiveSnapshot, validServiceDate, type LiveFeed, type LivePrediction } from './liveBus';
 import type { Dataset, Departure } from './types';
@@ -11,7 +12,7 @@ export interface DepartureReport {
 }
 export interface DepartureBatch { v: 1; source: typeof LIVE_SOURCE; feedVersion: string; receivedAt: number; vehicles: LiveFeed; updates: LiveFeed; items: DepartureReport[] }
 export const departureKey = (q: DepartureRequest) => JSON.stringify([q.tripId, q.serviceDate, q.stopIndex, q.toStopIndex]);
-export const requestFor = (d: Departure, toStopId: string): DepartureRequest => ({ tripId: d.tripId, serviceDate: d.serviceDate, stopIndex: d.stopIndex, toStopIndex: d.pattern.stopIds.indexOf(toStopId) });
+export const requestFor = (ds: Dataset, d: Departure, toStopId: string): DepartureRequest => ({ tripId: d.tripId, serviceDate: d.serviceDate, stopIndex: d.stopIndex, toStopIndex: dropIndex(ds, d.pattern, toStopId, d.stopIndex + 1) });
 /** Reject malformed/oversized selectors before any upstream work. */
 export function readDepartureRequests(ds: Dataset, raw: string | null): DepartureRequest[] {
   if (!raw || raw.length > 16_000) throw new Error('Invalid departure request');
