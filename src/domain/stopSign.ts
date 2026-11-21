@@ -1,3 +1,4 @@
+import { routeNumber } from './routeDisplay.ts';
 import type { Dataset } from './types';
 import { boardIndex, dropIndex } from './place';
 import { localYmd } from './time';
@@ -24,7 +25,7 @@ export function stopSignRoutes(ds: Dataset, fromId: string, toId: string, routeI
     return from >= 0 && to > from && !p.noPickup?.includes(from) && !p.noDropOff?.includes(to)
       && (!routeIds.length || routeIds.includes(p.routeId));
   }).map(p => p.routeId));
-  return [...new Set(ds.routes.filter(r => served.has(r.id)).map(r => r.shortName))];
+  return [...new Set(ds.routes.filter(r => served.has(r.id)).map(r => routeNumber(r.shortName)))];
 }
 
 
@@ -69,7 +70,7 @@ export interface SignLine { route: string; text: string; yours: boolean }
  * there are more lines than rows, the rider's own lines are always kept and the last row says "+N more".
  */
 export function stopSignLines(ds: Dataset, fromId: string, toId: string, routeIds: string[]): SignLine[] {
-  const routeName = new Map(ds.routes.map(r => [r.id, r.shortName]));
+  const routeName = new Map(ds.routes.map(r => [r.id, routeNumber(r.shortName)]));
   const stops = new Map(ds.stops.map(s => [s.id, s]));
   const lines = new Map<string, SignLine>();
   for (const p of ds.patterns) {
