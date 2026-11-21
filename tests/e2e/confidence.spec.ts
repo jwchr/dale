@@ -20,10 +20,9 @@ for (const lang of ['en', 'es'] as const) test(`Penn rehearsal, return, storage 
   await page.locator('.journey-checklist > summary').click();
   await expect(page.getByText(j.practiceNote)).toBeVisible();
   await page.getByRole('combobox', { name: j.station, exact: true }).selectOption('essex');
-  await page.getByRole('button', { name: j.returning, exact: true }).click();
+  await page.getByRole('button', { name: strings[lang].reverse, exact: true }).click();
   await page.getByRole('button', { name: j.next, exact: true }).click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeFocused();
-  await page.getByRole('button', { name: j.returning, exact: true }).click();
   await page.getByRole('button', { name: j.trainMode, exact: true }).click();
   await expect(page.getByRole('heading', { name: j.railReturn(j.stations.essex)[1]!.title })).toBeVisible();
   await page.locator('.journey-help > summary').click();

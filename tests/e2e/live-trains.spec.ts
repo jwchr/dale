@@ -60,7 +60,7 @@ for (const lang of ['en', 'es'] as const) {
   test(`coming home shows Penn and the Secaucus Pascack Valley level, and says which one is missing (${lang})`, async ({ page }) => {
     const l = strings[lang].rail.live;
     const asked = await open(page, lang, { TS: board('TS', [dep('1609', 30, { destination: 'Spring Valley' })]) });
-    await page.getByRole('button', { name: strings[lang].journey.returning, exact: true }).click();
+    await page.getByRole('button', { name: strings[lang].reverse, exact: true }).click();
     await expect(page.locator('.rail-live')).toHaveCount(1);
     await expect(page.locator('.rail-live .rail-board-title')).toHaveText(l.board(l.stations.TS));
     await expect(page.getByText(l.unavailableOne(l.stations.NY), { exact: true })).toBeVisible();
