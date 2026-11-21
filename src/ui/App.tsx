@@ -22,7 +22,7 @@ import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, rem
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
-import { dropIndex } from '../domain/place';
+import { dropIndex, samePlace } from '../domain/place';
 import { gateFor, type GateAnswer } from '../domain/gate';
 import { isNjtHoliday } from '../domain/holidays';
 import { createBusSession, reduceBusSession, type BusSession, type BusSessionEvent } from '../domain/busLock';
@@ -1061,8 +1061,8 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
   const routeIds = useMemo(() => {
     if (!saved) return [];
     // Count a route only where riders may board at the saved stop and get off at the other (GTFS pickup/drop-off rules).
-    const ids = new Set(ds.patterns.filter(p => p.stopIds.some((id, a) => id === saved.fromStopId && !p.noPickup?.includes(a)
-      && p.stopIds.some((id2, b) => b > a && id2 === saved.toStopId && !p.noDropOff?.includes(b)))).map(p => p.routeId));
+    const ids = new Set(ds.patterns.filter(p => p.stopIds.some((id, a) => samePlace(ds, id, saved.fromStopId) && !p.noPickup?.includes(a)
+      && p.stopIds.some((id2, b) => b > a && samePlace(ds, id2, saved.toStopId) && !p.noDropOff?.includes(b)))).map(p => p.routeId));
     return ds.routes.filter(x => ids.has(x.id)).map(x => x.id);
   }, [ds, saved?.fromStopId, saved?.toStopId]);
   // The saved stop's card takes focus when the tab opens, so a phone does not scroll past it to the stop search.

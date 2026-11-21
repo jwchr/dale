@@ -174,7 +174,8 @@ export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
   // Compute downstream reachability once per boarding stop, instead of rescanning every pattern
   // and measuring every nearby stop again for every possible destination.
   for (const p of ds.patterns) for (const board of [stopId, ...nearby]) {
-    const i = p.stopIds.indexOf(board);
+    // Any Port Authority stop ID counts as the boarding stop, as in boardIndex (CodeRabbit, #241).
+    const i = boardIndex(ds, p, board);
     if (i < 0 || p.noPickup?.includes(i)) continue;
     const target = board === stopId ? direct : across;
     for (let j = i + 1; j < p.stopIds.length; j++) {

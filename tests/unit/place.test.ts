@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createBusSession } from '../../src/domain/busLock';
-import { reaches } from '../../src/domain/direction';
+import { destinationsFrom, reaches } from '../../src/domain/direction';
 import { loadLock, saveLock } from '../../src/domain/lockStore';
 import { requestFor } from '../../src/domain/liveDepartures';
 import { boardIndex, dropIndex, placeIndex, samePlace } from '../../src/domain/place';
@@ -19,12 +19,15 @@ const ds: Dataset = {
     { id: 'H', name: 'HACKENSACK' },
     { id: 'X', name: 'ELSEWHERE' },
     { id: 'P-DROP', name: 'PORT AUTHORITY DROP OFF', terminal: 'PABT' },
+    { id: 'W', name: 'RIDGEWOOD' },
   ],
   patterns: [
     { id: 'out-day', routeId: 'R', directionId: 0, headsign: 'OUT', stopIds: ['P-DAY', 'H'] },
     { id: 'out-night', routeId: 'R', directionId: 0, headsign: 'OUT', stopIds: ['P-NIGHT', 'H'] },
     { id: 'in-night', routeId: 'R', directionId: 1, headsign: 'IN', stopIds: ['H', 'P-NIGHT'] },
     { id: 'in-drop', routeId: 'R', directionId: 1, headsign: 'IN', stopIds: ['H', 'P-DROP', 'P-DAY'] },
+    // No trips: only shows which destinations each Port Authority stop reaches.
+    { id: 'night-only', routeId: 'R', directionId: 0, headsign: 'OUT', stopIds: ['P-NIGHT', 'W'] },
   ],
   trips: [
     { id: 'day', patternId: 'out-day', serviceId: 'S', times: [18 * 3600, 18 * 3600 + 1800] },
@@ -83,5 +86,15 @@ describe('Port Authority is one place', () => {
     expect(loadLock<typeof leg>(store, ds, now + 60_000)?.dep.tripInstanceId).toBe(dep.tripInstanceId);
     saveLock(store, ds, { dep, leg: { ...leg, fromStopId: 'H' }, session: createBusSession(dep, now) }, now);
     expect(loadLock(store, ds, now + 60_000)).toBeUndefined();
+  });
+});
+
+describe('destinations from Port Authority', () => {
+  it('lists a place only the late-night Port Authority stop serves (CodeRabbit, #241)', () => {
+    const ids = destinationsFrom(ds, 'P-DAY').map(s => s.id);
+    expect(ids).toContain('W');
+    expect(ids).toContain('H');
+    // The drop-off call before the final stop is not a departure.
+    expect(ids).not.toContain('P-DAY');
   });
 });
