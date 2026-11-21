@@ -1,5 +1,5 @@
 import type { Dataset, Stop } from './types';
-import { boardIndex, placeIndex } from './place.ts';
+import { boardIndex, dropIndex } from './place.ts';
 
 /** Great-circle distance in meters. */
 export function distanceM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -27,7 +27,7 @@ export function reaches(ds: Dataset, fromStopId: string, toStopId: string, route
   return ds.patterns.some((p) => {
     if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) return false;
     const i = boardIndex(ds, p, fromStopId);
-    const j = i < 0 ? -1 : placeIndex(ds, p, toStopId, i + 1);
+    const j = i < 0 ? -1 : dropIndex(ds, p, toStopId, i + 1);
     return i >= 0 && j > i && !p.noPickup?.includes(i) && !p.noDropOff?.includes(j);
   });
 }

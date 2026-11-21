@@ -1,5 +1,5 @@
 import { addDays, localYmd, serviceTimeToInstant, type TimeBase, weekdayIndex } from './time';
-import { boardIndex, placeIndex } from './place';
+import { boardIndex, dropIndex } from './place';
 import { type Dataset, type Departure, type Pattern, type ServiceCalendar, type Trip, tripInstanceId } from './types';
 
 export function isServiceActive(cal: ServiceCalendar | undefined, ymd: string): boolean {
@@ -95,7 +95,7 @@ function matchesPattern(ds: Dataset, p: Pattern, q: DepartureQuery): boolean {
   if (q.directionId !== undefined && p.directionId !== q.directionId) return false;
   if (q.toStopId) {
     const from = boardIndex(ds, p, q.stopId);
-    const to = from < 0 ? -1 : placeIndex(ds, p, q.toStopId, from + 1);
+    const to = from < 0 ? -1 : dropIndex(ds, p, q.toStopId, from + 1);
     if (from < 0 || to <= from || p.noDropOff?.includes(to)) return false;
   }
   return true;

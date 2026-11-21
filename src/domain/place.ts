@@ -31,8 +31,23 @@ export function placeIndex(ds: Dataset, pattern: Pattern, stopId: string, from =
  * last Port Authority stop, and that is an arrival, not a departure to New Jersey.
  */
 export function boardIndex(ds: Dataset, pattern: Pattern, stopId: string): number {
-  const i = placeIndex(ds, pattern, stopId);
+  // The rider's exact stop first, as before Port Authority stops were grouped.
+  const exact = pattern.stopIds.indexOf(stopId);
+  const i = exact >= 0 ? exact : placeIndex(ds, pattern, stopId);
   if (i < 0) return -1;
   for (let k = i + 1; k < pattern.stopIds.length; k++) if (!samePlace(ds, pattern.stopIds[k]!, stopId)) return i;
+  return -1;
+}
+
+/**
+ * Where a rider heading to `stopId` gets off, searching after `from` (CodeRabbit, #241): the rider's exact stop
+ * when the trip calls there; otherwise, for Port Authority, the last equivalent call that allows getting off,
+ * because the live arrival check accepts only the final terminal call, never the drop-off staging call before it.
+ */
+export function dropIndex(ds: Dataset, pattern: Pattern, stopId: string, from: number): number {
+  const exact = pattern.stopIds.indexOf(stopId, Math.max(0, from));
+  if (exact >= 0) return exact;
+  for (let i = pattern.stopIds.length - 1; i >= Math.max(0, from); i--)
+    if (samePlace(ds, pattern.stopIds[i]!, stopId) && !pattern.noDropOff?.includes(i)) return i;
   return -1;
 }

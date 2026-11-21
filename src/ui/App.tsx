@@ -22,7 +22,7 @@ import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, rem
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
-import { placeIndex } from '../domain/place';
+import { dropIndex } from '../domain/place';
 import { gateFor, type GateAnswer } from '../domain/gate';
 import { isNjtHoliday } from '../domain/holidays';
 import { createBusSession, reduceBusSession, type BusSession, type BusSessionEvent } from '../domain/busLock';
@@ -408,7 +408,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   useEffect(() => {
     setActiveLock(current => {
       if (!current) return current;
-      const index = placeIndex(ds, current.dep.pattern, current.leg.toStopId, current.dep.stopIndex + 1);
+      const index = dropIndex(ds, current.dep.pattern, current.leg.toStopId, current.dep.stopIndex + 1);
       const arrival = observedDestinationArrival(ds, current.session, index, lockNow);
       return arrival ? { ...current, session: reduceBusSession(current.session, { type: 'destination_arrival', arrival, now: lockNow }) } : current;
     });
@@ -423,7 +423,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const liveBus = useLiveBus(ds, activeLock?.session, LIVE_API, lockNow, lockEvent);
   // Locked-phone stop alerts (#176 step C): the server ride follows this lock and ends with it.
   useLockedRideAlerts({ api: LIVE_API, demo: !!ds.meta.demo, realtime: liveMode && ds.meta.realtime?.provider === 'njt-bus-g2', lang: settings.lang,
-    session: activeLock?.session, alightIndex: activeLock ? placeIndex(ds, activeLock.dep.pattern, activeLock.leg.toStopId, activeLock.dep.stopIndex + 1) : -1,
+    session: activeLock?.session, alightIndex: activeLock ? dropIndex(ds, activeLock.dep.pattern, activeLock.leg.toStopId, activeLock.dep.stopIndex + 1) : -1,
     heldSessionId: resumable?.session.id });
   useEffect(() => {
     setActiveLock((current) => {
@@ -657,7 +657,7 @@ function dataNotice(ds: Dataset, t: Strings): string {
 }
 
 function arrivalAt(ds: Dataset, d: Departure, stopId: string): { at: number; estimated: boolean } | undefined {
-  const i = placeIndex(ds, d.pattern, stopId, d.stopIndex + 1);
+  const i = dropIndex(ds, d.pattern, stopId, d.stopIndex + 1);
   const trip = ds.trips.find(x => x.id === d.tripId), at = trip && i > d.stopIndex ? tripArrivalAt(ds, trip, d.serviceDate, i) : undefined;
   return at === undefined ? undefined : { at, estimated: ds.meta.demo || ds.meta.transcribed ? !!trip?.estimated?.includes(i) : false };
 }
@@ -1389,7 +1389,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   const { ds, t, stopName } = ctx;
   const times = tripStopTimes(ds, dep);
   // Search after the boarding stop: on a loop pattern the destination can also appear earlier.
-  const alightIndex = placeIndex(ds, dep.pattern, leg.toStopId, dep.stopIndex + 1);
+  const alightIndex = dropIndex(ds, dep.pattern, leg.toStopId, dep.stopIndex + 1);
   const boardStop = ds.stops.find((s) => s.id === dep.pattern.stopIds[dep.stopIndex]);
   const scheduledArrival = arrivalAt(ds, dep, leg.toStopId);
   const alightStop = alightIndex > dep.stopIndex ? ds.stops.find((s) => s.id === dep.pattern.stopIds[alightIndex]) : undefined;

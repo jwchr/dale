@@ -1,5 +1,5 @@
 import { returnLeg } from './direction';
-import { boardIndex, placeIndex } from './place';
+import { boardIndex, dropIndex } from './place';
 import type { Favorite } from './favorites';
 import { departuresOn, tripArrivalAt } from './schedule';
 import { addDays, localYmd } from './time';
@@ -47,7 +47,7 @@ function commuteDataset(ds: Dataset, f: Favorite) {
   const legs = [{ direction: 'out' as const, fromStopId: f.fromStopId, toStopId: f.toStopId },
     ...(back ? [{ direction: 'back' as const, ...back }] : [])];
   const patterns = ds.patterns.filter(p => (!f.routeIds.length || f.routeIds.includes(p.routeId)) && legs.some(leg => {
-    const from = boardIndex(ds, p, leg.fromStopId), to = from < 0 ? -1 : placeIndex(ds, p, leg.toStopId, from + 1);
+    const from = boardIndex(ds, p, leg.fromStopId), to = from < 0 ? -1 : dropIndex(ds, p, leg.toStopId, from + 1);
     return from >= 0 && to > from;
   }));
   const ids = new Set(patterns.map(p => p.id));
@@ -60,7 +60,7 @@ function dayRows(view: ReturnType<typeof commuteDataset>, f: Favorite, date: str
     // Compare only service dates covered by both copies, rather than calling that a removed bus.
     .filter(d => d.serviceDate >= sharedStart && d.serviceDate <= sharedEnd)
     .map(d => {
-      const to = placeIndex(view.ds, d.pattern, leg.toStopId, d.stopIndex + 1);
+      const to = dropIndex(view.ds, d.pattern, leg.toStopId, d.stopIndex + 1);
       const trip = trips.get(d.tripId)!;
       const arrival = tripArrivalAt(view.ds, trip, d.serviceDate, to);
       return { direction: leg.direction, route: d.route.shortName, departure: d.departs,

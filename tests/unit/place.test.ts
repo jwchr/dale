@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { reaches } from '../../src/domain/direction';
 import { requestFor } from '../../src/domain/liveDepartures';
-import { boardIndex, placeIndex, samePlace } from '../../src/domain/place';
+import { boardIndex, dropIndex, placeIndex, samePlace } from '../../src/domain/place';
 import { departuresOn } from '../../src/domain/schedule';
 import type { Dataset } from '../../src/domain/types';
 
@@ -62,5 +62,13 @@ describe('Port Authority is one place', () => {
     expect(boardIndex(ds, ds.patterns[3]!, 'P-DAY')).toBe(-1);
     expect(departuresOn(ds, { stopId: 'P-DAY', date: '20261120' }).map((d) => d.tripId)).not.toContain('arriving');
     expect(departuresOn(ds, { stopId: 'H', toStopId: 'P-DAY', date: '20261120' }).map((d) => d.tripId)).toContain('arriving');
+  });
+  it('a rider bound for Port Authority gets off at the final call, not the drop-off staging call before it (CodeRabbit, #241)', () => {
+    const drop = ds.patterns[3]!;
+    expect(dropIndex(ds, drop, 'P-DAY', 1)).toBe(2);
+    expect(dropIndex(ds, drop, 'P-NIGHT', 1)).toBe(2);
+    expect(dropIndex(ds, drop, 'P-DROP', 1)).toBe(1);
+    expect(dropIndex(ds, { ...drop, noDropOff: [2] }, 'P-NIGHT', 1)).toBe(1);
+    expect(dropIndex(ds, { ...drop, noDropOff: [1, 2] }, 'P-NIGHT', 1)).toBe(-1);
   });
 });
