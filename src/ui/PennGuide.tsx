@@ -105,6 +105,8 @@ export function PennGuide({ t, demo = false, model, railOnly = false, api, lang 
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>
         </button>
         <span className="journey-end"><small>{t.commuteToLabel}</small><strong>{state.direction === 'outbound' ? j.outbound : j.returning}</strong></span>
+        {/* Screen readers hear the new ends after a flip (CodeRabbit, #240). */}
+        <span className="sr-only" role="status">{`${t.commuteFrom} ${state.direction === 'outbound' ? j.returning : j.outbound}, ${t.commuteToLabel} ${state.direction === 'outbound' ? j.outbound : j.returning}`}</span>
       </div>
     </div>
     {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} live={live} lang={lang} now={clock} />}
