@@ -15,7 +15,7 @@ for (const lang of ['en', 'es']) test(`compact next165T cue preserves the three 
   const card = page.getByRole('article'), cue = card.getByTestId('next-express');
   await expect(card.locator('.dep .route-badge')).toHaveText(['165', '165', '165']);
   await expect(cue).toContainText(lang === 'en' ? 'Next' : 'Próximo');
-  await expect(cue).toContainText('165T'); await expect(cue).toContainText(lang === 'en' ? '7:40 AM' : '7:40 a.m.');
+  await expect(cue).toContainText('Turnpike Exp'); await expect(cue).toContainText(lang === 'en' ? '7:40 AM' : '7:40 a.m.');
   await expect(cue).toContainText(lang === 'en' ? 'in 40 min' : 'en 40 min');
   await expect(cue).toContainText(lang === 'en' ? 'Scheduled only' : 'Solo horario');
   expect(await cue.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeLessThan(await card.locator('.dep-time').first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize)));
@@ -24,5 +24,7 @@ for (const lang of ['en', 'es']) test(`compact next165T cue preserves the three 
   if (lang === 'en') await page.screenshot({ path: 'test-results/next-express-preview.png', fullPage: true });
   // Once the express enters the main three rows, the extra cue disappears.
   await page.goto('/?printed=1&now=2026-11-04T07:11');
-  await expect(cue).toHaveCount(0); await expect(card.locator('.dep .route-badge')).toContainText(['165', '165T']);
+  await expect(cue).toHaveCount(0);
+  await expect(card).toContainText('Turnpike Exp');
+  await expect(card).not.toContainText('165T'); await expect(card.locator('.dep .route-badge')).toContainText(['165', '165']);
 });
