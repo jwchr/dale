@@ -56,9 +56,9 @@ jobs:
         env:
           BASE: /dale/
           VITE_LIVE_API_URL: ${{ vars.DALE_LIVE_API_URL }}
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
