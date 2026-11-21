@@ -132,6 +132,7 @@ export function buildTimetableDataset(doc, { builtAt }) {
     newYorkStopIds: ['PABT'],
     withinNewJersey: f.cashCents.withinNewJersey,
     toFromNewYork: f.cashCents.toFromNewYork,
+    routeIds: routes.map((r) => r.id),
   };
 
   return {

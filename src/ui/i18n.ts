@@ -538,6 +538,8 @@ const en = {
   fareAdult: 'Adult',
   fareReduced: 'Child 5-11 or senior 62+',
   fareBoundary: "One end of this trip is where NJ Transit's map says the fare zone changes, so the fare may be either. Ask the driver.",
+  fareBoundaryMatched: "Dale can't tell from NJ Transit's map which side of a fare zone change one end of this trip is on, so the fare may be either. Ask the driver.",
+  fareMatched: 'Dale matched these zones to the stops from the printed map.',
   fareCash: 'The driver makes change. $1, $5, $10 and $20 bills and most coins are accepted. Drivers do not have to accept bills over $20.',
   fareAtPabt: 'At Port Authority you need a ticket or pass before you board.',
   fareNote: (effective: string) =>
@@ -1150,6 +1152,8 @@ const es: Strings = {
   fareAdult: 'Adulto',
   fareReduced: 'Niño de 5 a 11 años o persona de 62 años o más',
   fareBoundary: 'Una de las paradas de este viaje está donde el mapa de NJ Transit dice que cambia la zona, así que la tarifa puede ser cualquiera de las dos. Pregúntale al chofer.',
+  fareBoundaryMatched: 'Dale no puede saber por el mapa de NJ Transit de qué lado de un cambio de zona queda una de las paradas de este viaje, así que la tarifa puede ser cualquiera de las dos. Pregúntale al chofer.',
+  fareMatched: 'Dale asignó estas zonas a las paradas a partir del mapa impreso.',
   fareCash: 'El chofer da cambio. Se aceptan billetes de $1, $5, $10 y $20 y casi todas las monedas. El chofer no tiene que aceptar billetes de más de $20.',
   fareAtPabt: 'En Port Authority necesitas boleto o pase antes de subir.',
   fareNote: (effective: string) =>
