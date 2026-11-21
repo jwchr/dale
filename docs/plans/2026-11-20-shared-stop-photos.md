@@ -1,0 +1,28 @@
+# Plan for Codex to check before building: riders share stop photos (#106, Nov 20, 2026)
+
+Jeff, Nov 20, 2026, asked whether riders should be able to share their stop photos with other Dale riders: "Sure but the default should be my image." So Jeff's photographed stop sign (D69, `src/assets/stop-signs/`) stays what every rider sees by default; a rider's shared photo is an extra a rider can choose to look at. Codex cannot answer on issues here, so the plan is reviewed in this pull request.
+
+## Today
+
+"See bus stop sign" shows Jeff's photo in seasonal versions. The personal home backdrop (#168, `src/data/homePhoto.ts`) re-encodes a rider's photo on the phone so no GPS, EXIF or file name survives, and never uploads it.
+
+## The change
+
+1. **Default unchanged.** Jeff's photo always opens first. Shared photos appear only behind a "Photos from riders" button for that stop, and only after Jeff approves each one.
+2. **Sharing is explicit.** In "See bus stop sign", "Share a photo of this stop" opens a short consent screen (English and Spanish): the photo becomes visible to other Dale riders after review, no name or account is attached, avoid faces and license plates, and how to remove it. Nothing uploads without that tap.
+3. **Cleaned on the phone first.** The existing `prepareHomePhoto` re-encode (fresh pixels, no metadata, 2 MB cap). The upload carries only the image and the official stop ID the rider is viewing. Never the rider's location.
+4. **Stored privately.** A Worker endpoint writes to a private R2 prefix `stop-photos/pending/` on Dale's existing Free Cloudflare account. Per-phone and per-day upload limits and a total storage cap stop it before any paid usage; at the cap, sharing says "not available right now". No new vendor and no image service.
+5. **Jeff approves each photo.** A private review page on the Worker, behind a secret Jeff sets in Cloudflare, shows pending photos with Approve and Delete. Approved photos move to `stop-photos/approved/` and are served with the stop ID only. Nothing is public before approval.
+6. **The rider can remove it.** The phone keeps a random removal code for each upload; "Remove my photo" deletes it from pending or approved. Jeff's Delete also removes it for good.
+7. **Tests:** metadata stripped (synthetic image with GPS EXIF), no upload without consent, limits and cap, pending never served, removal code works only for its own photo, Jeff's photo stays the default in English and Spanish.
+
+## Needs Jeff before building
+
+- OK to use a new private prefix in R2 within the Free plan (the existing `dale-history` approval covers history only).
+- Jeff sets the review page secret in Cloudflare himself.
+
+## How it ships
+
+Worker change, so it follows Dale's Worker deploy rules and gets a Codex code review (privacy, uploads, deleting data). Not live until a Worker deploy Jeff approves.
+
+Please flag: any path where a rider's location or identity could reach the server or other riders, any way a photo is visible before approval, and any way usage could reach a paid tier.
