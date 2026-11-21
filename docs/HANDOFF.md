@@ -30,11 +30,11 @@ Updated 2026-11-20. Repository `jwchr/dale`; public app https://jwchr.github.io/
 - Before 2026-11-22: which review path applies once CodeRabbit's free usage ends (D71).
 - Phone test on Jeff's and Diego's phones: install, save a commute, reverse it, open a trip from Port Authority, use it offline; also try the new optional settings (slogans, bilingual buttons, home photo) and a MyBus text draft without sending.
 - Whether the app should stay publicly reachable or be limited to the household.
-- Fare zones on the official schedule (#31 step 2): NJ Transit's schedule file has no fare data (#231). Today fares show only on the printed route 165 stops. Showing them on official stops would mean matching them to the printed zone list, which needs Jeff's OK.
 - Gate cards (GATE-02): photos and floor/escalator notes from Port Authority.
 - Optional: protect `main` on GitHub. Do not make the `test` check required as things stand: docs-only pull requests, drafts included, never start the workflow (D70), so a required `test` check would stay pending forever and block them. To require a check, first add an always-running gate job that passes for docs-only changes, and require that gate instead of `test`. A draft pull request that does start the workflow reports the skipped `test` job as passed.
 
 ## Next
+- Fares on official route 165 stops (#246, merged Nov 21, Codex: no findings): the Worker prep matches the printed zone map to official stops (today 153 stops one zone, 82 two, the rest none). Reaches riders with the next weekly rollover; then check a 165 fare on the live site in EN and ES.
 1. Weekly rollover before 2026-11-27: `qualify-enabled`, then `rollover-enabled` with the pins above. That deploy also turns on the public "How sure are we?" counts (#222); run `qualify-enabled` again right after it, since the new setting changes the rollback reference.
 2. Route distance part 2 (merged as #234, Codex: no findings): one unit factor per schedule file (NJ Transit's shapes are in feet, stop times in miles). It reaches the Worker with the next weekly rollover; then confirm the rollover log shows `matchedTrips` and `unitFactor`, and check a real ride's distance on the public site.
 3. Live trains (#80): live on the Worker since Nov 20; the Train board on the public site showed real LIVE departures on Nov 20.
