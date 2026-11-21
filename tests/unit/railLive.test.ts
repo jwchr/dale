@@ -33,7 +33,9 @@ describe('parseRailTime', () => {
 
 describe('railText', () => {
   it('decodes entities, strips tags and control characters, and bounds length', () => {
-    expect(railText('Newark Airport &#9992')).toBe('Newark Airport &#9992');
+    // NJ Transit sends the airplane without the closing semicolon (seen live Nov 20, 2026, #242).
+    expect(railText('LONG BRANCH -SEC &#9992')).toBe('LONG BRANCH -SEC ✈');
+    expect(railText('Newark Airport &#x2708 x')).toBe('Newark Airport ✈ x');
     expect(railText('Newark Airport &#9992;')).toBe('Newark Airport ✈');
     expect(railText('  <b>New&nbsp;York</b>\u0007 ')).toBe('New York');
     expect(railText(' ')).toBeNull();
