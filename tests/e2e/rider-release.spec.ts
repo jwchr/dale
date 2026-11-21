@@ -71,6 +71,6 @@ test('one local photo is held across navigation; failed image retains original a
 test('rail heading uses New York while station instructions retain New York Penn', async ({ page }) => {
   await page.goto('/?printed=1&now=2026-11-04T07:50'); await page.getByRole('button', { name: 'Train', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hackensack ↔ New York', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'NEW YORK', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.journey-direction .journey-end strong')).toHaveText(['HACKENSACK', 'NEW YORK']);
   await expect(page.locator('.journey-step')).toContainText('New York Penn');
 });

@@ -98,10 +98,14 @@ export function PennGuide({ t, demo = false, model, railOnly = false, api, lang 
       {state.mode === 'train' && <label>{j.station}<select value={state.station} onChange={(e) => select({ station: e.target.value as JourneyChecklist['station'] })}>
         {STATIONS.map((s) => <option key={s} value={s}>{j.stations[s]}</option>)}
       </select></label>}
-      <fieldset><legend className="sr-only">{j.direction}</legend><div className="choice-list">
-        <button className="chip" aria-pressed={state.direction === 'outbound'} onClick={() => select({ direction: 'outbound' })}>{j.outbound}</button>
-        <button className="chip" aria-pressed={state.direction === 'return'} onClick={() => select({ direction: 'return' })}>{j.returning}</button>
-      </div></fieldset>
+      {/* One flip arrow between the two ends, as on the Bus page (owner choice 2026-11-20, #113). */}
+      <div className="journey-direction" role="group" aria-label={j.direction}>
+        <span className="journey-end"><small>{t.commuteFrom}</small><strong>{state.direction === 'outbound' ? j.returning : j.outbound}</strong></span>
+        <button className="commute-reverse" aria-label={t.reverse} aria-pressed={state.direction === 'return'} onClick={() => select({ direction: state.direction === 'outbound' ? 'return' : 'outbound' })}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" /></svg>
+        </button>
+        <span className="journey-end"><small>{t.commuteToLabel}</small><strong>{state.direction === 'outbound' ? j.outbound : j.returning}</strong></span>
+      </div>
     </div>
     {state.mode === 'train' && <RailPreview station={state.station} direction={state.direction} t={t} live={live} lang={lang} now={clock} />}
     {state.mode === 'train' ? <>
