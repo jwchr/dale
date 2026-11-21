@@ -144,7 +144,7 @@ describe('hand-checked trip planner zones', () => {
   const entry = (over = {}) => ({ direction: 'toWestwood', name: 'ELM3 AVE AT MAIN ST', town: 'TOWN3', zone: 3, ...over });
   const file = (stops = [entry()]) => ({ source: 'Synthetic trip planner checks', checked: '20261121', stops });
   const apply = (ds: Dataset, checks = file()) => addZoneChecks(ds, checks) as {
-    ds: Dataset; report: Record<string, number>;
+    ds: Dataset; report: Record<string, number | boolean>;
   };
 
   it('narrows a two-zone band, keeps provenance, gives a single fare and passes dataset validation', () => {
@@ -157,8 +157,8 @@ describe('hand-checked trip planner zones', () => {
     expect(fareBetween(ds, 'R165', 'P1', 'A3')).toMatchObject({ zones: { min: 3, max: 3 }, adult: { min: 545, max: 545 } });
     expect(ds.publishedFares?.checked).toEqual({ source: checks.source, date: checks.checked });
     expect(parseDataset(JSON.parse(JSON.stringify(ds)))).toEqual(ds);
-    expect(report).toEqual({ entries: 1, applied: 1, narrowed: 1, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0 });
-    expect(Object.values(report).every((n) => Number.isInteger(n))).toBe(true);
+    expect(report).toEqual({ entries: 1, applied: 1, narrowed: 1, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0, stale: false });
+    expect(Object.entries(report).filter(([key]) => key !== 'stale').every(([, n]) => Number.isInteger(n))).toBe(true);
     expect(JSON.stringify(report)).not.toMatch(/A\d|M\d|P1|ELM|TOWN/);
   });
 
@@ -202,6 +202,67 @@ describe('hand-checked trip planner zones', () => {
     expect(report).toMatchObject({ applied: 0, unmatched: 2 });
   });
 
+  it('counts an unlabeled same-name stop as an ambiguous candidate in that direction', () => {
+    const before = run(official()).ds;
+    before.stops.push({ id: 'UNLABELED', name: 'ELM3 AVE AT MAIN ST' });
+    before.patterns[0]!.stopIds.push('UNLABELED');
+    const { ds, report } = apply(before);
+    expect(ds).toBe(before);
+    expect(zonesOf(ds).A3).toEqual([2, 3]);
+    expect(report).toMatchObject({ applied: 0, unmatched: 1, stale: false });
+  });
+
+  it('does not apply a check to a sole candidate without a verified city', () => {
+    const before = run(official()).ds;
+    delete before.stops.find((s) => s.id === 'A3')!.city;
+    const { ds, report } = apply(before);
+    expect(ds).toBe(before);
+    expect(zonesOf(ds).A3).toEqual([2, 3]);
+    expect(report).toMatchObject({ applied: 0, unmatched: 1 });
+  });
+
+  it('ignores a same-name stop verified in a different town', () => {
+    const before = run(official()).ds;
+    before.stops.push({ id: 'OTHER_TOWN', name: 'ELM3 AVE AT MAIN ST', city: 'TOWN4' });
+    before.patterns[0]!.stopIds.push('OTHER_TOWN');
+    const { ds, report } = apply(before);
+    expect(zonesOf(ds).A3).toEqual([3, 3]);
+    expect(report).toMatchObject({ applied: 1, unmatched: 0 });
+  });
+
+  it('returns a newer fare table unchanged when the checks are stale', () => {
+    const before = run(official()).ds;
+    before.publishedFares!.effective = '20270701';
+    const snapshot = structuredClone(before);
+    const { ds, report } = apply(before, { ...file(), checked: '20261121' });
+    expect(ds).toBe(before);
+    expect(ds).toEqual(snapshot);
+    expect(ds.publishedFares!.checked).toBeUndefined();
+    expect(report).toEqual({ entries: 1, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0, stale: true });
+  });
+
+  it.each(['20261101', '20261121'])('applies checks on or after the fare effective date (%s)', (checked) => {
+    const { ds, report } = apply(run(official()).ds, { ...file(), checked });
+    expect(zonesOf(ds).A3).toEqual([3, 3]);
+    expect(ds.publishedFares!.checked?.date).toBe(checked);
+    expect(report).toMatchObject({ applied: 1, stale: false });
+  });
+
+  it('does not stamp checked when every entry is unmatched', () => {
+    const before = run(official()).ds;
+    const { ds, report } = apply(before, file([entry({ name: 'MISSING STOP' }), entry({ town: 'MISSING TOWN' })]));
+    expect(ds).toBe(before);
+    expect(ds.publishedFares!.checked).toBeUndefined();
+    expect(report).toMatchObject({ applied: 0, disagree: 0, unmatched: 2, stale: false });
+  });
+
+  it('preserves previous provenance when a later check has no matches', () => {
+    const before = apply(run(official()).ds).ds;
+    const { ds } = apply(before, { ...file([entry({ name: 'MISSING STOP' })]), checked: '20261122' });
+    expect(ds).toBe(before);
+    expect(ds.publishedFares!.checked?.date).toBe('20261121');
+  });
+
   it('does not apply an inbound check to an outbound-only stop', () => {
     const base = official();
     base.patterns[1]!.stopIds = base.patterns[1]!.stopIds.filter((id) => id !== 'A3');
@@ -238,7 +299,8 @@ describe('hand-checked trip planner zones', () => {
       const { ds, report } = apply(before, file(stops));
       expect(zonesOf(ds).A3).toBeUndefined();
       expect(fareBetween(ds, 'R165', 'P1', 'A3')).toBeUndefined();
-      expect(report).toEqual({ entries: 2, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 1, unmatched: 0 });
+      expect(ds.publishedFares!.checked?.date).toBe('20261121');
+      expect(report).toEqual({ entries: 2, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 1, unmatched: 0, stale: false });
     }
     expect(zonesOf(before).A3).toEqual([2, 3]);
   });
@@ -258,7 +320,17 @@ describe('hand-checked trip planner zones', () => {
     if (before.publishedFares) before.publishedFares.matched = matched;
     const { ds, report } = apply(before);
     expect(ds).toBe(before);
-    expect(report).toEqual({ entries: 1, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0 });
+    expect(report).toEqual({ entries: 1, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0, stale: false });
+  });
+
+  it('never changes a New York stop listed in fares even without a terminal marker', () => {
+    const before = run(official()).ds;
+    before.publishedFares!.newYorkStopIds!.push('A3');
+    before.publishedFares!.stopZones.A3 = [1, 1];
+    const { ds, report } = apply(before);
+    expect(ds).toBe(before);
+    expect(zonesOf(ds).A3).toEqual([1, 1]);
+    expect(report).toMatchObject({ applied: 0, unmatched: 1 });
   });
 
   it.each([
@@ -274,6 +346,7 @@ describe('hand-checked trip planner zones', () => {
     [file([entry({ name: ' ' })]), /name/],
     [file([entry({ town: '' })]), /town/],
     [file([entry({ zone: 0 })]), /zone/],
+    [file([entry({ zone: 1 })]), /zone/],
     [file([entry({ zone: 2.5 })]), /zone/],
     [file([entry({ zone: '3' })]), /zone/],
     [file([entry(), entry({ name: ' elm3 ave at main st ', town: 'Town3 TWP' })]), /duplicate/],
@@ -290,6 +363,11 @@ describe('hand-checked trip planner zones', () => {
 });
 
 describe('fare zone label', () => {
+  it('identifies hand-checked zones and includes the date in English and Spanish', () => {
+    expect(strings.en.fareChecked('11/21/2026')).toBe("Some zones were checked by hand in NJ Transit's trip planner on 11/21/2026.");
+    expect(strings.es.fareChecked('21/11/2026')).toBe('Algunas zonas se comprobaron a mano en el planificador de viajes de NJ Transit el 21/11/2026.');
+  });
+
   it('says "or" for two adjacent counts and the whole range when a third is possible (CodeRabbit, #246)', () => {
     expect(strings.en.fareZones(3, 3)).toBe('3 zones');
     expect(strings.en.fareZones(2, 3)).toBe('2 or 3 zones');

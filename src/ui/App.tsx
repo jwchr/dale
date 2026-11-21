@@ -1454,7 +1454,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
           <div className="row-between"><span>{t.fareReduced}</span><strong>{money(fare.reduced)}</strong></div>
           {fare.zones.min !== fare.zones.max && <p className="warn small" role="note">{ds.publishedFares.matched ? t.fareBoundaryMatched : t.fareBoundary}</p>}
           <p className={atPabt ? 'warn small' : 'small'}>{atPabt ? t.fareAtPabt : t.fareCash}</p>
-          <p className="muted small">{t.fareNote(fmtYmd(ds.publishedFares.effective, ctx.lang))}{ds.publishedFares.matched ? ` ${t.fareMatched}` : ''}</p>
+          <p className="muted small">{t.fareNote(fmtYmd(ds.publishedFares.effective, ctx.lang))}{ds.publishedFares.matched ? ` ${t.fareMatched}` : ''}{ds.publishedFares.checked ? ` ${t.fareChecked(fmtYmd(ds.publishedFares.checked.date, ctx.lang))}` : ''}</p>
         </div>
       )}
 

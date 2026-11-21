@@ -350,6 +350,13 @@ test.describe('printed timetable data (route 165)', () => {
   });
 
   test('banner, wrong-side guard without coordinates, return trip with published gate', async ({ page }) => {
+    // Add synthetic check provenance to the existing fare fixture without changing published data.
+    await page.route('**/data/corridor.json', async (route) => {
+      const response = await route.fetch();
+      const ds = await response.json();
+      ds.publishedFares.checked = { source: 'Synthetic trip planner checks', date: '20261121' };
+      await route.fulfill({ response, json: ds });
+    });
     await page.goto('/?printed=1&now=2026-11-04T07:50');
     await expect(page.locator('.demo-banner')).toHaveCount(0);
     await expect(page.locator('.data-banner')).toHaveCount(0);
@@ -393,7 +400,13 @@ test.describe('printed timetable data (route 165)', () => {
     await expect(page.locator('.fare-card')).toContainText('fares effective 7/1/2026');
     await expect(page.locator('.fare-card')).not.toContainText('makes change');
     await expect(page.locator('.fare-card')).toContainText('you need a ticket or pass before you board');
+    await expect(page.locator('.fare-card')).toContainText("Some zones were checked by hand in NJ Transit's trip planner on 11/21/2026.");
+    await expect(page.locator('.fare-card')).not.toContainText('Synthetic trip planner checks');
     await page.screenshot({ path: 'test-results/printed-departure.png', fullPage: true });
+    await page.getByRole('button', { name: 'Household', exact: true }).click();
+    await page.getByRole('button', { name: 'Español' }).click();
+    await page.getByRole('button', { name: 'Atrás' }).click();
+    await expect(page.locator('.fare-card')).toContainText('Algunas zonas se comprobaron a mano en el planificador de viajes de NJ Transit el 21/11/2026.');
   });
 
   test("Thanksgiving: holiday warning at the top, in the timetable and on the trip", async ({ page }) => {

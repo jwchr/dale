@@ -148,27 +148,29 @@ export function addZoneChecks(ds, checks) {
   const entries = checks.stops.map((s, i) => {
     if (!DIRS.includes(s?.direction)) throw new Error(`Zone checks: stops[${i}].direction must be toWestwood or toNewYork`);
     if (!text(s.name) || !text(s.town)) throw new Error(`Zone checks: stops[${i}] name and town must be non-blank text`);
-    if (!Number.isSafeInteger(s.zone) || s.zone < 1) throw new Error(`Zone checks: stops[${i}].zone must be a whole number >= 1`);
+    if (!Number.isSafeInteger(s.zone) || s.zone < 2) throw new Error(`Zone checks: stops[${i}].zone must be a whole number >= 2`);
     const name = s.name.trim().toUpperCase(), city = town(s.town);
     const key = JSON.stringify([s.direction, name, city]);
     if (names.has(key)) throw new Error(`Zone checks: duplicate entry at stops[${i}]`);
     names.add(key);
     return { direction: s.direction, name, town: city, zone: s.zone };
   });
-  const report = { entries: entries.length, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0 };
   const f = ds.publishedFares;
-  if (f?.matched !== true) return { ds, report };
+  const report = { entries: entries.length, applied: 0, narrowed: 0, filled: 0, same: 0, conflicts: 0, disagree: 0, unmatched: 0,
+    stale: !!f && date < f.effective };
+  if (report.stale || f?.matched !== true) return { ds, report };
 
   const pabt = new Set(ds.stops.filter((s) => s.terminal === 'PABT').map((s) => s.id));
+  const excluded = new Set([...pabt, ...(f.newYorkStopIds ?? [])]);
   const patterns = ds.patterns.filter((p) => f.routeIds?.includes(p.routeId));
   const dirOf = directionsOf(patterns, pabt);
   const served = Object.fromEntries(DIRS.map((dir) => [dir, new Set(patterns.filter((p) => dirOf.get(dirKey(p)) === dir).flatMap((p) => p.stopIds))]));
   const answers = new Map();
   for (const entry of entries) {
-    const hits = new Set(ds.stops.filter((s) => !pabt.has(s.id) && served[entry.direction].has(s.id)
-      && s.name.trim().toUpperCase() === entry.name && s.city && town(s.city) === entry.town).map((s) => s.id));
-    if (hits.size !== 1) { report.unmatched++; continue; }
-    const [id] = hits;
+    const hits = ds.stops.filter((s) => !excluded.has(s.id) && served[entry.direction].has(s.id)
+      && s.name.trim().toUpperCase() === entry.name && (!text(s.city) || town(s.city) === entry.town));
+    if (hits.length !== 1 || !text(hits[0].city) || town(hits[0].city) !== entry.town) { report.unmatched++; continue; }
+    const { id } = hits[0];
     if (!answers.has(id)) answers.set(id, new Set());
     answers.get(id).add(entry.zone);
   }
@@ -185,5 +187,6 @@ export function addZoneChecks(ds, checks) {
     stopZones[id] = [zone, zone];
     report.applied++;
   }
+  if (report.applied === 0 && report.disagree === 0) return { ds, report };
   return { ds: { ...ds, publishedFares: { ...f, stopZones, checked: { source: checks.source, date } } }, report };
 }

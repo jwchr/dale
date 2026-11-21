@@ -75,7 +75,8 @@ try {
       const checks = addZoneChecks(ds, JSON.parse(readFileSync(checksFile, 'utf8')));
       ds = checks.ds;
       const r = checks.report;
-      console.log(`Trip planner zone checks: entries ${r.entries}, applied ${r.applied}, narrowed ${r.narrowed}, filled ${r.filled}, same ${r.same}, conflicts ${r.conflicts}, disagree ${r.disagree}, unmatched ${r.unmatched}.`);
+      if (r.stale) console.log('Trip planner zone checks: stale, not applied.');
+      else console.log(`Trip planner zone checks: entries ${r.entries}, applied ${r.applied}, narrowed ${r.narrowed}, filled ${r.filled}, same ${r.same}, conflicts ${r.conflicts}, disagree ${r.disagree}, unmatched ${r.unmatched}.`);
     } else console.log('Trip planner zone checks: no checks present.');
     console.log(`Verified stop city labels: ${ds.stops.filter(s => s.city).length}/${ds.stops.length}. Missing or conflicting labels remain unknown.`);
   }
