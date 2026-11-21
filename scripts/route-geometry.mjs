@@ -226,12 +226,13 @@ function derive(files, ds, sourceSHA256, counts, bump) {
     candidates.push({ source, shape, pattern, calls });
   }
   // One unit factor for the whole file (stop_times measure x factor = shapes measure), chosen by the unchanged strict
-  // per-trip check. Same units win any tie; another factor only when it matches more trips and at least 90% of them.
+  // per-trip check. Same units win any tie. Bad mappings must not veto a conversion for valid trips;
+  // every trip still has to pass the full check with the single chosen factor before it is included.
   let chosen = 0;
   if (candidates.length) {
     const matches = UNIT_FACTORS.map(factor => candidates.filter(c => !checkTrip(c, stops, factor).rejected).length);
     for (let i = 1; i < UNIT_FACTORS.length; i++) {
-      if (matches[i] > matches[chosen] && matches[i] >= candidates.length * 0.9) chosen = i;
+      if (matches[i] > matches[chosen]) chosen = i;
     }
     counts.unitFactor = chosen + 1;
   }
