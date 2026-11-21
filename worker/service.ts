@@ -12,6 +12,9 @@ import { HistoryArchive, type HistoryBucket } from './history-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
 import { ArrivalConfidence } from './arrival-confidence';
+import { EarlierBuses } from './earlier-buses';
+import { OwnerHistory, OWNER_HISTORY_PATH, ownerAuthorization, ownerQuery } from './owner-history';
+import { parseEarlierQuery } from '../src/domain/earlierBuses';
 import { ArrivalBackfill, type ArchiveReader } from './arrival-backfill';
 import { parseConfidenceQuery } from '../src/domain/arrivalConfidence';
 interface Storage extends Partial<HistoryStorage> {
@@ -19,7 +22,7 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -44,6 +47,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private rail: RailBoards;
     /** "How sure are we?" aggregates (#91): derived counts only, folded from the private hot batches. */
     private confidence?: ArrivalConfidence;
+    private earlier?: EarlierBuses;
     private backfill?: ArrivalBackfill;
     /**
      * When history collection's own alarm is due: exactly the time the alarm would hold with no ride. Ride
@@ -75,7 +79,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           catch { this.rides = undefined; }
           try {
             const contextKey = await historyContextKey(ds);
-            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, contextKey);
+            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, contextKey, env.EARLIER_BUSES === 'public');
+            if (env.EARLIER_BUSES === 'public') {
+              try { this.earlier = new EarlierBuses(ctx.storage as HistoryStorage, ds, contextKey); } catch { /* unavailable */ }
+            }
             // Derived aggregates never stop collection: a failure here only leaves the endpoint unavailable.
             try {
               this.confidence = new ArrivalConfidence(ctx.storage as HistoryStorage, ds, contextKey);
@@ -172,6 +179,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.journal?.pruneVerified(clock());
           // Derived work last, from spare write margin only; it never throws into collection.
           const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
+          try { this.earlier?.fold(clock(), spare); } catch { /* independent derived work */ }
           try { this.confidence?.fold(clock(), spare); } catch { /* counted inside */ }
           try { if (this.archive) await this.backfill?.step(clock(), spare); } catch { /* counted inside */ }
         }
@@ -280,6 +288,19 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       await this.ctx.storage.put('state-v1', this.saved);
     }
     async fetch(request: Request): Promise<Response> {
+      if (new URL(request.url).pathname === OWNER_HISTORY_PATH) {
+        const denied = await ownerAuthorization(request, this.env.OWNER_HISTORY_SECRET);
+        if (denied) return denied;
+        const headers = { 'cache-control': 'private, no-store', 'vary': 'Authorization' };
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers });
+        const query = ownerQuery(new URL(request.url));
+        if (!query) return new Response('Invalid query', { status: 400, headers });
+        await this.ready;
+        if (!this.journal || !this.ctx.storage.sql || !this.ctx.storage.transactionSync) return new Response('History unavailable', { status: 503, headers });
+        const bucket = this.env.HISTORY_ARCHIVE as unknown as Partial<ArchiveReader> | undefined;
+        return new OwnerHistory(this.ctx.storage as HistoryStorage, typeof bucket?.list === 'function' && typeof bucket.get === 'function' ? bucket as ArchiveReader : undefined)
+          .read(query, clock(), (units, at) => this.journal!.reserveSpareWrites(units, at, 2500));
+      }
       await this.ready;
       const url = new URL(request.url);
       // Ride alert routes never trigger a demand refresh; the alarm polls for active rides.
@@ -294,6 +315,16 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           alarmAt: await this.ctx.storage.getAlarm?.() ?? null, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
+      }
+      if (url.pathname === '/v1/earlier-buses') {
+        if (this.env.EARLIER_BUSES !== 'public') return new Response('Not found', { status: 404 });
+        const query = parseEarlierQuery(url.searchParams, ds);
+        if (!query) return Response.json({ v: 1, error: 'invalid' }, { status: 400 });
+        try {
+          const answer = this.earlier?.answer(query, clock());
+          if (answer) return Response.json(answer, { headers: { 'cache-control': 'no-store' } });
+        } catch { /* unknown stays unknown */ }
+        return Response.json({ v: 1, state: 'unavailable' }, { status: 503 });
       }
       // Aggregates only, from SQLite. Never a demand refresh or an NJ Transit request.
       if (url.pathname === '/v1/arrival-confidence') {
@@ -379,6 +410,19 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
       const origin = request.headers.get('origin'), url = new URL(request.url);
       const headers = new Headers({ 'access-control-allow-origin': 'https://jwchr.github.io', 'vary': 'Origin', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       const reply = (body: string | null, status = 200) => new Response(body, { status, headers });
+      if (url.pathname === OWNER_HISTORY_PATH) {
+        // Owner scripts only: no browser CORS grant, token URL, demand poll or public caching.
+        const denied = await ownerAuthorization(request, env.OWNER_HISTORY_SECRET);
+        if (denied) return denied;
+        const privateHeaders = { 'cache-control': 'private, no-store', 'vary': 'Authorization', 'x-content-type-options': 'nosniff' };
+        if (origin) return new Response('Origin not allowed', { status: 403, headers: privateHeaders });
+        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: privateHeaders });
+        if (!ownerQuery(url)) return new Response('Invalid query', { status: 400, headers: privateHeaders });
+        try {
+          const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(new Request(request.url, { headers: { authorization: request.headers.get('authorization')! } }));
+          return new Response(response.body, { status: response.status, headers: { ...privateHeaders, 'content-type': 'application/json' } });
+        } catch { return new Response('History unavailable', { status: 503, headers: privateHeaders }); }
+      }
       if (origin && origin !== 'https://jwchr.github.io') return reply('Origin not allowed', 403);
       if (request.method === 'OPTIONS') {
         headers.set('access-control-allow-methods', 'GET, POST, DELETE'); headers.set('access-control-allow-headers', 'content-type'); headers.set('access-control-max-age', '600');
@@ -426,6 +470,15 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
         headers.set('content-type', 'application/json');
         headers.set('cache-control', 'public, max-age=300');
         return reply(geometry);
+      }
+      if (url.pathname === '/v1/earlier-buses') {
+        if (env.EARLIER_BUSES !== 'public') return reply('Not found', 404);
+        if (request.url.length > 512 || !parseEarlierQuery(url.searchParams, ds)) return reply('Invalid earlier buses query', 400);
+        try {
+          const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(request);
+          headers.set('content-type', 'application/json');
+          return reply(await response.text(), response.status);
+        } catch { return reply('Earlier buses unavailable', 503); }
       }
       if (url.pathname === '/v1/arrival-confidence') {
         // Read-only aggregates (docs/ARRIVAL_CONFIDENCE.md). Strict input; no upstream call is possible on this path.

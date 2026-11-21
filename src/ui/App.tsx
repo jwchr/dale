@@ -51,6 +51,7 @@ import { TicketGuide } from './TicketGuide';
 import { DEFAULT_SKIN, HOUSEHOLD_LOOK, SKINS, SkinBackdrop, type Skin } from './SkinBackdrop';
 import { BusLockPanel } from './BusLockPanel';
 import { HowSure } from './HowSure';
+import { EarlierBuses } from './EarlierBuses';
 import { liveApiUrl } from '../domain/liveBus';
 import { loadLiveSchedule } from '../data/liveSchedule';
 import { useLiveBus } from './useLiveBus';
@@ -991,6 +992,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           {leg && to && <button type="button" className="dash-fullday dash-rescue rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>
             <RescueIcon /><span><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></span><ArrowRight /></button>}
         </section>
+        {leg && <EarlierBuses ds={ds} stop={leg.fromStopId} toStop={leg.toStopId} routeIds={leg.routeIds} lang={ctx.lang} now={now} api={LIVE_API} />}
         {leg && next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next.d} toStopId={leg.toStopId} gps={dash.gps(next.d, leg.toStopId)} onDetails={() => onDeparture(next.d, leg)} />}
         {dash.guidance}
         <section className="dash-panel dash-trip" aria-label={d.yourTrip}>
@@ -1021,6 +1023,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             </ul>
           )}
           {extras}
+          {leg && <EarlierBuses ds={ds} stop={leg.fromStopId} toStop={leg.toStopId} routeIds={leg.routeIds} lang={ctx.lang} now={now} api={LIVE_API} />}
           {leg && <div className="row-between card-foot">
             <button className="link" onClick={() => onAllDay(leg, title)}>{t.allDay} →</button>
             {deps.length > 0 && <span className="muted small tap-hint">{t.tapHint}</span>}
@@ -1129,6 +1132,7 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
       })}</ul>}
       <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, `${ctx.stopName(leg.fromStopId)} → ${place}`)}><BusIcon /><span>{r.fullDayFor(town)}</span><ArrowRight /></button>
     </section>
+    <EarlierBuses ds={ds} stop={leg.fromStopId} toStop={leg.toStopId} routeIds={shownRoutes} lang={ctx.lang} now={now} api={LIVE_API} />
     {next && <HomeConnection ds={ds} t={t} lang={ctx.lang} now={now} dep={next} toStopId={leg.toStopId} onDetails={() => onDeparture(next, leg)} />}
     <GuidanceBanner t={t} onOpen={onGuide} />
   </>;
@@ -1424,6 +1428,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
         keepAwake={keepAwake} onKeepAwake={onKeepAwake} onEvent={onLockEvent} onAdvanceDemo={onAdvanceDemo} onUnlock={onUnlock}
         gateText={(o) => { const g = departureGate(ds, o.dep); return g && gateLine(t, g); }}
         badge={(routeId) => <RouteBadge ds={ds} routeId={routeId} />} onOpenBackup={onOpenBackup} onAlternatives={onRescue} onPenn={onPenn} />}
+      <EarlierBuses ds={ds} stop={dep.pattern.stopIds[dep.stopIndex]!} direction={dep.pattern.directionId} routeIds={[dep.route.id]} lang={ctx.lang} now={ctx.now} api={LIVE_API} />
       {busSession && <HowSure ds={ds} dep={busSession.departure} lang={ctx.lang} api={LIVE_API} />}
       <button className="boarding-open" onClick={onBoarding}>{t.boarding.open}</button>
       <div className="card trip-ticket">

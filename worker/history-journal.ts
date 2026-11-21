@@ -59,7 +59,7 @@ const initial = (now: number): JournalState => ({ v: 1, enabled: false, reason: 
 export class HistoryJournal {
   private readonly select;
   private readonly feedVersion: string;
-  constructor(private readonly storage: HistoryStorage, private readonly ds: Dataset, private readonly contextKey: string) {
+  constructor(private readonly storage: HistoryStorage, private readonly ds: Dataset, private readonly contextKey: string, private readonly keepPredictions = false) {
     this.select = createHistorySelector(ds);
     this.feedVersion = ds.meta.feedVersion;
     storage.sql.exec('CREATE TABLE IF NOT EXISTS dale_history_meta (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)');
@@ -205,11 +205,11 @@ export class HistoryJournal {
         updateFeedState: updates?.feed.state ?? 'unavailable', updateGeneratedAt: updates?.feed.timestamp,
         duplicates: selected.duplicates, rejected: selected.rejected, conflicts: selected.conflicts, outOfOrder: selected.outOfOrder };
       // Preserve known cancellations/skips and their source clock as context,
-      // separately from GPS evidence. Do not archive predicted arrival times.
+      // separately from GPS evidence. #250 optionally retains bounded normalized predictions too.
       const tripChanges = updates?.feed.state === 'ok' && updates.feed.timestamp !== undefined
         && updates.feed.timestamp <= receivedAt && receivedAt - updates.feed.timestamp <= LIVE_MAX_AGE_MS
         ? updates.updates.filter(u => u.observedAt <= receivedAt && receivedAt - u.observedAt <= LIVE_MAX_AGE_MS)
-          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, cancelled: u.cancelled, skippedStops: [...u.skippedStops] })) : [];
+          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, cancelled: u.cancelled, skippedStops: [...u.skippedStops], ...(this.keepPredictions ? { predictions: u.predictions.map(p => ({ stopIndex: p.stopIndex, at: p.at, observedAt: p.observedAt, kind: p.kind })) } : {}) })) : [];
       let records = selected.records;
       const census = (feed.presence ?? []).map(p => ({ vehicleId: p.vehicleId, tripId: p.tripId, tripInstanceId: p.tripInstanceId, routeId: p.routeId,
         observedAt: p.observedAt, qualification: p.qualification }));
