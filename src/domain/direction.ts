@@ -1,4 +1,5 @@
 import type { Dataset, Stop } from './types';
+import { boardIndex, placeIndex } from './place.ts';
 
 /** Great-circle distance in meters. */
 export function distanceM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -25,8 +26,8 @@ export function twinOf(ds: Dataset, stop: Stop): Stop | undefined {
 export function reaches(ds: Dataset, fromStopId: string, toStopId: string, routeIds?: string[]): boolean {
   return ds.patterns.some((p) => {
     if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) return false;
-    const i = p.stopIds.indexOf(fromStopId);
-    const j = p.stopIds.indexOf(toStopId);
+    const i = boardIndex(ds, p, fromStopId);
+    const j = i < 0 ? -1 : placeIndex(ds, p, toStopId, i + 1);
     return i >= 0 && j > i && !p.noPickup?.includes(i) && !p.noDropOff?.includes(j);
   });
 }
@@ -90,10 +91,12 @@ function reachableFrom(ds: Dataset, fromStopId: string, routeIds?: string[]): Se
   for (const p of ds.patterns) {
     if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) continue;
     // Like `reaches`, only the first time a pattern lists a stop counts (loop routes list some stops twice).
-    const i = p.stopIds.indexOf(fromStopId);
+    const i = boardIndex(ds, p, fromStopId);
     if (i < 0 || p.noPickup?.includes(i)) continue;
     p.stopIds.forEach((to, j) => { if (j > i && p.stopIds.indexOf(to) === j && !p.noDropOff?.includes(j)) out.add(to); });
   }
+  // Reaching one Port Authority stop reaches Port Authority (src/domain/place.ts).
+  if (ds.stops.some((s) => s.terminal === 'PABT' && out.has(s.id))) for (const s of ds.stops) if (s.terminal === 'PABT') out.add(s.id);
   return out;
 }
 

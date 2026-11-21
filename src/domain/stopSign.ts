@@ -1,4 +1,5 @@
 import type { Dataset } from './types';
+import { boardIndex, placeIndex } from './place';
 import { localYmd } from './time';
 
 export const STOP_SCENES = ['spring-clear', 'spring-rain', 'summer-clear', 'summer-storm', 'autumn-clear', 'autumn-mist', 'winter-clear', 'winter-snow'] as const;
@@ -19,7 +20,7 @@ export function resolveStopScene(choice: StopSceneChoice, now: number): StopScen
 /** Only routes with ordinary boarding and later ordinary alighting for this exact saved leg. */
 export function stopSignRoutes(ds: Dataset, fromId: string, toId: string, routeIds: string[]): string[] {
   const served = new Set(ds.patterns.filter(p => {
-    const from = p.stopIds.indexOf(fromId), to = p.stopIds.indexOf(toId);
+    const from = boardIndex(ds, p, fromId), to = from < 0 ? -1 : placeIndex(ds, p, toId, from + 1);
     return from >= 0 && to > from && !p.noPickup?.includes(from) && !p.noDropOff?.includes(to)
       && (!routeIds.length || routeIds.includes(p.routeId));
   }).map(p => p.routeId));
@@ -72,12 +73,12 @@ export function stopSignLines(ds: Dataset, fromId: string, toId: string, routeId
   const stops = new Map(ds.stops.map(s => [s.id, s]));
   const lines = new Map<string, SignLine>();
   for (const p of ds.patterns) {
-    const from = p.stopIds.indexOf(fromId), lastId = p.stopIds.at(-1);
+    const from = boardIndex(ds, p, fromId), lastId = p.stopIds.at(-1);
     if (from < 0 || from >= p.stopIds.length - 1 || p.noPickup?.includes(from) || !lastId) continue;
     const route = routeName.get(p.routeId), last = stops.get(lastId);
     if (!route || !last) continue;
     const text = `${route} To ${last.terminal === 'PABT' ? 'New York' : last.name}`;
-    const to = p.stopIds.indexOf(toId, from + 1);
+    const to = placeIndex(ds, p, toId, from + 1);
     const yours = to > from && !p.noDropOff?.includes(to) && (!routeIds.length || routeIds.includes(p.routeId));
     const line = lines.get(text) ?? { route, text, yours: false };
     line.yours ||= yours;

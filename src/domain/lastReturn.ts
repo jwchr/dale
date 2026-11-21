@@ -1,6 +1,7 @@
 // A return-plan calculation, not a promise of the last operating bus. Keep the published
 // service-day boundary visible and show the following departure whenever it is known.
 import { returnLeg } from './direction';
+import { boardIndex, placeIndex } from './place';
 import { isNjtHoliday } from './holidays';
 import { departuresOn, tripStopTimes } from './schedule';
 import { addDays, localYmd, parseYmd, zonedWallTime } from './time';
@@ -52,7 +53,7 @@ export function lastReturn(ds: Dataset, outbound: Departure, toStopId: string): 
   const base = { routeId: outbound.route.id, serviceDate: outbound.serviceDate };
   const limitations: LastReturnLimitation[] = ['schedule_only', 'same_line_only', 'service_day_boundary'];
   const homeStopId = outbound.pattern.stopIds[outbound.stopIndex];
-  const toIndex = outbound.pattern.stopIds.indexOf(toStopId);
+  const toIndex = placeIndex(ds, outbound.pattern, toStopId, outbound.stopIndex + 1);
   if (ds.stops.find((s) => s.id === toStopId)?.terminal !== 'PABT' || toIndex <= outbound.stopIndex) {
     return { ...base, status: 'not_applicable', limitations: [...limitations, 'not_outbound_to_pabt'] };
   }
@@ -95,7 +96,7 @@ export function lastReturn(ds: Dataset, outbound: Departure, toStopId: string): 
 
   // Validate availability for the line/stop pair, not a different route's far-future calendar.
   const patterns = new Set(ds.patterns.filter((p) => p.routeId === outbound.route.id
-    && p.stopIds.indexOf(leg.fromStopId) >= 0 && p.stopIds.indexOf(leg.toStopId) > p.stopIds.indexOf(leg.fromStopId)).map((p) => p.id));
+    && boardIndex(ds, p, leg.fromStopId) >= 0 && placeIndex(ds, p, leg.toStopId, boardIndex(ds, p, leg.fromStopId) + 1) >= 0).map((p) => p.id));
   const serviceIds = [...new Set(ds.trips.filter((t) => patterns.has(t.patternId)).map((t) => t.serviceId))];
   const calendars = serviceIds.map((id) => ds.calendars[id]);
   if (!serviceIds.length || calendars.some((c) => !c)) limitations.push('calendar_missing');

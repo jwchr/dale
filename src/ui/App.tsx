@@ -22,6 +22,7 @@ import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, rem
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
+import { placeIndex } from '../domain/place';
 import { gateFor, type GateAnswer } from '../domain/gate';
 import { isNjtHoliday } from '../domain/holidays';
 import { createBusSession, reduceBusSession, type BusSession, type BusSessionEvent } from '../domain/busLock';
@@ -407,7 +408,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   useEffect(() => {
     setActiveLock(current => {
       if (!current) return current;
-      const index = current.dep.pattern.stopIds.indexOf(current.leg.toStopId, current.dep.stopIndex + 1);
+      const index = placeIndex(ds, current.dep.pattern, current.leg.toStopId, current.dep.stopIndex + 1);
       const arrival = observedDestinationArrival(ds, current.session, index, lockNow);
       return arrival ? { ...current, session: reduceBusSession(current.session, { type: 'destination_arrival', arrival, now: lockNow }) } : current;
     });
@@ -422,7 +423,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
   const liveBus = useLiveBus(ds, activeLock?.session, LIVE_API, lockNow, lockEvent);
   // Locked-phone stop alerts (#176 step C): the server ride follows this lock and ends with it.
   useLockedRideAlerts({ api: LIVE_API, demo: !!ds.meta.demo, realtime: liveMode && ds.meta.realtime?.provider === 'njt-bus-g2', lang: settings.lang,
-    session: activeLock?.session, alightIndex: activeLock ? activeLock.dep.pattern.stopIds.indexOf(activeLock.leg.toStopId, activeLock.dep.stopIndex + 1) : -1,
+    session: activeLock?.session, alightIndex: activeLock ? placeIndex(ds, activeLock.dep.pattern, activeLock.leg.toStopId, activeLock.dep.stopIndex + 1) : -1,
     heldSessionId: resumable?.session.id });
   useEffect(() => {
     setActiveLock((current) => {
@@ -656,7 +657,7 @@ function dataNotice(ds: Dataset, t: Strings): string {
 }
 
 function arrivalAt(ds: Dataset, d: Departure, stopId: string): { at: number; estimated: boolean } | undefined {
-  const i = d.pattern.stopIds.indexOf(stopId);
+  const i = placeIndex(ds, d.pattern, stopId, d.stopIndex + 1);
   const trip = ds.trips.find(x => x.id === d.tripId), at = trip && i > d.stopIndex ? tripArrivalAt(ds, trip, d.serviceDate, i) : undefined;
   return at === undefined ? undefined : { at, estimated: ds.meta.demo || ds.meta.transcribed ? !!trip?.estimated?.includes(i) : false };
 }
@@ -686,16 +687,16 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
     return { leg, set: leg ? upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count) : { ahead: [], candidates: [] } };
   }), [favorites, reversedIds, ds, now, count]);
   // One browser batch/poll for all cards; the private relay still fetches NJ Transit globally once.
-  const requests = models.flatMap(m => m.leg ? m.set.candidates.map(d => requestFor(d, m.leg!.toStopId)) : []);
+  const requests = models.flatMap(m => m.leg ? m.set.candidates.map(d => requestFor(ds, d, m.leg!.toStopId)) : []);
   const live = useLiveDepartures(ds, requests, LIVE_API, now);
   const distanceFor = useDepartureDistances(ds, LIVE_API, requests, live?.batch, now);
   const reports = new Map(live?.batch?.items.map(item => [departureKey(item.query), item]));
   const evidence = (d: Departure, toStopId: string): DepartureEvidence | undefined => !live ? undefined
     : live.state !== 'available' ? { kind: live.state === 'checking' ? 'checking' : 'unavailable' }
-    : departureEvidence(live.batch, reports.get(departureKey(requestFor(d, toStopId))), now);
+    : departureEvidence(live.batch, reports.get(departureKey(requestFor(ds, d, toStopId))), now);
   // The next bus's own GPS for the home map: only the position the live check validated for this exact trip, and only while fresh.
   const gpsFor = (d: Departure, toStopId: string): VehicleObservation | undefined => {
-    const item = reports.get(departureKey(requestFor(d, toStopId))), seen = evidence(d, toStopId)?.gpsObservedAt;
+    const item = reports.get(departureKey(requestFor(ds, d, toStopId))), seen = evidence(d, toStopId)?.gpsObservedAt;
     return seen !== undefined && item?.gps?.observedAt === seen ? item.gps : undefined;
   };
   if (!favorites.length && printedCommutes.length && onFind) {
@@ -721,7 +722,7 @@ function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed
     );
   }
   // Keyed by favorite, so a half-typed rename never carries over to a different trip after a reorder.
-  const card = (f: Favorite, i: number, dash?: DashboardParts) => <FavoriteCard key={f.id} ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
+  const card = (f: Favorite, i: number, dash?: DashboardParts) => <FavoriteCard key={f.id} ctx={ctx} fav={f} count={count} model={models[i]!.set} liveEnabled={!!live} evidence={evidence} distance={d => distanceFor(requestFor(ds, d, models[i]!.leg!.toStopId))} editing={editing} rev={reversedIds.has(f.id)} onReverse={() => toggleReversed(f.id)} first={i === 0} last={i === favorites.length - 1}
     onMove={(dlt) => setFavorites((l) => moveFavorite(l, f.id, dlt))}
     onRemove={() => setFavorites((l) => removeFavorite(l, f.id))}
     onRename={(name) => setFavorites((l) => renameFavorite(l, f.id, name))}
@@ -1388,7 +1389,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   const { ds, t, stopName } = ctx;
   const times = tripStopTimes(ds, dep);
   // Search after the boarding stop: on a loop pattern the destination can also appear earlier.
-  const alightIndex = dep.pattern.stopIds.indexOf(leg.toStopId, dep.stopIndex + 1);
+  const alightIndex = placeIndex(ds, dep.pattern, leg.toStopId, dep.stopIndex + 1);
   const boardStop = ds.stops.find((s) => s.id === dep.pattern.stopIds[dep.stopIndex]);
   const scheduledArrival = arrivalAt(ds, dep, leg.toStopId);
   const alightStop = alightIndex > dep.stopIndex ? ds.stops.find((s) => s.id === dep.pattern.stopIds[alightIndex]) : undefined;
