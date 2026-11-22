@@ -292,9 +292,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         const denied = await ownerAuthorization(request, this.env.OWNER_HISTORY_SECRET);
         if (denied) return denied;
         const headers = { 'cache-control': 'private, no-store', 'vary': 'Authorization' };
-        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers });
+        if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
         const query = ownerQuery(new URL(request.url));
-        if (!query) return new Response('Invalid query', { status: 400, headers });
+        if (!query) return Response.json({ error: 'Invalid query' }, { status: 400, headers });
         await this.ready;
         if (!this.journal || !this.ctx.storage.sql || !this.ctx.storage.transactionSync) return Response.json({ error: 'history-unavailable' }, { status: 503, headers });
         const bucket = this.env.HISTORY_ARCHIVE as unknown as Partial<ArchiveReader> | undefined;
@@ -415,13 +415,13 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
         const denied = await ownerAuthorization(request, env.OWNER_HISTORY_SECRET);
         if (denied) return denied;
         const privateHeaders = { 'cache-control': 'private, no-store', 'vary': 'Authorization', 'x-content-type-options': 'nosniff' };
-        if (origin) return new Response('Origin not allowed', { status: 403, headers: privateHeaders });
-        if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: privateHeaders });
-        if (!ownerQuery(url)) return new Response('Invalid query', { status: 400, headers: privateHeaders });
+        if (origin) return Response.json({ error: 'Origin not allowed' }, { status: 403, headers: privateHeaders });
+        if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: privateHeaders });
+        if (!ownerQuery(url)) return Response.json({ error: 'Invalid query' }, { status: 400, headers: privateHeaders });
         try {
           const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(new Request(request.url, { headers: { authorization: request.headers.get('authorization')! } }));
           return new Response(response.body, { status: response.status, headers: { ...privateHeaders, 'content-type': 'application/json' } });
-        } catch { return new Response('History unavailable', { status: 503, headers: privateHeaders }); }
+        } catch { return Response.json({ error: 'History unavailable' }, { status: 503, headers: privateHeaders }); }
       }
       if (origin && origin !== 'https://jwchr.github.io') return reply('Origin not allowed', 403);
       if (request.method === 'OPTIONS') {

@@ -25,7 +25,7 @@ export function ownerQuery(url: URL): OwnerQuery | undefined {
 }
 /** Verify with WebCrypto rather than prefix-sensitive string equality. No credential is returned or logged. */
 export async function ownerAuthorization(request: Request, secret?: string): Promise<Response | undefined> {
-  const deny = (status: number) => new Response(status === 404 ? 'Not found' : 'Unauthorized', { status,
+  const deny = (status: number) => Response.json({ error: status === 404 ? 'Not found' : 'Unauthorized' }, { status,
     headers: { 'cache-control': 'private, no-store', 'vary': 'Authorization', 'x-content-type-options': 'nosniff' } });
   if (!secret) return deny(404);
   const supplied = request.headers.get('authorization') ?? '';

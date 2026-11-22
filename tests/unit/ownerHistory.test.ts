@@ -28,6 +28,57 @@ const record = { route: '165', source: 'NJ Transit', observation: { tripInstance
 const batch = { v: 1, receivedAt: NOW, records: [record, { ...record, route: '999' }], rider: 'MUST-NOT-APPEAR', quality: { feedState: 'ok', rider: 'MUST-NOT-APPEAR' } };
 const request = (token?: string, query = '', method = 'GET') => new Request(`https://owner.test${OWNER_HISTORY_PATH}${query}`, { method, headers: token ? { authorization: `Bearer ${token}` } : {} });
 
+async function expectPrivateError(response: Response, status: number, error: string) {
+  expect(response.status).toBe(status);
+  expect(response.headers.get('content-type')).toContain('application/json');
+  expect(await response.json()).toEqual({ error });
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
+  expect(response.headers.get('vary')).toBe('Authorization');
+  expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(response.headers.has('access-control-allow-origin')).toBe(false);
+}
+
+it.each([
+  ['', 'POST', 405, 'Method not allowed'],
+  ['?token=PRIVATE-REQUEST-DETAIL', 'GET', 400, 'Invalid query'],
+] as const)('passes the Durable Object %s %s error through as private JSON', async (query, method, status, error) => {
+  const { storage } = harness(), secret = randomUUID();
+  const Feed = createFeedClass(ds, (async () => { throw Error('must not poll'); }) as typeof fetch, () => NOW);
+  const object = new Feed({ storage, blockConcurrencyWhile: async <T,>(cb: () => Promise<T>) => cb() }, { OWNER_HISTORY_SECRET: secret } as never);
+  let forwarded = 0;
+  // Exercise the object's own guards behind a valid router request.
+  const response = await createRouter(ds).fetch(request(secret), { OWNER_HISTORY_SECRET: secret,
+    FEED: { idFromName: () => 'corridor', get: () => ({ fetch: async () => {
+      forwarded++;
+      const result = await object.fetch(request(secret, query, method));
+      expect(result.headers.get('content-type')).toContain('application/json');
+      return result;
+    } }) } } as never);
+  expect(forwarded).toBe(1);
+  await expectPrivateError(response, status, error);
+});
+
+it.each([
+  ['disabled', 404, 'Not found'],
+  ['unauthorized', 401, 'Unauthorized'],
+  ['origin', 403, 'Origin not allowed'],
+  ['method', 405, 'Method not allowed'],
+  ['query', 400, 'Invalid query'],
+  ['unavailable', 503, 'History unavailable'],
+] as const)('returns a private JSON router error when %s', async (kind, status, error) => {
+  const secret = randomUUID(); let forwarded = 0;
+  const req = request(kind === 'unauthorized' ? 'PRIVATE-WRONG-TOKEN' : secret,
+    kind === 'query' ? '?token=PRIVATE-REQUEST-DETAIL' : '', kind === 'method' ? 'POST' : 'GET');
+  if (kind === 'origin') req.headers.set('origin', 'https://private-origin.test');
+  const response = await createRouter(ds).fetch(req, { OWNER_HISTORY_SECRET: kind === 'disabled' ? undefined : secret,
+    FEED: { idFromName: () => 'corridor', get: () => ({ fetch: async () => {
+      forwarded++;
+      throw Error(`Private failure: ${secret} ${req.url}`);
+    } }) } } as never);
+  expect(forwarded).toBe(kind === 'unavailable' ? 1 : 0);
+  await expectPrivateError(response, status, error);
+});
+
 it('returns parseable private JSON through the router when history storage is unavailable', async () => {
   const { storage } = harness(), secret = randomUUID();
   const { sql: _sql, transactionSync: _transaction, ...unavailable } = storage;
