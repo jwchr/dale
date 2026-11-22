@@ -54,11 +54,12 @@ export function corridorHistory(raw: unknown) {
 export class OwnerHistory {
   constructor(private storage: HistoryStorage, private bucket?: ArchiveReader) {}
   private reserve(a: number, b: number, now: number, spare: (units: number, now: number) => boolean) {
-    // Shared persistent R2 ledger; leave half the cap for collection. No I/O before reservation.
+    // Check the shared R2 cap before charging writes; an absent ledger fails closed in read().
+    // This synchronous check and reservation cannot interleave with another request. No R2 I/O before reservation.
+    const row = this.storage.sql.exec('SELECT COALESCE(SUM(class_a),0) AS a,COALESCE(SUM(class_b),0) AS b FROM dale_archive_days WHERE day>=?', day(now - 33 * 86400_000)).toArray()[0]!;
+    if (Number(row.a) + a > A_LIMIT / 2 || Number(row.b) + b > B_LIMIT / 2) return false;
     if (!spare(2, now)) return false;
     return this.storage.transactionSync(() => {
-      const row = this.storage.sql.exec('SELECT COALESCE(SUM(class_a),0) AS a,COALESCE(SUM(class_b),0) AS b FROM dale_archive_days WHERE day>=?', day(now - 33 * 86400_000)).toArray()[0]!;
-      if (Number(row.a) + a > A_LIMIT / 2 || Number(row.b) + b > B_LIMIT / 2) return false;
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', day(now), a, b);
       return true;
     });

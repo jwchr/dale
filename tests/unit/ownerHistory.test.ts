@@ -179,3 +179,28 @@ it('rejects arbitrary object paths, invalid dates, duplicate/unknown params and 
   for (const q of ['key=rides/a', 'day=2026-02-30', 'day=2026-11-04&after=bad', 'after=-1', 'after=1&trip=x', 'key=x&key=y', 'secret=x'])
     expect(ownerQuery(new URL(`https://x/?${q}`))).toBeUndefined();
 });
+
+it.each(['classA', 'classB', 'missing-ledger'])('charges no spare writes or R2 operations for %s', async reason => {
+  const { db, storage } = harness();
+  if (reason === 'missing-ledger') db.exec('DROP TABLE dale_archive_days');
+  else db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)')
+    .run('2026-11-04', reason === 'classA' ? A_LIMIT / 2 : 0, reason === 'classB' ? B_LIMIT / 2 : 0);
+  let reserves = 0, calls = 0;
+  const door = new OwnerHistory(storage, {
+    list: async () => { calls++; return { objects: [], truncated: false }; },
+    get: async () => { calls++; return null; },
+  });
+  const query = reason === 'classB'
+    ? { kind: 'object' as const, key: `v1/2026-11-04/batches/${NOW}-${'0'.repeat(64)}.json.gz` }
+    : { kind: 'list' as const, day: '2026-11-04' };
+  for (let i = 0; i < 3; i++) {
+    await expectPrivateError(await door.read(query, NOW, () => { reserves++; return true; }), 503,
+      reason === 'missing-ledger' ? 'history-unavailable' : 'free-budget');
+  }
+  expect(reserves).toBe(0);
+  expect(calls).toBe(0);
+  if (reason === 'missing-ledger') expect(db.prepare("SELECT name FROM sqlite_master WHERE name='dale_archive_days'").get()).toBeUndefined();
+  else expect(db.prepare('SELECT class_a,class_b FROM dale_archive_days').get()).toEqual({
+    class_a: reason === 'classA' ? A_LIMIT / 2 : 0, class_b: reason === 'classB' ? B_LIMIT / 2 : 0,
+  });
+});

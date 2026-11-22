@@ -145,10 +145,11 @@ it('starts a new schedule at its own first batch, without claiming coverage from
 for (const extra of [{}, { omissionReason: 'synthetic' }, { quality: { feedState: 'unavailable' } }]) {
   it(`resets daily coverage and gaps at Eastern midnight, not UTC midnight (${JSON.stringify(extra)})`, () => {
     const h = harness(), first = Date.parse('2026-11-03T23:50:00-05:00');
+    const interval = Object.keys(extra).length ? 30_000 : 60_000;
     h.insert(first, [], 'ctx', extra);
-    h.insert(first + 60_000, []); // A polling gap is real for this day's coverage.
-    h.projection.fold(first + 60_000, () => true);
-    expect(h.projection.answer(query, first + 60_000)!.gap).toBe(true);
+    h.insert(first + interval, []); // Isolate batch failures from the polling-gap trigger.
+    h.projection.fold(first + interval, () => true);
+    expect(h.projection.answer(query, first + interval)!.gap).toBe(true);
     const midnight = Date.parse('2026-11-04T00:00:00-05:00');
     expect(h.projection.answer(query, midnight)).toBeUndefined(); // Yesterday is never today's coverage.
     h.insert(midnight, []);
@@ -162,6 +163,42 @@ for (const extra of [{}, { omissionReason: 'synthetic' }, { quality: { feedState
     expect(h.projection.answer(query, utcMidnight)).toMatchObject({ coverageStart: midnight, gap: true });
   });
 }
+
+for (const delayed of [false, true]) {
+  it(`bypasses the five-minute throttle at Eastern midnight, with delayed batch: ${delayed}`, () => {
+    const h = harness(), midnight = at('00:00');
+    h.insert(midnight - 30_000, []);
+    h.projection.fold(midnight - 30_000, () => true);
+    expect(h.projection.answer(query, midnight - 30_000)).toBeDefined();
+    if (delayed) {
+      h.projection.fold(midnight, () => { throw Error('no batch needs no writes'); });
+      expect(h.projection.answer(query, midnight)).toBeUndefined();
+    }
+    const first = midnight + (delayed ? 30_000 : 0);
+    h.insert(first, []);
+    h.projection.fold(first, () => true);
+    expect(h.projection.answer(query, first)).toMatchObject({ coverageStart: first, through: first, gap: false });
+    h.insert(first + 30_000, []);
+    let reserves = 0;
+    h.projection.fold(first + 30_000, () => { reserves++; return true; });
+    expect(reserves).toBe(0);
+    expect(h.projection.answer(query, first + 30_000)!.through).toBe(first);
+  });
+}
+
+it('retries a denied midnight fold on the next collection tick without moving its checkpoint', () => {
+  const h = harness(), midnight = at('00:00');
+  h.insert(midnight - 30_000, []);
+  h.projection.fold(midnight - 30_000, () => true);
+  h.insert(midnight, []);
+  let reserves = 0;
+  h.projection.fold(midnight, () => { reserves++; return false; });
+  expect(reserves).toBe(1);
+  expect(h.projection.answer(query, midnight)).toBeUndefined();
+  h.insert(midnight + 30_000, []);
+  h.projection.fold(midnight + 30_000, () => true);
+  expect(h.projection.answer(query, midnight + 30_000)).toMatchObject({ coverageStart: midnight, through: midnight + 30_000, gap: false });
+});
 
 it('retains overnight evidence while resetting the day, and preserves new-day failures across a crash and paged replay', () => {
   const h = harness(), midnight = at('00:00');

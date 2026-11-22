@@ -35,21 +35,24 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
     return () => { alive = false; clearInterval(timer); };
   }, [key, today, api, ds.meta.demo]);
   const loading = view.key !== key || !view.answers;
-  const answers = view.key === key ? view.answers?.filter((a): a is EarlierAnswer => !!a
-    && localYmd(a.generatedAt, ds.meta.timezone) === today && now - a.generatedAt < 10 * 60_000) ?? [] : [];
+  const answers = view.key === key ? view.answers ?? [] : [];
   const clock = (at: number) => formatTime12(at, ds.meta.timezone, lang);
   const coverageClock = (at: number) => localYmd(at, ds.meta.timezone) === today ? clock(at)
     : new Intl.DateTimeFormat(lang === 'es' ? 'es-US' : 'en-US', { timeZone: ds.meta.timezone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).format(at);
   return <section className="dash-panel earlier-buses" aria-labelledby={heading}>
     <h3 className="dash-title" id={heading}>{s.title}</h3>
-    <div aria-live="polite">{loading ? <p className="muted">{s.loading}</p> : !answers.length ? <p className="muted">{s.unavailable}</p>
-      : answers.map((a, ai) => <div key={ai}>
+    <div aria-live="polite">{loading ? <p className="muted">{s.loading}</p> : !queries.length ? <p className="muted">{s.unavailable}</p>
+      : queries.map((query, qi) => {
+        const a = answers[qi], routeKey = `${query.route}|${query.direction}`;
+        if (!a || localYmd(a.generatedAt, ds.meta.timezone) !== today || now - a.generatedAt >= 10 * 60_000)
+          return <p key={routeKey} className="muted">{query.route} · {s.unavailable}</p>;
+        return <div key={routeKey}>
         <p className="small muted">{a.query.route} · {s.coverage} {coverageClock(a.coverageStart)} · {s.through} {coverageClock(a.through)}</p>
         {a.gap && <p className="small warn">{s.gap}</p>}
         {!a.items.length ? <p className="muted">{s.empty}</p> : <ul className="earlier-list">{a.items.map((bus, i) => <li key={`${bus.stop.scheduledAt}-${i}`}>
           <EarlierBusDetails bus={bus} ds={ds} lang={lang} now={now} />
         </li>)}</ul>}
-      </div>)}</div>
+      </div>; })}</div>
     <p className="small muted">{s.scheduleSource} · {Number.isFinite(Date.parse(ds.meta.builtAt)) ? s.age(Math.max(0, Math.floor((now - Date.parse(ds.meta.builtAt)) / 60_000))) : s.unknown}</p>
     <p className="small muted">{s.explain}</p>
   </section>;

@@ -9,6 +9,7 @@ const INTERVAL = 300_000;
 /** Private daily projection of journal evidence. Reads never fetch, fold, write or access R2. */
 export class EarlierBuses {
   private nextAt = 0;
+  private lastDay = '';
   private domain;
   constructor(private storage: HistoryStorage, private ds: Dataset, private context: string) {
     this.domain = createEarlierDomain(ds);
@@ -27,10 +28,14 @@ export class EarlierBuses {
       ? this.domain.answer(state, query, now) : undefined;
   }
   fold(now: number, reserve: SpareWrites) {
-    if (now < this.nextAt) return;
-    this.nextAt = now + INTERVAL;
+    const today = localYmd(now, this.ds.meta.timezone);
+    if (now < this.nextAt && today === this.lastDay) return;
+    this.lastDay = today;
+    // A new day bypasses yesterday's throttle; retry on collection ticks until today's first commit.
+    this.nextAt = now + 30_000;
     try {
       const state = this.read();
+      if (state && localYmd(state.through, this.ds.meta.timezone) === today) this.nextAt = now + INTERVAL;
       const oldest = this.storage.sql.exec('SELECT MIN(attempt) AS a FROM dale_history_batches WHERE context_key=?', this.context).toArray()[0]?.a;
       if (oldest === null || oldest === undefined) return;
       const next: EarlierState = state ?? { v: 1, context: this.context, checkpoint: Number(oldest) - 1,
@@ -57,7 +62,7 @@ export class EarlierBuses {
         || !Number.isSafeInteger(size) || size >= 450_000_000 || !reserve(2, now)) return;
       this.storage.transactionSync(() => this.storage.sql.exec('INSERT INTO dale_earlier_buses(id,body) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body', body));
       // At most one bounded fold per existing 30-second alarm while catching up.
-      if (rows.length === EARLIER_BATCHES) this.nextAt = now + 30_000;
+      this.nextAt = now + (rows.length === EARLIER_BATCHES || localYmd(next.through, this.ds.meta.timezone) !== today ? 30_000 : INTERVAL);
     } catch { /* Independent projection failures cannot stop original collection or advance its own checkpoint. */ }
   }
 }
