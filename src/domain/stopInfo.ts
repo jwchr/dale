@@ -8,7 +8,7 @@ export function boardingInfo(ds: Dataset, stopId: string) {
   const destinations = [...new Set(patterns.map(p => {
     const index = p.stopIds.indexOf(stopId), later = p.stopIds.slice(index + 1);
     if (later.some((id, i) => ds.stops.find(s => s.id === id)?.terminal === 'PABT' && !p.noDropOff?.includes(index + 1 + i))) return 'PABT';
-    return ds.stops.find(s => s.id === p.stopIds[p.stopIds.length - 1])?.city || routeHeadsign(p.headsign);
+    return ds.stops.find(s => s.id === p.stopIds[p.stopIds.length - 1])?.city || routeHeadsign(p.headsign, ds.routes.find(r => r.id === p.routeId)?.shortName);
   }).filter(Boolean))];
   return { routes, destinations, headsigns: [...new Set(patterns.map(p => routeHeadsign(p.headsign, ds.routes.find(r => r.id === p.routeId)?.shortName)).filter(Boolean))] };
 }
