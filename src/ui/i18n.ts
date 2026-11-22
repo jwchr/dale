@@ -73,6 +73,7 @@ const en = {
     FP: 'Marked FP in the printed timetable. Its legend lists F (via Forest Avenue) and P (Parkway express).',
   } as Record<string, string>,
   gatePublished: (g: string, d?: string) => `Gate ${g}${d ? `, door ${d}` : ''}`,
+  gateTurnpikeExpress: 'Turnpike express',
   gatePublishedNote: (effective: string) =>
     `NJ Transit's printed timetable lists this gate for this kind of trip and time (gate change effective ${effective}). It is a general rule, not a gate posted for this bus.`,
   wrongSideNoDistance: (stop: string) => `Wrong side of the street for this trip. Use ${stop}.`,
@@ -691,6 +692,7 @@ const es: Strings = {
     FP: 'Marcado FP en el horario impreso. Su leyenda indica F (por Forest Avenue) y P (exprés por el Parkway).',
   } as Record<string, string>,
   gatePublished: (g: string, d?: string) => `Puerta ${g}${d ? `, acceso ${d}` : ''}`,
+  gateTurnpikeExpress: 'Expreso por Turnpike',
   gatePublishedNote: (effective: string) =>
     `El horario impreso de NJ Transit indica esta puerta para este tipo de viaje y hora (cambio de puerta vigente desde ${effective}). Es una regla general, no una puerta publicada para este autobús.`,
   wrongSideNoDistance: (stop: string) => `Lado equivocado de la calle para este viaje. Usa ${stop}.`,
