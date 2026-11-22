@@ -103,7 +103,7 @@
   background: var(--led-bg); border: 1px solid #000; border-inline-start: 5px solid var(--accent); border-radius: 10px; box-shadow: 0 2px 6px rgba(18, 34, 25, 0.25); }
 :root[data-look='household'] .dep .live-symbol[data-live='true'] { color: #89f3ac; }
 :root[data-look='household'] .dep:hover { border-color: #000; border-inline-start-color: #ffc94d; }
-/* The route number is always amber on the black board, here and on every other screen; the T in 165T says express. */
+/* The route number is always amber on the black board, here and on every other screen; the destination identifies express service. */
 :root[data-look='household'] .route-badge { background: var(--led-bg); color: var(--led-ink); border: 0; box-shadow: none; border-radius: 8px;
   font-family: 'Dale LED', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 800; letter-spacing: .02em; text-shadow: 0 0 6px rgba(255, 170, 20, 0.45); }
 :root[data-look='household'] .route-badge[data-express='true'] { background: var(--led-bg); color: var(--led-ink); box-shadow: none; }

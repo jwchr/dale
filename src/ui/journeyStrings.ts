@@ -1,10 +1,10 @@
 // Rider-facing copy is composed into i18n.ts; public sources are listed in docs/PENN_GUIDE.md.
 const en = {
   busMode: 'Bus', trainMode: 'Train', railUnavailable: 'Train guidance only · Live train predictions and current train departures are not connected.', title: 'Hackensack ↔ New York', intro: 'One journey, one step at a time. Preview the trip before you leave, or use the checklist while travelling.',
-  scope: '165T · 163/164 at Summit & Essex · 165 local · Anderson Street / Essex Street trains',
+  scope: '165 (Turnpike Exp) · 163/164 at Summit & Essex · 165 local · Anderson Street / Essex Street trains',
   compare: 'Choose how to travel', train: 'Train via Secaucus', bus: 'BUS',
   trainSummary: 'Change trains once at Secaucus Junction to reach New York Penn. Anderson Street and Essex Street serve the same Pascack Valley Line.',
-  busSummary: 'Check 165T first, then 163/164 at Summit & Essex as backups. Include the walk from Port Authority to Penn. Compare the actual trip before choosing 165 local.',
+  busSummary: 'Check 165 (Turnpike Exp) first, then 163/164 at Summit & Essex as backups. Include the walk from Port Authority to Penn. Compare the actual trip before choosing 165 local.',
   limits: 'Dale cannot yet rank these options by arrival time. Rail and 163/164 connections, fares and walking routes need checking. These are choices to investigate, not confirmed departures.',
   days: 'Check the exact travel date: weekdays, weekends, holidays and temporary timetables can differ. Check the return connections before leaving, including the last way back.',
   station: 'Hackensack train station', stations: { anderson: 'Anderson Street', essex: 'Essex Street (PVL, Hackensack)', summit: 'Summit & Essex bus stop' },
@@ -37,7 +37,7 @@ const en = {
     { title: 'Get off at your Hackensack station', text: `Listen for ${station}. Ask the conductor if you are unsure where to exit; some stations have short platforms. Finish the trip using your planned walk or pickup.` },
   ],
   busOut: [
-    { title: 'Choose the actual bus', text: 'Check a dated 165T trip first. If it does not work, investigate 163/164 at Summit & Essex, then compare 165 local. Confirm the stop, direction, arrival and time to walk there.' },
+    { title: 'Choose the actual bus', text: 'Check a dated 165 (Turnpike Exp) trip first. If it does not work, investigate 163/164 at Summit & Essex, then compare 165 local. Confirm the stop, direction, arrival and time to walk there.' },
     { title: 'Check the fare before boarding', text: 'Use NJ Transit’s origin and destination planner to confirm your route, fare zones and ticket. A route number alone is not enough to choose the fare. Follow the payment instructions for that service.' },
     { title: 'Confirm where this bus goes', text: 'Check the destination sign and ask the driver whether it serves Port Authority. Keep the selected trip in Bus Lock while waiting; a timetable is not a confirmed arrival.' },
     { title: 'Continue from Port Authority to Penn', text: 'The bus arrives at Port Authority, not Penn Station. Check a walking route to New York Penn and allow time for it. Any subway alternative requires its own ticket or fare.' },
@@ -53,10 +53,10 @@ const en = {
 };
 const es: typeof en = {
   busMode: 'Autobús', trainMode: 'Tren', railUnavailable: 'Solo guía de tren · No hay conexión a predicciones en vivo ni a salidas actuales de trenes.', title: 'Hackensack ↔ Nueva York', intro: 'Un viaje, paso a paso. Practica antes de salir o usa la lista durante el viaje.',
-  scope: '165T · 163/164 en Summit y Essex · 165 local · Trenes de Anderson Street / Essex Street',
+  scope: '165 (Turnpike Exp) · 163/164 en Summit y Essex · 165 local · Trenes de Anderson Street / Essex Street',
   compare: 'Elige cómo viajar', train: 'Tren vía Secaucus', bus: 'AUTOBÚS',
   trainSummary: 'Cambia de tren una vez en Secaucus Junction para llegar a New York Penn. Anderson Street y Essex Street pertenecen a la misma línea Pascack Valley.',
-  busSummary: 'Consulta primero el 165T y luego el 163/164 en Summit y Essex como alternativas. Incluye la caminata de Port Authority a Penn. Compara el viaje concreto antes de elegir el 165 local.',
+  busSummary: 'Consulta primero el 165 (Turnpike Exp) y luego el 163/164 en Summit y Essex como alternativas. Incluye la caminata de Port Authority a Penn. Compara el viaje concreto antes de elegir el 165 local.',
   limits: 'Dale todavía no puede ordenar estas opciones por hora de llegada. Hay que comprobar conexiones de tren y del 163/164, tarifas y caminatas. Son opciones para consultar, no salidas confirmadas.',
   days: 'Comprueba la fecha exacta: los horarios de días laborables, fines de semana, festivos y obras pueden variar. Revisa las conexiones de regreso antes de salir, incluida la última opción.',
   station: 'Estación de tren en Hackensack', stations: { anderson: 'Anderson Street', essex: 'Essex Street (PVL, Hackensack)', summit: 'Parada de autobús en Summit y Essex' },
@@ -89,7 +89,7 @@ const es: typeof en = {
     { title: 'Baja en tu estación de Hackensack', text: `Escucha el anuncio de ${station}. Si no sabes dónde bajar, pregunta al conductor; algunas estaciones tienen andenes cortos. Termina con la caminata o recogida que planeaste.` },
   ],
   busOut: [
-    { title: 'Elige el autobús concreto', text: 'Consulta primero un viaje del 165T para tu fecha. Si no sirve, revisa el 163/164 en Summit y Essex y luego compara el 165 local. Confirma parada, dirección, llegada y tiempo para caminar hasta allí.' },
+    { title: 'Elige el autobús concreto', text: 'Consulta primero un viaje del 165 (Turnpike Exp) para tu fecha. Si no sirve, revisa el 163/164 en Summit y Essex y luego compara el 165 local. Confirma parada, dirección, llegada y tiempo para caminar hasta allí.' },
     { title: 'Comprueba la tarifa antes de subir', text: 'Usa origen y destino en el planificador de NJ Transit para confirmar ruta, zonas y boleto. El número de ruta no basta para elegir la tarifa. Sigue las instrucciones de pago de ese servicio.' },
     { title: 'Confirma adónde va este autobús', text: 'Comprueba el letrero de destino y pregunta al conductor si llega a Port Authority. Conserva el viaje elegido en Bus Lock mientras esperas; un horario no confirma la llegada.' },
     { title: 'Continúa de Port Authority a Penn', text: 'El autobús llega a Port Authority, no a Penn Station. Comprueba una ruta a pie hasta New York Penn y deja tiempo para ella. Cualquier alternativa en metro requiere su propio boleto o tarifa.' },
@@ -106,9 +106,9 @@ const es: typeof en = {
 export const journeyStrings = { en, es };
 export const confidenceStrings = {
   en: { gpsLost: 'WARNING: NJ TRANSIT GPS FEED LOST FOR THIS BUS', demoLost: 'DEMO: BUS GPS SIGNAL LOST', estimated: 'ESTIMATED POSITION ONLY', estimateHelp: 'The marker follows expected times. It does not confirm where the bus is, that it passed a stop, or when to get off.', lostHelp: 'Live GPS for this bus is unavailable to Dale. The cause is unknown; this does not mean it was cancelled.',
-    alternatives: 'Show alternatives', alternativesTitle: 'Other ways to continue', preserve: 'Your selected bus stays locked while you compare. Choose a new trip explicitly if you decide to switch.', otherBuses: 'Check other scheduled buses', backups: 'If 165T is unavailable, investigate 163/164: from Hackensack, check Summit & Essex; from New York, check Port Authority and the stop where you will get off. Confirm the actual trip, direction and time to reach its boarding point before leaving. Dale has not confirmed these backup departures.',
+    alternatives: 'Show alternatives', alternativesTitle: 'Other ways to continue', preserve: 'Your selected bus stays locked while you compare. Choose a new trip explicitly if you decide to switch.', otherBuses: 'Check other scheduled buses', backups: 'If 165 (Turnpike Exp) is unavailable, investigate 163/164: from Hackensack, check Summit & Essex; from New York, check Port Authority and the stop where you will get off. Confirm the actual trip, direction and time to reach its boarding point before leaving. Dale has not confirmed these backup departures.',
     train: 'See the Penn Station bus/train guide', rideshare: 'Check pickup options', uber: 'Open Uber', lyft: 'Open Lyft', rideHelp: 'Choose pickup and destination in the provider’s app or site. It supplies availability, price and pickup time. Nothing is booked here; Dale sends no location.', clearFailed: 'History could not be cleared. Allow storage access and try again.' },
   es: { gpsLost: 'AVISO: SE PERDIÓ LA SEÑAL GPS DE NJ TRANSIT PARA ESTE AUTOBÚS', demoLost: 'DEMO: SE PERDIÓ LA SEÑAL GPS DEL AUTOBÚS', estimated: 'SOLO POSICIÓN ESTIMADA', estimateHelp: 'El marcador sigue los tiempos previstos. No confirma dónde está el autobús, que haya pasado una parada ni cuándo bajar.', lostHelp: 'Dale no tiene GPS en vivo para este autobús. Se desconoce la causa; no significa que esté cancelado.',
-    alternatives: 'Mostrar alternativas', alternativesTitle: 'Otras formas de continuar', preserve: 'Tu autobús sigue fijado mientras comparas. Elige otro viaje expresamente si decides cambiar.', otherBuses: 'Consultar otros autobuses programados', backups: 'Si no hay 165T, consulta el 163/164: desde Hackensack, Summit y Essex; desde Nueva York, Port Authority y la parada donde bajarás. Confirma el viaje concreto, la dirección y el tiempo para llegar al lugar de salida antes de ir. Dale no ha confirmado esas salidas.',
+    alternatives: 'Mostrar alternativas', alternativesTitle: 'Otras formas de continuar', preserve: 'Tu autobús sigue fijado mientras comparas. Elige otro viaje expresamente si decides cambiar.', otherBuses: 'Consultar otros autobuses programados', backups: 'Si no hay 165 (Turnpike Exp), consulta el 163/164: desde Hackensack, Summit y Essex; desde Nueva York, Port Authority y la parada donde bajarás. Confirma el viaje concreto, la dirección y el tiempo para llegar al lugar de salida antes de ir. Dale no ha confirmado esas salidas.',
     train: 'Ver la guía de autobús/tren a Penn Station', rideshare: 'Consultar recogida en auto', uber: 'Abrir Uber', lyft: 'Abrir Lyft', rideHelp: 'Elige recogida y destino en la aplicación o web del proveedor. Allí se indican disponibilidad, precio y tiempo de recogida. Aquí no se reserva nada; Dale no envía tu ubicación.', clearFailed: 'No se pudo borrar el historial. Permite el almacenamiento e inténtalo de nuevo.' },
 };

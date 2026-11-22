@@ -1,3 +1,4 @@
+import { routeNumber, routeHeadsign } from '../domain/routeDisplay';
 import { useEffect, useMemo, useState } from 'react';
 import { BUCKET_COUNT, confidenceKeyFor, summarize, type ConfidenceAnswer, type ConfidenceBucket, type ConfidenceKey } from '../domain/arrivalConfidence';
 import { addDays, formatTime12 } from '../domain/time';
@@ -107,7 +108,7 @@ function ReadyView({ a, s, lang, dep, clock, demo, size, setSize }: ReadyProps) 
       <div>
         <h3>{s.when}</h3>
         <p className="small">{s.scheduledFor} <strong>{clock(dep.departs)}</strong></p>
-        <p className="muted small">{dep.route.shortName} · {dep.pattern.headsign}</p>
+        <p className="muted small">{routeNumber(dep.route.shortName)} · {routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</p>
       </div>
       <div className="how-sure-toggle" role="group" aria-label={s.bucketSize}>
         <button type="button" aria-pressed={size === 1} onClick={() => setSize(1)}>{s.oneMin}</button>

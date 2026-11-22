@@ -1,3 +1,4 @@
+import { routeNumber, routeLabel, routeHeadsign } from '../domain/routeDisplay';
 import { BilingualButtons, ButtonLabel } from './BilingualButtons';
 import { HomePhotoProvider, HomePhotoSettings } from './HomePhoto';
 import { chooseOpeningSlogan } from '../domain/openingSlogan';
@@ -477,7 +478,7 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
       <main>
         {((screen.name === 'home' && !favorites.length) || (screen.name === 'penn' && screen.railOnly)) && toolbar}
         {resumable && !activeLock && <aside className="lock-return" role="note">
-          <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), resumable.dep.route.shortName, stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
+          <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), routeLabel(resumable.dep.route.shortName), stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
             <button className="primary" onClick={() => { setActiveLock({ dep: resumable.dep, leg: resumable.leg, session: resumable.session }); setScreen({ name: 'departure', dep: resumable.dep, leg: resumable.leg }); setResumable(undefined); }}>{t.busLock.resumeYes}</button>
             <button onClick={() => { forgetLock(store); setResumable(undefined); }}>{t.busLock.resumeNo}</button>
@@ -485,7 +486,7 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
         </aside>}
         {activeLock && !lockOnScreen && <aside className="lock-return">
           <button className="primary wide" onClick={() => setScreen({ name: 'departure', dep: activeLock.dep, leg: activeLock.leg })}>
-            {t.busLock.resume} · {activeLock.dep.route.shortName} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
+            {t.busLock.resume} · {routeLabel(activeLock.dep.route.shortName)} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
           </button>
         </aside>}
         {liveBus && activeLock && lockOnScreen && <LiveBusStatus ds={ds} state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} lockVehicleId={activeLock.session.lock.vehicleId} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
@@ -616,7 +617,7 @@ function FeedStatus({ ctx }: { ctx: Ctx }) {
 
 function RouteBadge({ ds, routeId }: { ds: Dataset; routeId: string }) {
   const r = ds.routes.find((x) => x.id === routeId);
-  return <span className="route-badge" data-express={r?.shortName.endsWith('T') ? 'true' : undefined}>{r?.shortName ?? '?'}</span>;
+  return <span className="route-badge" data-express={r?.shortName.endsWith('T') ? 'true' : undefined}>{r ? routeNumber(r.shortName) : '?'}</span>;
 }
 
 function minutesUntil(now: number, at: number) { return Math.round((at - now) / 60_000); }
@@ -793,8 +794,9 @@ interface DashboardParts { onLocation?: (() => void) | undefined; gps: (d: Depar
 function boardDestination(ds: Dataset, d: Departure, t: Strings): { main: string; sub?: string } {
   const last = ds.stops.find(s => s.id === d.pattern.stopIds[d.pattern.stopIds.length - 1]);
   const toPabt = last?.terminal === 'PABT';
-  const prefix = d.route.shortName.toLowerCase() + ' ';
-  const head = (d.pattern.headsign.toLowerCase().startsWith(prefix) ? d.pattern.headsign.slice(prefix.length) : d.pattern.headsign).trim();
+  const sign = routeHeadsign(d.pattern.headsign, d.route.shortName);
+  const prefix = routeNumber(d.route.shortName).toLowerCase() + ' ';
+  const head = (sign.toLowerCase().startsWith(prefix) ? sign.slice(prefix.length) : sign).trim();
   const main = head || (toPabt ? t.commuteNewYork : stopLabel(last?.name ?? '').town);
   const sub = [toPabt ? t.dash.portAuthority : undefined, /turnpike/i.test(d.route.longName) ? t.dash.turnpike : undefined].filter(Boolean).join(' / ');
   return sub ? { main, sub } : { main };
@@ -872,6 +874,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
         </span>
         <span className="dep-main">
+          {d.route.shortName === '165T' && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName)}</span>}
           <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
             time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
@@ -953,14 +956,14 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
     : plan && <LeaveBy ctx={ctx} plan={plan} options={ahead} onEdit={() => setPlanning(true)} editRef={planButton} />);
   const extras = <>
   {express && <p className="next-express" data-testid="next-express">
-    <span>{t.nextExpress}</span><span className="express-mini">165T</span>
+    <span>{t.nextExpress}</span><span className="express-mini">165</span><span>Turnpike Exp</span>
     <span><TimeText ctx={ctx} at={express.departs} estimated={express.estimated} />
       {localYmd(express.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {new Intl.DateTimeFormat(ctx.lang, { timeZone: ctx.tz, month: 'short', day: 'numeric' }).format(express.departs)}</>}
       {' · '}{t.inMin(minutesUntil(now, express.departs))}{' · '}{t.scheduledOnly}
     </span>
   </p>}
   {soonest && rows[soonest.index] && <p className="small leave-why">{t.leave.arrivesFirstWhy(
-    rows[soonest.index]!.d.route.shortName,
+    routeLabel(rows[soonest.index]!.d.route.shortName),
     `${rows[soonest.index]!.d.estimated ? '~' : ''}${formatTime12(rows[soonest.index]!.d.departs, ctx.tz, ctx.lang)}`, soonest.laterMin, soonest.earlierMin, soonest.estimated)}</p>}
   {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
   </>;
@@ -1093,7 +1096,7 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
   const leg: Leg = { fromStopId: saved.fromStopId, toStopId: saved.toStopId, routeIds: shownRoutes };
   const deps = upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: shownRoutes }, now, count).ahead.slice(0, count);
   const next = deps[0];
-  const routeName = (id: string) => ds.routes.find(x => x.id === id)?.shortName ?? id;
+  const routeName = (id: string) => routeLabel(ds.routes.find(x => x.id === id)?.shortName ?? id);
   return <>
     {directions}
     <section className="dash-panel routes-stop" aria-labelledby="routes-stop-title">
@@ -1148,7 +1151,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
     if (!leg || !key || seen.has(key) || ds.stops.find(s => s.id === leg.fromStopId)?.terminal !== 'PABT') return [];
     seen.add(key);
     // Two saved trips between the same stops with different buses get their own lists, named by their routes.
-    const routes = leg.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? id).join(', ');
+    const routes = leg.routeIds.map(id => routeLabel(ds.routes.find(r => r.id === id)?.shortName ?? id)).join(', ');
     return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}${routes ? ` (${routes})` : ''}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
   }));
   const anyGate = legs.some(l => l.deps.some(dep => { const g = departureGate(ds, dep); return !!g && g.status !== 'unknown'; }));
@@ -1163,7 +1166,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
       {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
-          <span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
+          <span><span className="gate-service">{dep.route.shortName === '165T' ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
           <ArrowRight />
         </button>
       </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}
@@ -1348,7 +1351,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
           {rows.map(({ d, arr }) => (
             <tr key={d.tripInstanceId} className={d.departs < now ? 'past' : ''}>
               <td className="tt-time"><button className="link-cell" onClick={() => onDeparture(d)}><TimeText ctx={ctx} at={d.departs} estimated={d.estimated} /></button></td>
-              <td><RouteBadge ds={ds} routeId={d.route.id} /></td>
+              <td><RouteBadge ds={ds} routeId={d.route.id} />{d.route.shortName === '165T' && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName)}</span>}</td>
               <td>{arr ? <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /> : ''}</td>
             </tr>
           ))}
@@ -1410,9 +1413,9 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   return (
     <section>
       {/* A printed timetable gives no sign text, so a transcribed dataset's headsign is Dale's own route-and-destination label, not what the sign reads. */}
-      <div className="sign" aria-label={`${ds.meta.transcribed ? t.routeAndDirection : t.checkSign}: ${dep.pattern.headsign}`}>
+      <div className="sign" aria-label={`${ds.meta.transcribed ? t.routeAndDirection : t.checkSign}: ${routeHeadsign(dep.pattern.headsign, dep.route.shortName)}`}>
         <span className="sign-label">{ds.meta.transcribed ? t.routeAndDirection : t.checkSign}</span>
-        <span className="sign-led">{dep.pattern.headsign}</span>
+        <span className="sign-led">{routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</span>
       </div>
       {dep.pattern.variant && t.variantNotes[dep.pattern.variant] && <p className="muted small">{t.variantNotes[dep.pattern.variant]}</p>}
       {boardStop?.noteId && t.stopNotes[boardStop.noteId] && <p className="muted small" role="note">{t.stopNotes[boardStop.noteId]}</p>}

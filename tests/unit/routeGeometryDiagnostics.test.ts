@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Dataset } from '../../src/domain/types';
 import baseline from '../fixtures/route-geometry-baseline.json';
 import { distanceM } from '../../src/domain/direction';
+import { parseRouteGeometry } from '../../src/domain/routeDistance';
 import {
   buildRouteGeometry, buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic,
   GEOMETRY_COUNT_KEYS, GEOMETRY_FAILURE_REASONS,
@@ -154,7 +155,45 @@ describe('stop distance evidence', () => {
 });
 
 const FEET = 3.28084;
+// Issue #254's aggregate distribution, generated entirely from the synthetic A/B/C line above.
+// Bad B measures still put the stops on the line, but must fail the unchanged 100 m mapping check.
+function mixedFeetMiles() {
+  const ids = Array.from({ length: 1770 }, (_, i) => `PRIVTRIP_${i}`), ds = dataset(ids), f = files();
+  const feet = 5280 / MILE;
+  f['trips.txt'] = 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + ids
+    .map((id, i) => `r,s,${id},Synthetic,0,PRIVSHAPE_${i % 81}\n`).join('');
+  f['shapes.txt'] = 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n' + Array.from({ length: 81 }, (_, i) =>
+    `PRIVSHAPE_${i},${A.lat},${A.lon},1,0\nPRIVSHAPE_${i},${B.lat},${B.lon},2,${AB * feet}\nPRIVSHAPE_${i},${C.lat},${C.lon},3,${(AB + BC) * feet}\n`).join('');
+  f['stop_times.txt'] = 'trip_id,stop_id,stop_sequence,shape_dist_traveled\n' + ids.map((id, i) => {
+    const middle = i < 1557 ? AB / MILE : i < 1745 ? AB / MILE / 2 : 0;
+    return `${id},PRIVSTOP_A,1,0\n${id},PRIVSTOP_B,2,${middle}\n${id},PRIVSTOP_C,3,${(AB + BC) / MILE}\n`;
+  }).join('');
+  return { ds, f };
+}
 describe('unit factor (#154 part 2)', () => {
+  it('does not choose a conversion from near-line ratio evidence when no complete trip passes', () => {
+    const { f, ds } = mixedFeetMiles();
+    // Keep every converted trip invalid at C, so factor 1 remains selected and its raw diagnostic is visible.
+    f['stop_times.txt'] = f['stop_times.txt']!.replaceAll(`,PRIVSTOP_C,3,${(AB + BC) / MILE}`,
+      `,PRIVSTOP_C,3,${2 * (AB + BC) / MILE}`);
+    const { geometry, counts } = buildRouteGeometryWithReport(f, ds, SHA);
+    expect(counts).toMatchObject({ unitFactor: 1, shapeUnitFeet: 81, matchedTrips: 0, tripStopDistance: 1770,
+      farTripMostStops: 1770, farFirstNearShapeLine: 1770, farRatioX0_000189: 1557, farRatioOther: 188, farRatioUnknown: 25 });
+    expect(Object.keys(geometry.trips)).toHaveLength(0);
+  });
+  it('selects miles to feet for #254 despite unrelated failures in over 10% of trips', () => {
+    const { f, ds } = mixedFeetMiles(), before = JSON.stringify(ds);
+    const { geometry, counts } = buildRouteGeometryWithReport(f, ds, SHA);
+    expect(counts).toMatchObject({ validShapes: 81, shapeUnitFeet: 81, datasetTrips: 1770,
+      unitFactor: 2, matchedTrips: 1557, outputShapes: 81, tripStopDistance: 213 });
+    expect(Object.keys(geometry.trips)).toHaveLength(1557);
+    expect(geometry.trips.PRIVTRIP_1557).toBeUndefined();
+    expect(geometry.trips.PRIVTRIP_1745).toBeUndefined();
+    expect(geometry.trips.PRIVTRIP_0.stopMeters).toEqual([0, Math.round(AB * 10) / 10, Math.round((AB + BC) * 10) / 10]);
+    expect(parseRouteGeometry(geometry, ds)).toBe(geometry);
+    expect(JSON.stringify(ds)).toBe(before);
+    expectPrivate(geometryFailureDiagnostic(new GeometryError('no-matched-trips', 'x', counts)));
+  });
   it('matches NJ Transit\'s shapes in feet with stop times in miles, with the same road meters as same-unit files', () => {
     const f = files(); measures(f, [0, AB * FEET, (AB + BC) * FEET], [0, AB / MILE, (AB + BC) / MILE]);
     const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
@@ -172,12 +211,22 @@ describe('unit factor (#154 part 2)', () => {
     expect(counts).toMatchObject({ unitFactor: 1, matchedTrips: 1 });
     expect(Object.keys(geometry.trips)).toEqual(['PRIVTRIP_A']);
   });
-  it('stays off when another factor fixes fewer than 90% of the trips', () => {
+  it('keeps a valid converted trip even when another trip has an invalid measure', () => {
     const f = files(); measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]);
     f['stop_times.txt'] = f['stop_times.txt']!.replace(`PRIVTRIP_B,PRIVSTOP_C,3,${(AB + BC) / MILE}`, 'PRIVTRIP_B,PRIVSTOP_C,3,0.01');
     const { geometry, counts } = buildRouteGeometryWithReport(f, dataset(), SHA);
-    expect(counts).toMatchObject({ unitFactor: 1, matchedTrips: 0 });
-    expect(Object.keys(geometry.trips)).toHaveLength(0);
+    expect(counts).toMatchObject({ unitFactor: 8, matchedTrips: 1, tripBackward: 1 });
+    expect(Object.keys(geometry.trips)).toEqual(['PRIVTRIP_A']);
+    expect(JSON.stringify(geometry.trips.PRIVTRIP_A)).toBe(JSON.stringify(JSON.parse(BASELINE.accepted!).trips.PRIVTRIP_A));
+  });
+  it('chooses the best single conversion rather than the first one that recovers a trip', () => {
+    const f = files(), ds = dataset(['PRIVTRIP_A', 'PRIVTRIP_B', 'PRIVTRIP_C']);
+    measures(f, [0, AB, AB + BC], [0, AB / MILE, (AB + BC) / MILE]);
+    f['trips.txt'] += 'r,s,PRIVTRIP_C,Synthetic,0,PRIVSHAPE\n';
+    f['stop_times.txt'] += `PRIVTRIP_C,PRIVSTOP_A,1,0\nPRIVTRIP_C,PRIVSTOP_B,2,${AB / 5280}\nPRIVTRIP_C,PRIVSTOP_C,3,${(AB + BC) / 5280}\n`;
+    const { geometry, counts } = buildRouteGeometryWithReport(f, ds, SHA);
+    expect(counts).toMatchObject({ unitFactor: 8, matchedTrips: 2, tripStopDistance: 1 });
+    expect(Object.keys(geometry.trips)).toEqual(['PRIVTRIP_A', 'PRIVTRIP_B']);
   });
   it('reports no factor when no trip reaches the check', () => {
     const f = files(); f['shapes.txt'] = undefined;
