@@ -175,6 +175,15 @@ describe('briefing clocks and unavailable alerts', () => {
     }
     expect(exactGateChange(undefined, after, before, now)).toBeUndefined();
   });
+  it('ignores gate whitespace while preserving real changes and their original evidence', () => {
+    const before: GateAssignment = { tripId: 'fictional-trip', serviceDate: '20261121', gate: '301', observedAt: now - 2000, source: 'Fictional official assignment', kind: 'official' };
+    for (const gate of ['301 ', ' 301', '\t301\n']) {
+      expect(exactGateChange(before, { ...before, gate, observedAt: now - 1000 }, before, now)).toBeUndefined();
+      expect(exactGateChange({ ...before, gate }, { ...before, observedAt: now - 1000 }, before, now)).toBeUndefined();
+    }
+    const after = { ...before, gate: ' 302 ', observedAt: now - 1000 };
+    expect(exactGateChange(before, after, before, now)).toEqual({ before, after });
+  });
 });
 
 describe('existing notice store metadata compatibility', () => {
@@ -213,6 +222,40 @@ describe('existing notice store metadata compatibility', () => {
 
 describe('bilingual briefing rendering without a network source', () => {
   for (const lang of ['en','es'] as const) {
+    for (const missing of ['fromStopId', 'toStopId', 'routeIds'] as const) {
+      it(`${lang}/${missing}: missing selections offer reselection without broken timetable actions`, () => {
+        const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
+        const saved = { ...favorite, [missing]: missing === 'routeIds' ? ['absent'] : 'absent' };
+        const html = renderToStaticMarkup(createElement(CommuteBriefing, {
+          ds, selection: { ...saved, date: '20261123' }, now, t, lang, onTimetable: () => {}, onReselect: () => {},
+        }));
+        expect(html).toContain(b.unknown);
+        expect(html).toContain(b.reselect);
+        expect(html).not.toContain(b.timetable);
+        if (missing !== 'routeIds') {
+          const scope = html.match(/<p class="briefing-scope">(.*?)<\/p>/)![1]!;
+          expect(scope).toContain(b.missingStop);
+          expect(scope).not.toContain(b.missing);
+          expect(scope).toContain(ds.stops.find(s => s.id === (missing === 'fromStopId' ? saved.toStopId : saved.fromStopId))!.name);
+        }
+        const notice: CommuteChange = { id: 'fictional-selection', favoriteId: saved.id, favoriteKey: 'fictional-key', kind: 'selection',
+          fromVersion: 'fictional-before', toVersion: 'fictional-after', before: [], after: [] };
+        const notices = renderToStaticMarkup(createElement(CommuteChanges, {
+          ds, now, t, lang, tz: ds.meta.timezone, notices: [notice], favorites: [saved],
+          durable: true, dismiss: async () => {}, reversedIds: new Set<string>(), onTimetable: () => {}, onReselect: () => {},
+        }));
+        expect(notices).not.toContain(b.timetable);
+        expect(notices).toContain(b.reselect);
+      });
+    }
+    it(`${lang}: known selections keep timetable actions when only date coverage is unknown`, () => {
+      const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
+      const html = renderToStaticMarkup(createElement(CommuteBriefing, {
+        ds, selection: { ...selection, date: '20270503' }, now, t, lang, onTimetable: () => {}, onReselect: () => {},
+      }));
+      expect(html).toContain(b.unknown);
+      expect(html).toContain(b.timetable);
+    });
     it(`${lang}: selected and all-route summaries show 165 once without changing route identities`, () => {
       const ds = expressDataset(), before = JSON.stringify(ds);
       for (const routeIds of [[], ['R165', 'R165T'], ['R165T']]) {

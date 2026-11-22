@@ -16,9 +16,14 @@ export function sourceAge(at: string | number | undefined, now: number): number 
   return value !== undefined && Number.isFinite(value) && value > 0 && value <= now ? now - value : undefined;
 }
 
+export function briefingSelectionKnown(ds: Dataset, selection: Pick<BriefingSelection, 'fromStopId' | 'toStopId' | 'routeIds'>) {
+  return [selection.fromStopId, selection.toStopId].every(id => ds.stops.some(s => s.id === id))
+    && selection.routeIds.every(id => ds.routes.some(r => r.id === id));
+}
+
 export function commuteBriefing(ds: Dataset, selection: BriefingSelection) {
   const { date, fromStopId, toStopId, routeIds, window } = selection;
-  const selectionKnown = [fromStopId, toStopId].every(id => ds.stops.some(s => s.id === id)) && routeIds.every(id => ds.routes.some(r => r.id === id));
+  const selectionKnown = briefingSelectionKnown(ds, selection);
   const patterns = ds.patterns.filter(p => {
     const from = boardIndex(ds, p, fromStopId), to = from < 0 ? -1 : dropIndex(ds, p, toStopId, from + 1);
     return (!routeIds.length || routeIds.includes(p.routeId)) && from >= 0 && to > from
@@ -48,7 +53,7 @@ export function commuteBriefing(ds: Dataset, selection: BriefingSelection) {
   const covered = coverage.length > 0 && coverage.every(Boolean);
   const printedHoliday = !!ds.meta.transcribed && isNjtHoliday(date);
   const state: 'printed-holiday' | 'unknown' | 'scheduled' | 'no-service' = !selectionKnown || !validWindow || !covered ? 'unknown' : printedHoliday ? 'printed-holiday' : departures.length ? 'scheduled' : 'no-service';
-  return { state, departures: printedHoliday ? [] : departures, patterns,
+  return { state, selectionKnown, departures: printedHoliday ? [] : departures, patterns,
     routeNames: ds.routes.filter(r => patterns.some(p => p.routeId === r.id)).map(r => r.shortName),
     validity: calendars.flatMap(cal => cal.start <= cal.end ? [{ start: cal.start, end: cal.end }] : [...cal.added, ...cal.removed].map(d => ({ start: d, end: d }))),
   };
@@ -85,5 +90,5 @@ export interface GateAssignment { tripId: string; serviceDate: string; gate: str
 export function exactGateChange(before: GateAssignment | undefined, after: GateAssignment | undefined, dep: Pick<Departure, 'tripId' | 'serviceDate'>, now: number) {
   const matches = (g: GateAssignment | undefined) => g && g.kind === 'official' && g.tripId === dep.tripId && g.serviceDate === dep.serviceDate
     && g.gate.trim() && g.source.trim() && sourceAge(g.observedAt, now) !== undefined;
-  return matches(before) && matches(after) && after!.observedAt > before!.observedAt && after!.gate !== before!.gate ? { before: before!, after: after! } : undefined;
+  return matches(before) && matches(after) && after!.observedAt > before!.observedAt && after!.gate.trim() !== before!.gate.trim() ? { before: before!, after: after! } : undefined;
 }

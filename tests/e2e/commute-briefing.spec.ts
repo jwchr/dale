@@ -65,11 +65,35 @@ for (const lang of ['en','es']) {
       await expect(label).toContainText(scope === 'missing' ? `${missing} / ${missing}` : `${route.shortName} / ${missing}`);
       await expect(label).not.toContainText(lang === 'en' ? 'All matching routes' : 'Todas las rutas que coinciden');
       await expect(card).toContainText(lang === 'en' ? 'Service is unknown' : 'Servicio desconocido');
+      await expect(card.getByRole('button', { name: lang === 'en' ? 'Open full timetable' : 'Abrir horario completo' })).toHaveCount(0);
       const reselect = card.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' });
       await expect(reselect).toBeVisible();
       expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= 320)).toBe(true);
       await page.screenshot({ path: test.info().outputPath('missing-routes.png'), fullPage: true });
+      await reselect.focus(); await page.keyboard.press('Enter');
+      await expect(page.locator('.commute-picker')).toBeVisible();
+    });
+  }
+  for (const missing of ['fromStopId', 'toStopId'] as const) {
+    test(`${lang}: removed ${missing} hides timetable actions and uses a short stop label`, async ({ page }) => {
+      const ds = replacement(), removed = favorite[missing], replacementId = `replacement-${removed}`;
+      ds.stops = ds.stops.map(s => ({ ...s, id: s.id === removed ? replacementId : s.id,
+        ...(s.twin === removed ? { twin: replacementId } : {}) }));
+      ds.patterns = ds.patterns.map(p => ({ ...p, stopIds: p.stopIds.map(id => id === removed ? replacementId : id) }));
+      await setup(page, ds, lang, PIN, true);
+      await page.setViewportSize({ width: 320, height: 900 });
+      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      const briefing = region(page), card = briefing.locator('.briefing-commute'), notice = briefing.locator('.commute-change');
+      const missingLabel = lang === 'en' ? 'Stop unavailable' : 'Parada no disponible';
+      const allRoutes = lang === 'en' ? 'All matching routes' : 'Todas las rutas que coinciden';
+      const otherStop = ds.stops.find(s => s.id === favorite[missing === 'fromStopId' ? 'toStopId' : 'fromStopId'])!;
+      await expect(card.locator('.briefing-scope')).toHaveText(missing === 'fromStopId'
+        ? `${allRoutes} · ${missingLabel} → ${otherStop.name}` : `${allRoutes} · ${otherStop.name} → ${missingLabel}`);
+      await expect(notice).toHaveCount(1);
+      await expect(briefing.getByRole('button', { name: /Open full timetable|Abrir horario completo/ })).toHaveCount(0);
+      expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      const reselect = notice.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' });
       await reselect.focus(); await page.keyboard.press('Enter');
       await expect(page.locator('.commute-picker')).toBeVisible();
     });
@@ -87,6 +111,8 @@ for (const lang of ['en','es']) {
       await expect(card).not.toContainText(lang === 'en' ? 'This date is on the printed holiday list' : 'Esta fecha está en la lista impresa');
       const reselect = card.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' });
       await expect(reselect).toBeVisible();
+      await expect(card.getByRole('button', { name: lang === 'en' ? 'Open full timetable' : 'Abrir horario completo' }))
+        .toHaveCount(problem === 'selection' ? 0 : 1);
       expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= 320)).toBe(true);
       await reselect.focus(); await page.keyboard.press('Enter');

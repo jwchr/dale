@@ -6,7 +6,7 @@ import { addDays, formatTime12, localYmd } from '../domain/time';
 import type { Lang, Strings } from './i18n';
 import type { Dataset } from '../domain/types';
 import { returnLeg } from '../domain/direction';
-import type { BriefingSelection } from '../domain/commuteBriefing';
+import { briefingSelectionKnown, type BriefingSelection } from '../domain/commuteBriefing';
 import { briefingDate, CommuteBriefing, SourceClock } from './CommuteBriefing';
 
 export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, tz, ds, now, reversedIds, onTimetable, onReselect, checkedAt, fromCache, savedAt }: {
@@ -71,7 +71,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
         </details>
         {favorite && directions.map(direction => {
           const leg = direction === 'out' ? favorite : returnLeg(ds, favorite.fromStopId, favorite.toStopId, favorite.routeIds);
-          return leg && <button key={direction} type="button" onClick={() => onTimetable({ ...leg, routeIds: favorite.routeIds, date: notice.date && notice.date >= today ? notice.date : date })}>
+          return leg && briefingSelectionKnown(ds, { ...leg, routeIds: favorite.routeIds }) && <button key={direction} type="button" onClick={() => onTimetable({ ...leg, routeIds: favorite.routeIds, date: notice.date && notice.date >= today ? notice.date : date })}>
             {b.timetable} · {direction === 'out' ? messages.out : messages.back}
           </button>;
         })}

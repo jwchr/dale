@@ -16,7 +16,7 @@ export const commuteBriefingStrings = {
     valid: 'Calendar validity', issued: 'Printed issue date', effective: 'Printed gate rules effective',
     printedRules: 'Published gate rules, not this trip’s assignment.', gate: 'Gate unconfirmed. Check the terminal board.',
     gateSource: 'Exact-trip assignment unavailable; assignment age unknown.',
-    allRoutes: 'All matching routes', missingRoute: 'Selected route unavailable', missing: 'Selected stops or direction unavailable. Check your saved trip.',
+    allRoutes: 'All matching routes', missingRoute: 'Selected route unavailable', missingStop: 'Stop unavailable', missing: 'Selected stops or direction unavailable. Check your saved trip.',
     beforeSource: 'Before source', translation: 'Dale summary and translation; agency data attributed above.',
   },
   es: {
@@ -36,7 +36,7 @@ export const commuteBriefingStrings = {
     valid: 'Vigencia del calendario', issued: 'Fecha de edición impresa', effective: 'Reglas impresas de puerta vigentes desde',
     printedRules: 'Reglas de puerta publicadas, no una asignación para este viaje.', gate: 'Puerta sin confirmar. Consulta el tablero de la terminal.',
     gateSource: 'Asignación del viaje exacto no disponible; antigüedad desconocida.',
-    allRoutes: 'Todas las rutas que coinciden', missingRoute: 'Ruta seleccionada no disponible', missing: 'Paradas o sentido seleccionados no disponibles. Revisa tu viaje guardado.',
+    allRoutes: 'Todas las rutas que coinciden', missingRoute: 'Ruta seleccionada no disponible', missingStop: 'Parada no disponible', missing: 'Paradas o sentido seleccionados no disponibles. Revisa tu viaje guardado.',
     beforeSource: 'Fuente anterior', translation: 'Resumen y traducción de Dale; datos de la agencia atribuidos arriba.',
   },
 };

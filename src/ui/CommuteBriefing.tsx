@@ -38,8 +38,8 @@ export function CommuteBriefing({ ds, selection, now, t, lang, onTimetable, onRe
       <p className="briefing-scope">{routeNames
         .filter((name, i, names) => name === undefined || names.indexOf(name) === i)
         .map(name => name ?? b.missingRoute).join(' / ') || b.allRoutes}
-        {' · '}{ds.stops.find(s => s.id === selection.fromStopId)?.name ?? t.commuteChanges.briefing.missing}
-        {' → '}{ds.stops.find(s => s.id === selection.toStopId)?.name ?? t.commuteChanges.briefing.missing}</p>
+        {' · '}{ds.stops.find(s => s.id === selection.fromStopId)?.name ?? b.missingStop}
+        {' → '}{ds.stops.find(s => s.id === selection.toStopId)?.name ?? b.missingStop}</p>
       <p>{briefingDate(selection.date, lang, tz)} · {b.allDay}</p>
       <p>{model.state === 'scheduled' ? b.scheduled(model.departures.length) : b[model.state]}</p>
       <details><summary>{b.source}</summary>
@@ -50,7 +50,7 @@ export function CommuteBriefing({ ds, selection, now, t, lang, onTimetable, onRe
         {fromCache && <><p className="small">{b.offline}</p><p className="small">{sourceAge(savedAt, now) === undefined ? b.savedUnknown : `${b.saved}: ${at(savedAt!)} · ${b.age(Math.floor((now - savedAt!) / 60_000))}`}</p></>}
         <p className="small">{b.translation}</p>
       </details>
-      <button type="button" onClick={() => onTimetable(selection)}>{b.timetable}</button>
+      {model.selectionKnown && <button type="button" onClick={() => onTimetable(selection)}>{b.timetable}</button>}
       {model.state === 'unknown' && <button type="button" onClick={onReselect}>{b.reselect}</button>}
       {ds.stops.some(s => s.id === selection.fromStopId && s.terminal === 'PABT') && <p className="small">{b.gate} {b.gateSource}
         {ds.publishedGates && <> {b.printedRules} {ds.publishedGates.source} · {b.effective}: {briefingDate(ds.publishedGates.effective, lang, tz)}</>}</p>}
