@@ -132,6 +132,8 @@ html { scroll-padding-block-end: calc(var(--tab-bar-height, 72px) + 8px); }
 .tab-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
 .tab-row { display: flex; align-items: center; gap: 10px; inline-size: 100%; text-align: start; font-weight: 650; }
 .tab-row > span { min-inline-size: 0; flex: 1; overflow-wrap: anywhere; }
+.gate-row .route-badge { flex: none; height: auto; min-block-size: 36px; }
+.gate-service { display: block; font-size: .9rem; line-height: 1.35; }
 .gate-row .dep-gate { display: block; font-weight: 500; font-size: .88rem; }
 
 /* The bottom tab bar: fixed, above the phone's home bar. */
