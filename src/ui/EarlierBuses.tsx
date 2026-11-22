@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { loadEarlierBuses } from '../data/earlierBuses';
 import { parseEarlierQuery, type EarlierAnswer, type EarlierBus, type EarlierTime } from '../domain/earlierBuses';
 import { formatTime12, localYmd } from '../domain/time';
-import { routeNumber } from '../domain/routeDisplay';
+import { routeLabel } from '../domain/routeDisplay';
 import type { Dataset } from '../domain/types';
 import { strings, type Lang } from './i18n';
 
@@ -46,9 +46,9 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
       : queries.map((query, qi) => {
         const a = answers[qi], routeKey = `${query.route}|${query.direction}`;
         if (!a || localYmd(a.generatedAt, ds.meta.timezone) !== today || now - a.generatedAt >= 10 * 60_000)
-          return <p key={routeKey} className="muted">{routeNumber(query.route)} · {s.unavailable}</p>;
+          return <p key={routeKey} className="muted">{routeLabel(query.route)} · {s.unavailable}</p>;
         return <div key={routeKey}>
-        <p className="small muted">{routeNumber(a.query.route)} · {s.coverage} {coverageClock(a.coverageStart)} · {s.through} {coverageClock(a.through)}</p>
+        <p className="small muted">{routeLabel(a.query.route)} · {s.coverage} {coverageClock(a.coverageStart)} · {s.through} {coverageClock(a.through)}</p>
         {a.gap && <p className="small warn">{s.gap}</p>}
         {!a.items.length ? <p className="muted">{s.empty}</p> : <ul className="earlier-list">{a.items.map((bus, i) => <li key={`${bus.stop.scheduledAt}-${i}`}>
           <EarlierBusDetails bus={bus} ds={ds} lang={lang} now={now} />

@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 import { EarlierBuses } from '../../src/ui/EarlierBuses';
 import { strings } from '../../src/ui/i18n';
 import { localYmd } from '../../src/domain/time';
+import { routeLabel } from '../../src/domain/routeDisplay';
 import type { EarlierAnswer, EarlierQuery } from '../../src/domain/earlierBuses';
 import { liveDataset as ds, NOW } from '../helpers/liveBus';
 
@@ -30,14 +31,14 @@ for (const lang of ['en', 'es'] as const) {
         answers[failedIndex] = failure === 'missing' ? undefined
           : answer(queries[failedIndex]!, NOW - (failure === 'stale' ? 600_000 : 86400_000));
         const html = render(lang, answers), s = strings[lang].earlierBuses;
-        expect(html).toContain(`${queries[failedIndex]!.route} · ${s.unavailable}`);
-        expect(html).toContain(`${queries[1 - failedIndex]!.route} · ${s.coverage}`);
+        expect(html).toContain(`${routeLabel(queries[failedIndex]!.route)} · ${s.unavailable}`);
+        expect(html).toContain(`${routeLabel(queries[1 - failedIndex]!.route)} · ${s.coverage}`);
         expect(html).toContain(s.empty);
       });
     }
   }
   it(`shows each route's unavailability when both fail (${lang})`, () => {
     const html = render(lang, [undefined, undefined]);
-    for (const q of queries) expect(html).toContain(`${q.route} · ${strings[lang].earlierBuses.unavailable}`);
+    for (const q of queries) expect(html).toContain(`${routeLabel(q.route)} · ${strings[lang].earlierBuses.unavailable}`);
   });
 }
