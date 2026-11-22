@@ -51,6 +51,16 @@ describe('NJ Transit route 165 presentation', () => {
     expect(JSON.stringify(ds)).toBe(before);
   });
 
+  it('keeps the Turnpike destination label without a headsign prefix or terminal city', () => {
+    const ds: Dataset = {
+      ...printed,
+      routes: [{ id: 'R165T', shortName: '165T', longName: 'Turnpike express' }],
+      stops: [{ id: 'start', name: 'Boarding stop' }, { id: 'end', name: 'Last stop' }],
+      patterns: [{ id: 'express', routeId: 'R165T', directionId: 1, headsign: '165 WESTWOOD', stopIds: ['start', 'end'] }],
+    };
+    expect(boardingInfo(ds, 'start').destinations).toEqual(['165 WESTWOOD · Turnpike Exp']);
+  });
+
   it('uses 165 on stop signs and stop details without exposing or duplicating the internal suffix', () => {
     expect(stopSignRoutes(printed, 'N19', 'PABT', [])).toEqual(['165']);
     expect(stopSignRoutes(printed, 'N19', 'PABT', ['R165T'])).toEqual(['165']);
