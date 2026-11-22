@@ -31,7 +31,9 @@ export function CommuteBriefing({ ds, selection, now, t, lang, onTimetable, onRe
   const at = (time: number) => `${briefingDate(localYmd(time, tz), lang, tz)} · ${formatTime12(time, tz, lang)}`;
   return <>
     {selection && model ? <>
-      <p className="briefing-scope">{(model.routeNames.length ? model.routeNames.join(' / ') : selection.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? b.allRoutes).join(' / ')) || b.allRoutes}
+      <p className="briefing-scope">{selection.routeIds.length
+        ? selection.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? b.missingRoute).join(' / ')
+        : model.routeNames.join(' / ') || b.allRoutes}
         {' · '}{ds.stops.find(s => s.id === selection.fromStopId)?.name ?? t.commuteChanges.briefing.missing}
         {' → '}{ds.stops.find(s => s.id === selection.toStopId)?.name ?? t.commuteChanges.briefing.missing}</p>
       <p>{briefingDate(selection.date, lang, tz)} · {b.allDay}</p>

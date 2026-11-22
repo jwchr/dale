@@ -74,9 +74,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
             {b.timetable} · {direction === 'out' ? messages.out : messages.back}
           </button>;
         })}
-        {(notice.kind === 'selection' || notice.kind === 'uncomparable') && <button type="button" onClick={() => {
-          const f = favorites.find(f => f.id === notice.favoriteId); if (f) onReselect(f, false);
-        }}>{b.reselect}</button>}
+        {favorite && (notice.kind === 'selection' || notice.kind === 'uncomparable') && <button type="button" onClick={() => onReselect(favorite, false)}>{b.reselect}</button>}
         <button type="button" aria-label={messages.dismissNamed(name)} onClick={async event => {
           const button = event.currentTarget;
           button.disabled = true;

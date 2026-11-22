@@ -14,7 +14,10 @@ export function CommutePicker({ ds, t, lang, initialFrom, initialTo, routeIds, e
 }) {
   const [from, setFrom] = useState(initialFrom), [to, setTo] = useState(initialTo);
   const [stage, setStage] = useState<CommutePickEnd | 'review'>(end);
-  const [city, setCity] = useState<string | undefined>(() => level === 'stop' ? stopCity(ds, ds.stops.find(stop => stop.id === (end === 'from' ? initialFrom : initialTo))!) : undefined);
+  const [city, setCity] = useState<string | undefined>(() => {
+    const stop = ds.stops.find(stop => stop.id === (end === 'from' ? initialFrom : initialTo));
+    return level === 'stop' && stop ? stopCity(ds, stop) : undefined;
+  });
   const [query, setQuery] = useState(''), [error, setError] = useState(false);
   const submitted = useRef(false), heading = useRef<HTMLHeadingElement>(null), id = useId();
   const s = t.cityPicker;

@@ -31,19 +31,23 @@ export function commuteBriefing(ds: Dataset, selection: BriefingSelection) {
     .filter(d => !window || (d.departs >= window.start && d.departs < window.end)) : [];
   // Prove coverage for every service date that could contribute a departure on this local day.
   // This includes >24:00 and GTFS noon-minus-12h on DST dates. Missing coverage is never no service.
-  const covered = trips.length > 0 && trips.every(trip => {
+  const coverage = trips.flatMap(trip => {
     const pattern = patterns.find(p => p.id === trip.patternId)!;
     const index = boardIndex(ds, pattern, fromStopId), cal = ds.calendars[trip.serviceId];
-    return cal && [-1, 0, 1].every(delta => {
+    if (!cal) return [false];
+    return [-1, 0, 1].flatMap(delta => {
       const serviceDate = addDays(date, delta);
-      if (localYmd(tripTimeAt(ds, trip, serviceDate, index), ds.meta.timezone) !== date) return true;
-      // A service can end while another starts inside the same loaded feed window. Exception-only
-      // calendars use sentinel bounds, so they contribute their explicit dates, never a made-up range.
-      return calendars.some(c => (serviceDate >= c.start && serviceDate <= c.end) || c.added.includes(serviceDate) || c.removed.includes(serviceDate));
+      if (localYmd(tripTimeAt(ds, trip, serviceDate, index), ds.meta.timezone) !== date) return [];
+      if (cal.added.includes(serviceDate) || cal.removed.includes(serviceDate)) return [true];
+      // Exception-only services are inactive outside their listed dates. They supply no coverage
+      // there. A recurring trip must be covered by its own calendar, never another service's range.
+      if (cal.start > cal.end) return [];
+      return [serviceDate >= cal.start && serviceDate <= cal.end];
     });
   });
+  const covered = coverage.length > 0 && coverage.every(Boolean);
   const printedHoliday = !!ds.meta.transcribed && isNjtHoliday(date);
-  const state: 'printed-holiday' | 'unknown' | 'scheduled' | 'no-service' = printedHoliday ? 'printed-holiday' : !selectionKnown || !validWindow || !covered ? 'unknown' : departures.length ? 'scheduled' : 'no-service';
+  const state: 'printed-holiday' | 'unknown' | 'scheduled' | 'no-service' = !selectionKnown || !validWindow || !covered ? 'unknown' : printedHoliday ? 'printed-holiday' : departures.length ? 'scheduled' : 'no-service';
   return { state, departures: printedHoliday ? [] : departures, patterns,
     routeNames: ds.routes.filter(r => patterns.some(p => p.routeId === r.id)).map(r => r.shortName),
     validity: calendars.flatMap(cal => cal.start <= cal.end ? [{ start: cal.start, end: cal.end }] : [...cal.added, ...cal.removed].map(d => ({ start: d, end: d }))),
@@ -55,6 +59,7 @@ export interface AdvisorySelector { routeId?: string; stopId?: string; direction
 export function advisoryScope(selectors: AdvisorySelector[], ds: Dataset, selection: BriefingSelection): 'match' | 'unrelated' | 'uncertain' {
   if (!selectors.length) return 'uncertain'; // An absent selector is not proof of agency-wide coverage.
   const patterns = commuteBriefing(ds, selection).patterns;
+  if (!patterns.length) return 'uncertain';
   let uncertain = false;
   for (const s of selectors) {
     const possible = patterns.some(p => (!s.routeId || p.routeId === s.routeId) && (s.directionId === undefined || p.directionId === s.directionId)

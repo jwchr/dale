@@ -4,6 +4,7 @@ import { liveDataset } from '../helpers/liveBus';
 import { advanceCommuteChanges } from '../../src/domain/commuteChanges';
 import type { Dataset } from '../../src/domain/types';
 import { parseDataset } from '../../src/domain/dataset';
+import type { Favorite } from '../../src/domain/favorites';
 
 const API = 'https://dale-live.test.workers.dev';
 const PIN = '2026-11-21T08:00:00-05:00';
@@ -22,7 +23,7 @@ function replacement() {
   trip.times = trip.times.map(s => s + 180); trip.arrivals = trip.arrivals?.map(s => s === null ? null : s + 180);
   return ds;
 }
-async function setup(page: Page, dataset: Dataset, lang = 'en', pin = PIN, notices = false, printed = false) {
+async function setup(page: Page, dataset: Dataset, lang = 'en', pin = PIN, notices = false, printed = false, savedFavorite: Favorite = favorite) {
   parseDataset(dataset); // Fail on invalid fixtures before waiting for a card that cannot load.
   await page.clock.setFixedTime(new Date(pin));
   const unexpected: string[] = [];
@@ -43,7 +44,7 @@ async function setup(page: Page, dataset: Dataset, lang = 'en', pin = PIN, notic
     if (printed) return;
     if (notices) await (await caches.open('dale-commute-changes-v1')).put(API + '/v1/local-commute-changes', new Response(JSON.stringify(notices)));
     await (await caches.open('dale-live-schedule-v1')).put(API + '/v1/schedule', new Response(JSON.stringify(dataset), { headers: { 'x-arriba-saved-at': String(Date.parse(pin) - 3600000) } }));
-  }, { dataset, favorite, API, notices: notices ? advanceCommuteChanges(advanceCommuteChanges(undefined, fixture(), [favorite], Date.parse(pin)), dataset, [favorite], Date.parse(pin)) : undefined, lang, pin, printed });
+  }, { dataset, favorite: savedFavorite, API, notices: notices ? advanceCommuteChanges(advanceCommuteChanges(undefined, fixture(), [savedFavorite], Date.parse(pin)), dataset, [savedFavorite], Date.parse(pin)) : undefined, lang, pin, printed });
   if (printed) await page.route('**/data/corridor.json', route => route.fulfill({ json: dataset }));
   await page.goto(`/?${printed ? 'printed=1' : 'live=1'}&now=${encodeURIComponent(pin)}`);
   await expect(page.locator('.briefing-commute')).toHaveCount(1);
@@ -52,6 +53,46 @@ async function setup(page: Page, dataset: Dataset, lang = 'en', pin = PIN, notic
 const region = (page: Page) => page.locator('.commute-changes');
 
 for (const lang of ['en','es']) {
+  for (const scope of ['missing', 'mixed'] as const) {
+    test(`${lang}: ${scope} saved routes remain explicit at 320px/200%`, async ({ page }) => {
+      const ds = fixture(), route = ds.routes[0]!;
+      const saved = { ...favorite, routeIds: scope === 'missing' ? ['missing-one', 'missing-two'] : [route.id, 'missing-one'] };
+      await setup(page, ds, lang, PIN, false, false, saved);
+      await page.setViewportSize({ width: 320, height: 900 });
+      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      const card = region(page).locator('.briefing-commute'), label = card.locator('.briefing-scope');
+      const missing = lang === 'en' ? 'Selected route unavailable' : 'Ruta seleccionada no disponible';
+      await expect(label).toContainText(scope === 'missing' ? `${missing} / ${missing}` : `${route.shortName} / ${missing}`);
+      await expect(label).not.toContainText(lang === 'en' ? 'All matching routes' : 'Todas las rutas que coinciden');
+      await expect(card).toContainText(lang === 'en' ? 'Service is unknown' : 'Servicio desconocido');
+      const reselect = card.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' });
+      await expect(reselect).toBeVisible();
+      expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= 320)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath('missing-routes.png'), fullPage: true });
+      await reselect.focus(); await page.keyboard.press('Enter');
+      await expect(page.locator('.commute-picker')).toBeVisible();
+    });
+  }
+  for (const problem of ['selection', 'coverage'] as const) {
+    test(`${lang}: printed holiday with unknown ${problem} preserves recovery at 320px/200%`, async ({ page }) => {
+      const ds = fixture(); ds.meta.transcribed = { issued: '20260701', documentId: 'fictional-test' }; delete ds.meta.realtime;
+      if (problem === 'coverage') ds.calendars.WK!.end = '20261120';
+      const saved = problem === 'selection' ? { ...favorite, fromStopId: 'absent' } : favorite;
+      await setup(page, ds, lang, '2026-11-26T08:00:00-05:00', false, true, saved);
+      await page.setViewportSize({ width: 320, height: 900 });
+      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      const card = region(page).locator('.briefing-commute');
+      await expect(card).toContainText(lang === 'en' ? 'Service is unknown' : 'Servicio desconocido');
+      await expect(card).not.toContainText(lang === 'en' ? 'This date is on the printed holiday list' : 'Esta fecha está en la lista impresa');
+      const reselect = card.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' });
+      await expect(reselect).toBeVisible();
+      expect(await card.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= 320)).toBe(true);
+      await reselect.focus(); await page.keyboard.press('Enter');
+      await expect(page.locator('.commute-picker')).toBeVisible();
+    });
+  }
   test(`${lang}: replacement, provenance, actions, keyboard dismissal and reverse at 320px/200%`, async ({ page }) => {
     const unexpected = await setup(page, replacement(), lang, PIN, true);
     await page.setViewportSize({ width: 320, height: 900 });

@@ -9,6 +9,8 @@ import { liveDataset } from '../helpers/liveBus';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CommuteChanges } from '../../src/ui/CommuteChanges';
+import { CommuteBriefing } from '../../src/ui/CommuteBriefing';
+import type { CommuteChange } from '../../src/domain/commuteChanges';
 import { strings } from '../../src/ui/i18n';
 import { parseDataset } from '../../src/domain/dataset';
 
@@ -42,6 +44,40 @@ describe('commute briefing: sourced calendar and selected scope', () => {
     expect(commuteBriefing(ds, { ...ordinary, routeIds: [route, 'absent'] }).state).toBe('unknown');
     expect(commuteBriefing(ds, { ...ordinary, fromStopId: '3', toStopId: '1' }).state).toBe('unknown');
   });
+  for (const replacement of ['weekend', 'added', 'removed'] as const) {
+    it(`does not let an unrelated ${replacement} calendar cover expired weekday service`, () => {
+      const ds = fixture(), date = '20261123';
+      ds.calendars.WK!.end = '20261120';
+      ds.calendars.OTHER = replacement === 'weekend'
+        ? { ...structuredClone(ds.calendars.WK!), end: '20261130', days: [false,false,false,false,false,false,true] }
+        : { start: '99991231', end: '00010101', days: [false,false,false,false,false,false,false],
+          added: replacement === 'added' ? [date] : [], removed: replacement === 'removed' ? [date] : [] };
+      ds.trips.push({ id: 'other-service', patternId: ds.trips[0]!.patternId, serviceId: 'OTHER', times: [36000,36600,37200] });
+      const result = commuteBriefing(ds, { ...selection, date });
+      expect(result.state).toBe('unknown');
+      expect(result.departures).toHaveLength(replacement === 'added' ? 1 : 0);
+    });
+  }
+  it('keeps partial expiry and unproven calendar replacements unknown, even with current departures', () => {
+    const ds = fixture(), date = '20261123';
+    ds.calendars.NEW = { ...structuredClone(ds.calendars.WK!), start: date };
+    ds.calendars.WK!.end = '20261120';
+    ds.trips.push({ id: 'new-service', patternId: ds.trips[0]!.patternId, serviceId: 'NEW', times: [36000,36600,37200] });
+    expect(commuteBriefing(ds, { ...selection, date }).state).toBe('unknown');
+    ds.calendars.WK!.removed.push(date);
+    // An explicit exception in the expired service's own calendar does prove its status for this date.
+    ds.trips = ds.trips.filter(t => t.id !== 'T2'); // No previous-day overnight coverage in this assertion.
+    expect(commuteBriefing(ds, { ...selection, date }).state).toBe('scheduled');
+    delete ds.calendars.WK;
+    expect(commuteBriefing(ds, { ...selection, date }).state).toBe('unknown');
+  });
+  it('exception-only service supplies coverage only on its own explicit dates', () => {
+    const ds = fixture(); ds.trips = ds.trips.filter(t => t.serviceId === 'HOL');
+    expect(commuteBriefing(ds, selection).state).toBe('scheduled');
+    expect(commuteBriefing(ds, { ...selection, date: '20261127' }).state).toBe('unknown');
+    ds.calendars.HOL!.added = []; ds.calendars.HOL!.removed = [selection.date];
+    expect(commuteBriefing(ds, selection).state).toBe('no-service');
+  });
   it('distinguishes both saved legs and broader, unrelated and ambiguous advisories', () => {
     const ds = fixture();
     ds.stops.push({ id: 'return-stop', name: 'Fictional return', twin: '1' });
@@ -60,12 +96,29 @@ describe('commute briefing: sourced calendar and selected scope', () => {
     expect(advisoryScope([{ ambiguous: true }], ds, query)).toBe('uncertain');
     expect(advisoryScope([], ds, query)).toBe('uncertain');
   });
+  it('cannot rule out advisories when missing stops, routes or a direct pattern prevent scoping', () => {
+    const ds = fixture();
+    for (const query of [{ ...selection, fromStopId: 'absent' }, { ...selection, routeIds: ['absent'] },
+      { ...selection, fromStopId: '3', toStopId: '1' }]) {
+      for (const selectors of [[{}], [{ ambiguous: true }], [{ routeId: 'other' }]]) {
+        expect(advisoryScope(selectors, ds, query)).toBe('uncertain');
+      }
+    }
+  });
   it('printed warnings never produce holiday departure times; uncovered dates remain unknown', () => {
     const ds = fixture(); ds.meta.transcribed = { issued: '20260701', documentId: 'fictional' };
     delete ds.meta.realtime;
     const result = commuteBriefing(parseDataset(ds), selection);
     expect(result.state).toBe('printed-holiday'); expect(result.departures).toEqual([]);
     expect(commuteBriefing(ds, { ...selection, date: '20270503' }).state).toBe('unknown');
+    for (const query of [{ ...selection, fromStopId: 'absent' }, { ...selection, toStopId: 'absent' },
+      { ...selection, routeIds: ['absent'] }, { ...selection, window: { start: now, end: now } },
+      { ...selection, window: { start: NaN, end: now } }]) {
+      const result = commuteBriefing(ds, query);
+      expect(result.state).toBe('unknown'); expect(result.departures).toEqual([]);
+    }
+    ds.calendars.WK!.end = '20261120';
+    expect(commuteBriefing(ds, selection).state).toBe('unknown');
   });
   for (const [date, serviceDate, seconds] of [['20261122','20261121',88200], ['20261101','20261101',5400], ['20270314','20270314',5400], ['20270313','20270314',600]] as const) {
     it(`preserves Eastern service identity on ${date}, including DST and >24:00`, () => {
@@ -158,6 +211,42 @@ describe('existing notice store metadata compatibility', () => {
 });
 
 describe('bilingual briefing rendering without a network source', () => {
+  for (const lang of ['en','es'] as const) {
+    it(`${lang}: missing route labels preserve the explicitly saved scope, including mixed routes`, () => {
+      const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
+      const render = (routeIds: string[]) => renderToStaticMarkup(createElement(CommuteBriefing, {
+        ds, selection: { ...selection, date: '20261123', routeIds }, now, t, lang, onTimetable: () => {}, onReselect: () => {},
+      }));
+      for (const routeIds of [['absent'], ['absent', 'another-absent'], [ds.routes[0]!.id, 'absent']]) {
+        const html = render(routeIds);
+        expect(html).toContain(b.missingRoute);
+        expect(html).not.toContain(b.allRoutes);
+        expect(html).toContain(b.unknown);
+        expect(html).toContain(b.reselect);
+        if (routeIds.length === 2 && routeIds[0] !== 'absent') expect(html).toContain(`${ds.routes[0]!.shortName} / ${b.missingRoute}`);
+      }
+      // With no saved route filter and no known pattern, the all-routes label is still accurate.
+      ds.patterns = []; ds.trips = [];
+      expect(render([])).toContain(b.allRoutes);
+    });
+    for (const kind of ['selection','uncomparable'] as const) {
+      it(`${lang}/${kind}: only an existing favorite offers a recovery action`, () => {
+        const t = strings[lang], b = t.commuteChanges.briefing;
+        const notice: CommuteChange = { id: 'fictional-notice', favoriteId: favorite.id, favoriteKey: 'fictional-key', kind,
+          fromVersion: 'fictional-before', toVersion: 'fictional-after', before: [], after: [] };
+        const render = (present: boolean) => renderToStaticMarkup(createElement(CommuteChanges, {
+          ds: fixture(), now, t, lang, tz: 'America/New_York', notices: [notice], favorites: present ? [favorite] : [],
+          durable: true, dismiss: async () => {}, reversedIds: new Set<string>(), onTimetable: () => {}, onReselect: () => {},
+        }));
+        expect(render(true)).toContain(b.reselect);
+        const orphan = render(false);
+        expect(orphan).not.toContain(b.reselect);
+        expect(orphan).not.toContain(b.timetable);
+        expect(orphan).toContain(t.commuteChanges.dismiss);
+        expect(orphan).toContain(t.commuteChanges[kind]);
+      });
+    }
+  }
   for (const lang of ['en','es'] as const) it(`${lang}: calendar, unavailable alerts and notice clocks coexist with native controls`, () => {
     const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
     ds.meta.source = 'Fictional <script>not executable</script>';
