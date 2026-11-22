@@ -28,7 +28,7 @@ test('first run: wrong-side guard, save, zero-tap home on return', async ({ page
   await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
   await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
 
-  const card = page.getByRole('article');
+  const card = page.locator('article[data-favorite-id]');
   await expect(card.locator('[data-end="from"] .highway-name')).toHaveText('Maple Ave & Main St');
   await expect(card.locator('[data-end="to"] .highway-name')).toHaveText('New York');
   await expect(card.locator('[data-end="to"] .commute-stop')).toHaveText('Port Authority');
@@ -39,7 +39,7 @@ test('first run: wrong-side guard, save, zero-tap home on return', async ({ page
 
   // Reload = a returning rider: the next buses are there with no taps.
   await page.reload();
-  await expect(page.getByRole('article').locator('.dep-time').first()).toHaveText('8:06 AM');
+  await expect(page.locator('article[data-favorite-id]').locator('.dep-time').first()).toHaveText('8:06 AM');
   await page.screenshot({ path: 'test-results/home.png', fullPage: true });
 });
 
@@ -50,7 +50,7 @@ test('reverse, gate card, exact-bus lock, all-day timetable, Spanish', async ({ 
 
   // One tap reverses the commute; the return leg ends at the home stop's twin across the street.
   await page.getByRole('button', { name: /Reverse/ }).click();
-  const card = page.getByRole('article');
+  const card = page.locator('article[data-favorite-id]');
   await expect(card.locator('[data-end="from"] .highway-name')).toHaveText('New York');
   await expect(card.locator('[data-end="to"] .highway-name')).toHaveText('Maple Ave & Main St');
   await expect(card).toHaveAccessibleName('Port Authority Bus Terminal → Maple Ave & Main St (to Demo Terminal)');
@@ -83,7 +83,7 @@ test('reverse, gate card, exact-bus lock, all-day timetable, Spanish', async ({ 
   await expect(page.locator('table.timetable')).toBeVisible();
   await page.getByRole('button', { name: 'Atrás' }).click();
   await expect(page.getByRole('button', { name: /Invertir/ })).toBeVisible();
-  await expect(page.getByRole('article').locator('.dep-time').first()).toHaveText(/^\d{1,2}:\d{2} (a|p)\.? ?m\.?$/i);
+  await expect(page.locator('article[data-favorite-id]').locator('.dep-time').first()).toHaveText(/^\d{1,2}:\d{2} (a|p)\.? ?m\.?$/i);
 });
 
 test('favorites keep the rider order', async ({ page }) => {
@@ -107,7 +107,7 @@ test('favorites keep the rider order', async ({ page }) => {
   await page.getByRole('button', { name: 'Edit' }).click();
   await page.getByLabel('Name', { exact: true }).first().fill('Mañana · mi viaje (to New York)');
   await page.getByRole('button', { name: 'Done' }).click();
-  const renamed = page.getByRole('article').first();
+  const renamed = page.locator('article[data-favorite-id]').first();
   await renamed.getByRole('button', { name: /Reverse/ }).click();
   await expect(renamed.locator('h2.commute-led')).toHaveText('Mañana · mi viaje (to New York)');
   await expect(renamed.locator('[data-end="from"] .highway-name')).toHaveText('New York');
@@ -137,7 +137,7 @@ test('ticket guide: labeled drawings of paper and app tickets, never a usable ti
   await saveCommute(page, '90002', /Maple Ave & Main St \(to NYC\)/, /Port Authority Bus Terminal/);
   await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
   await page.getByRole('button', { name: /Reverse/ }).click();
-  await page.getByRole('article').locator('.dep').first().click();
+  await page.locator('article[data-favorite-id]').locator('.dep').first().click();
 
   await expect(page.locator('.trip-ticket-label')).toHaveText('Trip card · not a ticket');
   const guide = page.locator('details.ticket-guide');
@@ -159,7 +159,7 @@ test('ticket guide: labeled drawings of paper and app tickets, never a usable ti
   // From a New Jersey stop the guide starts closed.
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: /Reverse/ }).click();
-  await page.getByRole('article').locator('.dep').first().click();
+  await page.locator('article[data-favorite-id]').locator('.dep').first().click();
   await expect(page.locator('details.ticket-guide')).not.toHaveAttribute('open', '');
 });
 
@@ -195,7 +195,7 @@ test.describe('real data', () => {
 
     await saveCommute(page, '30002', /MAIN ST AT ELM/, /PORT AUTHORITY BUS TERMINAL/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     // 8:20 AM at this stop is the filled-in time; the third entry is tomorrow's 8:20 AM.
     await expect(card.locator('.dep-time')).toContainText(['~8:20 AM', '9:10 AM', '~8:20 AM']);
     await expect(card.locator('.destination-clock .dep-arrival-scheduled').first()).toContainText('9:00 AM');
@@ -243,7 +243,7 @@ test.describe('printed timetable data (route 165)', () => {
     await page.goto('/?printed=1&now=2026-11-04T07:50');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /^Hackensack \(Sears\) .*\(to New York\)$/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     await expect(card.locator('.dep-time')).toHaveCount(3);
     // The selected destination is Hackensack even though this stop's suffix says "to New York".
     await expect(card.locator('[data-end="to"] .highway-name')).toHaveText('Hackensack');
@@ -305,7 +305,7 @@ test.describe('printed timetable data (route 165)', () => {
     await page.goto('/?printed=1&now=2026-11-01T01:00');
     await saveCommute(page, 'port authority', /^New York - Port Authority Bus Terminal$/, /^Hackensack \(Sears\) .*\(to Westwood\)$/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    await page.getByRole('article').nth(1).locator('.dep').first().click();
+    await page.locator('article[data-favorite-id]').nth(1).locator('.dep').first().click();
     await expect(page.locator('.trip-ticket .big-time').first()).toContainText('1:10 AM');
     await expect(page.locator('.stop-list li[data-role="alight"] .stop-time')).toHaveText('1:57 AM');
     await expect(page.getByRole('note').filter({ hasText: 'Clocks go' })).toHaveCount(0);
@@ -314,7 +314,7 @@ test.describe('printed timetable data (route 165)', () => {
     await saveCommute(page, 'river edge', /^River Edge .*\(to Westwood\)$/, /^Oradell - Kinderkamack Rd\. at New Milford Ave\./);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
     // In real time the 1:14 AM bus (old clock) leaves before the 1:03 AM bus (new clock), so 1:14 is listed first.
-    const card = page.getByRole('article').nth(2);
+    const card = page.locator('article[data-favorite-id]').nth(2);
     await expect(card.locator('.dep-time').nth(0)).toHaveText('1:14 AM');
     await expect(card.locator('.dep-time').nth(1)).toHaveText('1:03 AM');
     await card.locator('.dep').nth(1).click();
@@ -322,7 +322,7 @@ test.describe('printed timetable data (route 165)', () => {
     await expect(page.getByRole('note').filter({ hasText: 'Clocks go back an hour at 2 AM during this trip' })).toBeVisible();
     // The all-day timetable for that day explains the order too; the next day has no note.
     await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('article').nth(2).getByRole('button', { name: /All day|full-day/ }).click();
+    await page.locator('article[data-favorite-id]').nth(2).getByRole('button', { name: /All day|full-day/ }).click();
     await expect(page.locator('table.timetable .link-cell').first()).toBeVisible();
     const listed = await page.locator('table.timetable .link-cell').allTextContents();
     expect(listed.slice(listed.indexOf('1:14 AM'), listed.indexOf('1:14 AM') + 2)).toEqual(['1:14 AM', '1:03 AM']);
@@ -344,7 +344,7 @@ test.describe('printed timetable data (route 165)', () => {
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await saveCommute(page, '47/48th', /^Weehawken - Blvd\. East at 47\/48th St\. \(to Westwood\)$/, /^West New York .*\(to Westwood\)$/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    await page.getByRole('article').nth(1).getByRole('button', { name: /All day|full-day/ }).click();
+    await page.locator('article[data-favorite-id]').nth(1).getByRole('button', { name: /All day|full-day/ }).click();
     await expect(page.locator('table.timetable .link-cell').first()).toBeVisible();
     await expect(page.getByRole('note').filter({ hasText: 'Clocks go' })).toHaveCount(0);
   });
@@ -374,7 +374,7 @@ test.describe('printed timetable data (route 165)', () => {
     await page.getByRole('button', { name: /Port Authority Bus Terminal/ }).click();
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
 
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     await expect(card.locator('.dep-time')).toHaveCount(3);
     await expect(card.locator('.route-badge').first()).toHaveText(/^165T?$/);
 
@@ -585,7 +585,7 @@ test.describe('leave-by countdown (issue #54)', () => {
     await page.goto(URL);
     await saveCommute(page, 'maple', /Maple Ave & Main St \(to NYC\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     // Two 8:06 buses: the 165T express gets in first, and the card says why.
     await expect(card.locator('.dep').nth(1).locator('.tag-first')).toHaveText('Arrives first');
     await expect(card.locator('.tag-first')).toHaveCount(1);
@@ -596,7 +596,7 @@ test.describe('leave-by countdown (issue #54)', () => {
     await page.goto('/?printed=1&now=2026-11-04T06:49');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     await card.getByRole('button', { name: 'Leave by', exact: true }).click();
     await expect(card.getByRole('heading', { name: 'Leave-by countdown' })).toBeFocused();
     await card.getByLabel('Minutes to walk to the stop').fill('75');
@@ -620,26 +620,26 @@ test.describe('leave-by countdown (issue #54)', () => {
 
     // Kept on this phone, for this direction only.
     await page.reload();
-    await expect(page.getByRole('article').locator('.leave-count')).toBeVisible();
+    await expect(page.locator('article[data-favorite-id]').locator('.leave-count')).toBeVisible();
     await page.getByRole('button', { name: /Reverse/ }).click();
-    await expect(page.getByRole('article').locator('.leave-by')).toHaveCount(0);
+    await expect(page.locator('article[data-favorite-id]').locator('.leave-by')).toHaveCount(0);
     await page.getByRole('button', { name: /Reverse/ }).click();
 
     // A long walk: the next buses are marked as out of reach, and the countdown is for one you can make.
-    await page.getByRole('article').getByRole('button', { name: 'Walking time' }).click();
+    await page.locator('article[data-favorite-id]').getByRole('button', { name: 'Walking time' }).click();
     await page.getByLabel('Minutes to walk to the stop').fill('60');
     await page.getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByRole('article').locator('.dep-toosoon').first()).toHaveText("Can't walk there in time");
+    await expect(page.locator('article[data-favorite-id]').locator('.dep-toosoon').first()).toHaveText("Can't walk there in time");
 
     await page.getByRole('button', { name: 'Household', exact: true }).click();
     await page.getByRole('button', { name: 'Español' }).click();
     await page.getByRole('button', { name: 'Atrás' }).click();
-    await expect(page.getByRole('article').locator('.leave-count')).toHaveText(/^Sal (en \d+ min|ahora)$/);
-    await expect(page.getByRole('article').locator('.leave-by')).toContainText(/para el autobús de las? ~?\d{1,2}:\d\d a\. ?m\./);
+    await expect(page.locator('article[data-favorite-id]').locator('.leave-count')).toHaveText(/^Sal (en \d+ min|ahora)$/);
+    await expect(page.locator('article[data-favorite-id]').locator('.leave-by')).toContainText(/para el autobús de las? ~?\d{1,2}:\d\d a\. ?m\./);
 
-    await page.getByRole('article').getByRole('button', { name: 'Tiempo a pie' }).click();
+    await page.locator('article[data-favorite-id]').getByRole('button', { name: 'Tiempo a pie' }).click();
     await page.getByRole('button', { name: 'Quitar' }).click();
-    await expect(page.getByRole('article').locator('.leave-by')).toHaveCount(0);
+    await expect(page.locator('article[data-favorite-id]').locator('.leave-by')).toHaveCount(0);
   });
 });
 test.describe('saved backup plans (issue #62)', () => {
@@ -702,7 +702,7 @@ test.describe('home card actions and version (owner request 2026-11-04)', () => 
     await page.goto('/?printed=1&now=2026-11-04T18:00');
     await saveCommute(page, 'irvington', /Irvington St\. \(to New York\)/, /Port Authority Bus Terminal/);
     await page.getByRole('button', { name: 'Save trip', exact: true }).first().click();
-    const card = page.getByRole('article');
+    const card = page.locator('article[data-favorite-id]');
     await expect(card).toContainText('Tap a bus to lock onto it, ride, check it or share');
     await card.getByRole('button', { name: /Reverse/ }).click();
     await card.getByRole('button', { name: 'Get me the fuck home' }).click();
@@ -718,24 +718,38 @@ test.describe('home card actions and version (owner request 2026-11-04)', () => 
   });
 });
 test.describe('a real commute opened on the demo (owner report 2026-11-05)', () => {
-  test.use({ serviceWorkers: 'block' });
-  test('says why there are no buses, never shows a stop code, and leads back to the real schedule', async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem('arriba.favorites.v1', JSON.stringify([{ id: 'f', label: 'Hackensack - State St. at Lawerence St. (to New York) → New York - Port Authority Bus Terminal', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }])));
-    await page.goto('/?now=2026-11-05T07:30&demo');
-    const card = page.getByRole('article');
-    await expect(card).toContainText('This commute was saved from the real schedule');
-    await expect(card).toContainText('Hackensack - State St. at Lawerence St.');
-    await expect(page.locator('main')).not.toContainText('N10');
-    expect((await new AxeBuilder({ page }).include('.fav-missing').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([]);
-    // Leaving the demo opens the real schedule, now NJ Transit's official one by default (owner decision 2026-11-12),
-    // which asks once to pick this printed-timetable commute's stop again; the printed timetable is one tap away.
-    await page.route('https://dale-live.test.workers.dev/v1/schedule', route => route.fulfill({ json: liveDataset }));
-    await card.getByRole('link', { name: 'Leave the demo' }).click();
-    await expect(page).toHaveURL(/\?now=2026-11-05T07:30$/);
-    await expect(page.locator('.demo-banner')).toHaveCount(0);
-    await expect(page.locator('.move-commutes')).toContainText('Hackensack - State St. at Lawerence St.');
-    await page.locator('.move-commutes').getByRole('link', { name: 'Open the printed 165 schedule' }).click();
-    await expect(page.getByRole('article').locator('[data-end="from"] .highway-name')).toHaveText('Hackensack');
-    await expect(page.getByRole('article').locator('.dep').first()).toBeVisible();
-  });
+  test.use({ serviceWorkers: 'block', viewport: { width: 320, height: 800 } });
+  for (const lang of ['en', 'es'] as const) {
+    test(`${lang}: says why there are no buses, never shows a stop code, and leads back to the real schedule at 320px/200%`, async ({ page }) => {
+      await page.addInitScript(lang => {
+        localStorage.setItem('arriba.favorites.v1', JSON.stringify([{ id: 'f', label: 'Hackensack - State St. at Lawerence St. (to New York) → New York - Port Authority Bus Terminal', fromStopId: 'N10', toStopId: 'PABT', routeIds: [] }]));
+        localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang }));
+        // Keep enlarged text on each full navigation, including the two schedule links.
+        document.addEventListener('DOMContentLoaded', () => {
+          const style = document.createElement('style');
+          style.textContent = 'html { font-size: 200%; } body { font-size: 32px; }';
+          document.head.append(style);
+        });
+      }, lang);
+      await page.goto('/?now=2026-11-05T07:30&demo');
+      const card = page.locator('article[data-favorite-id]');
+      await expect(card).toHaveAttribute('data-favorite-id', 'f');
+      await expect(card).toContainText(lang === 'en' ? 'This commute was saved from the real schedule' : 'Este viaje se guardó con el horario real');
+      await expect(card).toContainText('Hackensack - State St. at Lawerence St.');
+      await expect(page.locator('main')).not.toContainText('N10');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+      await page.screenshot({ path: `test-results/real-commute-demo-${lang}-320-200.png`, fullPage: true });
+      expect((await new AxeBuilder({ page }).include('.fav-missing').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([]);
+      // Leaving the demo opens the real schedule, now NJ Transit's official one by default (owner decision 2026-11-12),
+      // which asks once to pick this printed-timetable commute's stop again; the printed timetable is one tap away.
+      await page.route('https://dale-live.test.workers.dev/v1/schedule', route => route.fulfill({ json: liveDataset }));
+      await card.getByRole('link', { name: lang === 'en' ? 'Leave the demo' : 'Salir de la demostración' }).click();
+      await expect(page).toHaveURL(/\?now=2026-11-05T07:30$/);
+      await expect(page.locator('.demo-banner')).toHaveCount(0);
+      await expect(page.locator('.move-commutes')).toContainText('Hackensack - State St. at Lawerence St.');
+      await page.locator('.move-commutes').getByRole('link', { name: lang === 'en' ? 'Open the printed 165 schedule' : 'Abrir el horario impreso del 165' }).click();
+      await expect(page.locator('article[data-favorite-id]').locator('[data-end="from"] .highway-name')).toHaveText('Hackensack');
+      await expect(page.locator('article[data-favorite-id]').locator('.dep').first()).toBeVisible();
+    });
+  }
 });

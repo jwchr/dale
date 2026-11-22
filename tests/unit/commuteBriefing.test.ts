@@ -1,0 +1,180 @@
+import { describe, expect, it } from 'vitest';
+import { activeDuring, advisoryScope, alertsStatus, commuteBriefing, exactGateChange, sourceAge, type AlertsCheck, type BriefingSelection, type GateAssignment } from '../../src/domain/commuteBriefing';
+import { advanceCommuteChanges } from '../../src/domain/commuteChanges';
+import { createCommuteChangeStore, parseCommuteChangeState } from '../../src/data/commuteChangeStore';
+import { returnLeg } from '../../src/domain/direction';
+import { serviceTimeToInstant } from '../../src/domain/time';
+import { commuteBriefingStrings } from '../../src/ui/commuteBriefingStrings';
+import { liveDataset } from '../helpers/liveBus';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { CommuteChanges } from '../../src/ui/CommuteChanges';
+import { strings } from '../../src/ui/i18n';
+import { parseDataset } from '../../src/domain/dataset';
+
+const now = Date.parse('2026-11-21T08:00:00-05:00');
+const favorite = { id: 'fictional', label: 'Fictional commute', fromStopId: '1', toStopId: '3', routeIds: [] as string[] };
+const selection: BriefingSelection = { ...favorite, date: '20261126' };
+const fixture = () => structuredClone(liveDataset);
+
+describe('commute briefing: sourced calendar and selected scope', () => {
+  it('uses additions/removals, never assumes Sunday or derives a holiday label', () => {
+    const ds = fixture();
+    const holiday = commuteBriefing(ds, selection);
+    expect(holiday.state).toBe('scheduled');
+    expect(holiday.departures.map(d => d.tripId)).toEqual(['T2', 'T4']); // Previous service day's >24:00 remains valid.
+    ds.calendars.WK!.removed.push('20261125'); ds.calendars.HOL!.added = [];
+    expect(commuteBriefing(ds, selection).state).toBe('no-service');
+    expect(commuteBriefing(ds, { ...selection, date: '20270501' }).state).toBe('unknown');
+    expect(holiday.validity.every(v => v.start <= v.end)).toBe(true); // No exception-only sentinel dates.
+  });
+  it('filters the exact variant, boarding stop, direction and explicit window without inventing a commute time', () => {
+    const ds = fixture(), ordinary = { ...selection, date: '20261123' };
+    const full = commuteBriefing(ds, ordinary);
+    expect(full.departures.map(d => d.tripId)).toEqual(['T1','T3']);
+    const route = full.departures[1]!.route.id;
+    const start = full.departures[1]!.departs;
+    expect(commuteBriefing(ds, { ...ordinary, routeIds: [route], window: { start, end: start + 1 } }).departures.map(d => d.tripId)).toEqual(['T3']);
+    expect(commuteBriefing(ds, { ...ordinary, window: { start, end: start } }).state).toBe('unknown');
+    expect(commuteBriefing(ds, { ...ordinary, window: { start: start + 1, end: start + 2 } }).state).toBe('no-service');
+    expect(commuteBriefing(ds, { ...ordinary, fromStopId: 'absent' }).state).toBe('unknown');
+    expect(commuteBriefing(ds, { ...ordinary, routeIds: ['absent'] }).state).toBe('unknown');
+    expect(commuteBriefing(ds, { ...ordinary, routeIds: [route, 'absent'] }).state).toBe('unknown');
+    expect(commuteBriefing(ds, { ...ordinary, fromStopId: '3', toStopId: '1' }).state).toBe('unknown');
+  });
+  it('distinguishes both saved legs and broader, unrelated and ambiguous advisories', () => {
+    const ds = fixture();
+    ds.stops.push({ id: 'return-stop', name: 'Fictional return', twin: '1' });
+    ds.patterns.push({ id: 'back', routeId: ds.routes[0]!.id, directionId: 1, headsign: 'Fictional home', stopIds: ['3','return-stop'] });
+    ds.trips.push({ id: 'back', patternId: 'back', serviceId: 'WK', times: [61200,63600] });
+    const back = returnLeg(ds, '1', '3', []);
+    expect(back).toEqual({ fromStopId: '3', toStopId: 'return-stop' });
+    const query = { ...selection, date: '20261123' };
+    expect(commuteBriefing(ds, { ...query, ...back }).departures.map(d => d.tripId)).toEqual(['back']);
+    expect(advisoryScope([{}], ds, query)).toBe('match'); // Explicit agency-wide selector.
+    expect(advisoryScope([{ routeId: ds.routes[0]!.id }], ds, query)).toBe('match');
+    expect(advisoryScope([{ stopId: '2' }], ds, query)).toBe('match');
+    expect(advisoryScope([{ directionId: 1 }], ds, query)).toBe('unrelated');
+    expect(advisoryScope([{ routeId: 'other' }], ds, query)).toBe('unrelated');
+    expect(advisoryScope([{ stopId: 'elsewhere' }], ds, query)).toBe('unrelated');
+    expect(advisoryScope([{ ambiguous: true }], ds, query)).toBe('uncertain');
+    expect(advisoryScope([], ds, query)).toBe('uncertain');
+  });
+  it('printed warnings never produce holiday departure times; uncovered dates remain unknown', () => {
+    const ds = fixture(); ds.meta.transcribed = { issued: '20260701', documentId: 'fictional' };
+    delete ds.meta.realtime;
+    const result = commuteBriefing(parseDataset(ds), selection);
+    expect(result.state).toBe('printed-holiday'); expect(result.departures).toEqual([]);
+    expect(commuteBriefing(ds, { ...selection, date: '20270503' }).state).toBe('unknown');
+  });
+  for (const [date, serviceDate, seconds] of [['20261122','20261121',88200], ['20261101','20261101',5400], ['20270314','20270314',5400], ['20270313','20270314',600]] as const) {
+    it(`preserves Eastern service identity on ${date}, including DST and >24:00`, () => {
+      const ds = fixture();
+      ds.trips = [{ id: 'night', patternId: ds.trips[0]!.patternId, serviceId: 'only', times: [seconds,seconds+600,seconds+1200] }];
+      ds.calendars = { only: { start: serviceDate, end: serviceDate, added: [serviceDate], removed: [], days: [false,false,false,false,false,false,false] } };
+      const result = commuteBriefing(ds, { ...selection, date });
+      expect(result.departures).toHaveLength(1);
+      expect(result.departures[0]!.serviceDate).toBe(serviceDate);
+      expect(result.departures[0]!.departs).toBe(serviceTimeToInstant(serviceDate, seconds, ds.meta.timezone));
+    });
+  }
+  it('active periods use instants and half-open boundaries, including both repeated hours', () => {
+    const first = Date.parse('2026-11-01T01:30:00-04:00'), second = Date.parse('2026-11-01T01:30:00-05:00');
+    const period = { start: first, end: second };
+    expect(activeDuring(period, { start: first, end: second })).toBe(true);
+    expect(activeDuring(period, { start: second, end: second + 1 })).toBe(false);
+    expect(activeDuring(period, { start: first - 1, end: first })).toBe(false);
+    expect(activeDuring({ start: NaN }, { start: first, end: second })).toBe(false);
+    expect([period].filter(p => activeDuring(p, { start: first, end: second + 1 }))).toHaveLength(1);
+  });
+});
+
+describe('briefing clocks and unavailable alerts', () => {
+  it('does not substitute receipt time for source time; age grows without a request', () => {
+    for (const at of [undefined, '', 'invalid', now + 1, Infinity, NaN]) expect(sourceAge(at, now)).toBeUndefined();
+    const built = '2026-11-20T08:00:00-05:00';
+    expect(sourceAge(built, now)).toBe(86400000);
+    expect(sourceAge(built, now + 60000)).toBe(86460000);
+  });
+  for (const state of ['disabled','unverified','timeout','denied','429','malformed','offline','failed'] as const) {
+    it(`${state}: exact bilingual unavailable message, even after an attempted check`, () => {
+      expect(alertsStatus({ state, attemptedAt: now }, now)).toBe('unavailable');
+      expect(commuteBriefingStrings.en.alerts).toBe("Couldn't check current alerts");
+      expect(commuteBriefingStrings.es.alerts).toBe('No se pudieron consultar las alertas actuales');
+    });
+  }
+  it('only fresh verified known coverage allows empty; stale, expired and invalid timestamps stay unavailable', () => {
+    const fresh: AlertsCheck = { state: 'success', verified: true, covered: true, checkedAt: now, updatedAt: now - 1000, expiresAt: now + 60000, matching: 0 };
+    expect(alertsStatus(fresh, now)).toBe('empty');
+    expect(alertsStatus({ ...fresh, matching: 1 }, now)).toBe('notices');
+    for (const patch of [{ verified: false }, { covered: false }, { checkedAt: now + 1 }, { updatedAt: now - 61000 }, { checkedAt: NaN }, { expiresAt: now }, { matching: -1 }]) {
+      expect(alertsStatus({ ...fresh, ...patch }, now)).toBe('unavailable');
+    }
+    expect(alertsStatus(fresh, now + 61000)).toBe('unavailable');
+  });
+  it('only official successive same-trip/date assignments can prove a gate change', () => {
+    const before: GateAssignment = { tripId: 'fictional-trip', serviceDate: '20261121', gate: 'A', observedAt: now-2000, source: 'Fictional official assignment', kind: 'official' };
+    const after = { ...before, gate: 'B', observedAt: now-1000 };
+    expect(exactGateChange(before, after, before, now)).toEqual({ before, after });
+    for (const patch of [{ tripId: 'other' }, { serviceDate: '20261120' }, { kind: 'published' as const }, { source: '' }, { observedAt: now+1 }]) {
+      expect(exactGateChange(before, { ...after, ...patch }, before, now)).toBeUndefined();
+    }
+    expect(exactGateChange(undefined, after, before, now)).toBeUndefined();
+  });
+});
+
+describe('existing notice store metadata compatibility', () => {
+  const updated = () => { const ds = fixture(); ds.meta.feedVersion = 'fictional-v2'; ds.meta.builtAt = '2026-11-21T12:00:00Z'; ds.trips[0]!.times[0]! += 180; return ds; };
+  const noticeState = () => advanceCommuteChanges(advanceCommuteChanges(undefined, fixture(), [favorite], now), updated(), [favorite], now);
+  it('retains source clocks across subsequent versions and accepts legacy records without guessing age', () => {
+    const state = noticeState(); expect(state.notices).toHaveLength(1);
+    const sources = state.notices[0]!.sources!;
+    expect(sources.before.builtAt).toBe(liveDataset.meta.builtAt);
+    expect(sources.after.builtAt).toBe(updated().meta.builtAt);
+    const ds = updated(); ds.meta.feedVersion = 'fictional-v3'; ds.meta.builtAt = '2026-11-21T12:30:00Z';
+    expect(advanceCommuteChanges(state, ds, [favorite], now).notices[0]!.sources).toEqual(sources);
+    delete state.notices[0]!.sources;
+    expect(parseCommuteChangeState(state)?.notices).toEqual(state.notices);
+    expect(sourceAge(parseCommuteChangeState(state)?.notices[0]?.sources?.after.builtAt, now)).toBeUndefined();
+    (state.notices[0] as unknown as { sources: unknown }).sources = { after: {} };
+    expect(parseCommuteChangeState(state)).toBeUndefined();
+  });
+  it('dismissal/reload and another tab preserve metadata without touching locks or favorite order', async () => {
+    let raw: unknown = noticeState(); const initial = structuredClone(raw);
+    const persistence = { read: async () => structuredClone(raw), write: async (value: unknown) => { raw = structuredClone(value); } };
+    const first = createCommuteChangeStore(persistence), second = createCommuteChangeStore(persistence);
+    const favorites = [favorite, { ...favorite, id: 'second' }], snapshot = JSON.stringify(favorites);
+    const lock = { tripId: 'locked-fictional', serviceDate: '20261121', stopId: '1' }, savedLock = JSON.stringify(lock);
+    const state = (await first.advance(updated(), favorites, now))!.state;
+    await second.dismiss(state.notices[0]!.id);
+    expect((await first.advance(fixture(), favorites, now))!.state.notices).toEqual([]);
+    expect((await createCommuteChangeStore(persistence).advance(updated(), favorites, now))!.state.notices).toEqual([]);
+    expect(JSON.stringify(favorites)).toBe(snapshot); expect(JSON.stringify(lock)).toBe(savedLock);
+    const blocked = createCommuteChangeStore({ read: async () => initial, write: async () => { throw Error('blocked'); } });
+    expect((await blocked.advance(updated(), [favorite], now))!.durable).toBe(false);
+    expect((await blocked.dismiss(state.notices[0]!.id))!.state.notices).toEqual([]);
+    expect(parseCommuteChangeState(raw)?.baseline.meta.feedVersion).toBe('fictional-v2');
+  });
+});
+
+describe('bilingual briefing rendering without a network source', () => {
+  for (const lang of ['en','es'] as const) it(`${lang}: calendar, unavailable alerts and notice clocks coexist with native controls`, () => {
+    const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
+    ds.meta.source = 'Fictional <script>not executable</script>';
+    ds.meta.feedVersion = 'fictional-next'; ds.trips[0]!.times[0]! += 60;
+    const state = advanceCommuteChanges(advanceCommuteChanges(undefined, fixture(), [favorite], now), ds, [favorite], now);
+    const html = renderToStaticMarkup(createElement(CommuteChanges, {
+      ds, now, notices: state.notices, favorites: [favorite], durable: true, dismiss: async () => {},
+      t, lang, tz: ds.meta.timezone, reversedIds: new Set<string>(), onTimetable: () => {}, onReselect: () => {},
+    }));
+    expect(html).toContain(b.alerts.replaceAll("'", '&#x27;'));
+    expect(html).toContain(b.publicationUnknown);
+    expect(html).toContain(b.checkUnknown);
+    expect(html).toContain('fictional-next');
+    expect(html).toContain('<select'); expect(html).toContain('<summary>'); expect(html).toContain('<button');
+    expect(html).toContain('https://www.njtransit.com/travel-alerts-to');
+    expect(html).toContain('&lt;script&gt;not executable&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('role="alert"'); // No unsolicited live announcement or focus-taking popup.
+  });
+});

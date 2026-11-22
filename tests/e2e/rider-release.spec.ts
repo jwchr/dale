@@ -40,7 +40,7 @@ test('stop descriptions precede selection; final Port Authority first; city grou
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeFocused();
   await page.getByRole('button', { name: 'PORT AUTHORITY BUS TERMINAL', exact: true }).click();
   await saves.last().click();
-  await expect(page.getByRole('article')).toHaveCount(1);
+  await expect(page.locator('article[data-favorite-id]')).toHaveCount(1);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1.g2')!))).toMatchObject([{ fromStopId: '2', toStopId: '3' }]);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
 });
@@ -54,7 +54,7 @@ test('city destinations use native keyboard disclosures and keep Port Authority 
   await expect(city).toHaveAttribute('open', '');
   await expect(city.getByRole('button').first()).toBeVisible();
   await city.getByRole('button').first().click();
-  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click(); await expect(page.getByRole('article')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Save trip', exact: true }).first().click(); await expect(page.locator('article[data-favorite-id]')).toHaveCount(1);
 });
 
 test('one local photo is held across navigation; failed image retains original art', async ({ page }) => {

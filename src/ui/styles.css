@@ -677,6 +677,15 @@ main { flex: 1; padding-bottom: 24px; }
 
 /* Schedule notices stay below the commute controls and use native disclosure/buttons. */
 .commute-changes { min-width: 0; }
+.briefing-date { display: grid; gap: .4rem; margin-block: .75rem; }
+.briefing-date select { min-width: 0; max-width: 100%; min-height: 44px; font: inherit; }
+.briefing-commute, .briefing-alerts { min-width: 0; overflow-wrap: break-word; }
+.briefing-commute h3 { margin-block: 0 .5rem; font-size: 1rem; text-wrap: balance; }
+.briefing-commute summary { min-height: 44px; padding-block: .75rem; cursor: pointer; }
+.briefing-commute button, .commute-change button { white-space: normal; max-width: 100%; margin: .5rem .5rem 0 0; }
+.briefing-source { overflow-wrap: anywhere; }
+.briefing-source p { margin-block: .4rem; }
+.briefing-alerts .link { display: inline-flex; align-items: center; min-height: 44px; }
 .commute-change { overflow-wrap: anywhere; font-size: 1rem; }
 .commute-change h3 { margin-block: 0 8px; font-size: 1rem; }
 .commute-change summary { min-height: 44px; padding-block: 12px; cursor: pointer; }

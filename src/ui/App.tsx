@@ -124,7 +124,9 @@ const openingSloganIndex = openingSettings.rotateSlogans ? chooseOpeningSlogan(s
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
 function useNow(tz: string, intervalMs = 30_000): number {
   const pinned = useMemo(() => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(new URLSearchParams(location.search).get('now') ?? '');
+    const value = new URLSearchParams(location.search).get('now') ?? '';
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))) return Date.parse(value);
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
     return m ? zonedWallTime(+m[1]!, +m[2]!, +m[3]!, +m[4]!, +m[5]!, tz) : undefined;
   }, [tz]);
   const [now, setNow] = useState(() => pinned ?? Date.now());
@@ -148,7 +150,7 @@ type DatasetState =
   | { status: 'loading' }
   | { status: 'error' }
   /** `fromCache` when the service worker answered from its saved copy; `savedAt` (ms) when it knows when that copy was saved. */
-  | { status: 'ready'; ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined };
+  | { status: 'ready'; ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; checkedAt?: number };
 
 /** The app gives up on a load after this long even without a service worker (first visit, slow tunnel). */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -266,7 +268,7 @@ function AppContent() {
   }, [guide, data.status]);
   if (data.status !== 'ready' || guide) return <LoadScreen status={data.status} onRetry={retry} guide={guide}
     journey={journey} onGuide={(value) => { if (value === 'penn') journey.selectMode('train'); setGuide(value); }} onBack={() => { returning.current = true; setGuide(undefined); }} />;
-  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} journey={journey} />;
+  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} checkedAt={data.checkedAt} journey={journey} />;
 }
 
 function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
@@ -320,7 +322,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   );
 }
 
-function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; journey: JourneyModel }) {
+function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; checkedAt?: number; journey: JourneyModel }) {
   const tz = ds.meta.timezone;
   const [activeLock, setActiveLock] = useState<ActiveLock | undefined>();
   const [demoAdvanceMs, setDemoAdvanceMs] = useState(0);
@@ -498,8 +500,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             onLocation={hasStopLocations(ds) ? () => setScreen({ name: 'search', nearMe: true }) : undefined}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
         )}
+        {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz}
+          ds={ds} now={now} reversedIds={reversedIds} checkedAt={checkedAt} fromCache={fromCache} savedAt={savedAt}
+          onTimetable={selection => setScreen({ name: 'timetable', leg: selection, title: `${stopName(selection.fromStopId)} → ${stopName(selection.toStopId)}`, date: selection.date })}
+          onReselect={(favorite, reversed) => setScreen({ name: 'commute', favoriteId: favorite.id, reversed, end: 'from', level: 'stop' })} />}
         {screen.name === 'home' && favorites.length > 0 && toolbar}
-        {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'home' && lastArrival && <details className="card last-arrival">
           <summary>{t.arrival.last}</summary><ArrivalResult value={lastArrival} t={t} lang={settings.lang} tz={tz} />
           <button type="button" onClick={() => { saveLastArrival(store, undefined); setLastArrival(undefined); }}>{t.arrival.dismiss}</button>
@@ -848,7 +853,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
   useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`, !editing && !missing);
   if (missing && !editing) {
     return (
-      <article className="card fav fav-missing" aria-label={t.savedCommute}>
+      <article className="card fav fav-missing" data-favorite-id={fav.id} aria-label={t.savedCommute}>
         <h2>{fav.label}</h2>
         <p className="warn" role="note">{ds.meta.demo ? t.commuteNotInDemo : t.commuteNotInSchedule}</p>
         {ds.meta.demo && demoInAddress() && <a className="link" href={leaveDemoHref()}>{t.leaveDemo}</a>}

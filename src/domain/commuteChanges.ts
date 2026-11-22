@@ -23,7 +23,11 @@ export interface CommuteChange {
   date?: string;
   before: ChangedDeparture[];
   after: ChangedDeparture[];
+  /** Clocks travel with each notice when a later baseline replaces its schedule. Legacy notices omit this. */
+  sources?: { before: ScheduleSource; after: ScheduleSource };
 }
+export interface ScheduleSource { source: string; version: string; builtAt: string }
+export const scheduleSource = (ds: Dataset): ScheduleSource => ({ source: ds.meta.source, version: ds.meta.feedVersion, builtAt: ds.meta.builtAt });
 export interface CommuteChangeState {
   version: 1;
   baseline: Dataset;
@@ -164,7 +168,8 @@ export function advanceCommuteChanges(previous: CommuteChangeState | undefined, 
       if (!change) continue;
       const id = JSON.stringify([previous.baseline.meta.feedVersion, ds.meta.feedVersion, key]);
       if (!notices.some(n => n.id === id)) notices.push({ ...change, id, favoriteId: f.id, favoriteKey: key,
-        fromVersion: previous.baseline.meta.feedVersion, toVersion: ds.meta.feedVersion });
+        fromVersion: previous.baseline.meta.feedVersion, toVersion: ds.meta.feedVersion,
+        sources: { before: scheduleSource(previous.baseline), after: scheduleSource(ds) } });
     }
   }
   return { version: 1, baseline: ds, favoriteKeys: keys, notices };
