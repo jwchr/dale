@@ -1239,6 +1239,7 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
   const { ds, t, lang, stopName } = ctx;
   const [q, setQ] = useState(''), [stop, setStop] = useState<Stop>(), [dest, setDest] = useState<string>();
   const [city, setCity] = useState<string>();
+  const previousView = useRef({ city, stop });
   const heading = useRef<HTMLHeadingElement>(null);
   const [saveError, setSaveError] = useState(false), submitted = useRef(false), destinationHeading = useRef<HTMLHeadingElement>(null);
   const towns = useMemo(() => cityStopGroups(ds, cityBoardingStops(ds, []), lang), [ds, lang]);
@@ -1251,18 +1252,22 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
   }, [ds, q, city, towns]);
   // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search never takes that focus away
-  // (also when development StrictMode runs this effect twice). The location shortcut focuses NearMe instead.
+  // (also when development StrictMode runs this effect twice). Only the shortcut's initial view focuses NearMe.
   useEffect(() => {
-    if (!stop && !(nearMe && city === undefined) && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
+    const changedView = previousView.current.city !== city || previousView.current.stop !== stop;
+    previousView.current = { city, stop };
+    if (!stop && (!nearMe || changedView) && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
   }, [city, stop, nearMe]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
   const pick = (s: Stop) => { setStop(s); setSaveError(false); };
-  if (!stop) return <section className="find-stop-towns">
+  // Keep NearMe mounted for this search visit, including during stop selection. Hiding a view must
+  // not consume another shortcut tap, discard nearby results or take focus away from the search input.
+  const search = <section className="find-stop-towns" hidden={!!stop}>
     <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : <>{t.findStop}: <SignText text={cityLabel(city)} /></>}</h1>
     {city !== undefined && <button type="button" className="link" onClick={() => { setCity(undefined); setQ(''); }}>{t.cityPicker.changeCity}</button>}
-    {nearMe && !q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} autoAsk />}
+    {nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} autoAsk /></div>}
     <search aria-label={t.findStop}>
       <label htmlFor="stop-search">{city === undefined ? t.findStop : t.cityPicker.searchStop}</label>
       <input id="stop-search" name="stop-search" className="search" type="search" value={q} placeholder={t.searchPlaceholder} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={e => setQ(e.currentTarget.value)} />
@@ -1274,13 +1279,14 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
       </ul></>}
       {q && !results.length && !visibleTowns.length && <p className="muted" role="status">{t.noResults}</p>}
     </search>
-    {!nearMe && !q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} />}
+    {!nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} /></div>}
   </section>;
+  if (!stop) return <>{search}</>;
   const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
     <span>{s.name}</span>{s.code && <span className="small">{t.selection.stopNumber(s.code)}</span>}
   </button>;
   const saveButton = () => <button type="submit" className="primary save-trip">{t.selection.save}</button>;
-  return <form className="trip-selection" onSubmit={e => {
+  return <>{search}<form className="trip-selection" onSubmit={e => {
     e.preventDefault();
     if (!dest || !check?.ok) { setSaveError(true); destinationHeading.current?.focus(); return; }
     if (submitted.current) return; submitted.current = true;
@@ -1303,7 +1309,7 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     {check && !check.ok && check.reason === 'not-served' && <div className="warn" role="alert">{t.notServed}</div>}
     {/* One Save trip, pinned to the bottom of the screen while the destinations scroll (owner, #155). */}
     {saveButton()}
-  </form>;
+  </form></>;
 }
 
 function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx: Ctx; leg: Leg; title: string; date?: string; onDate: (date: string) => void; onDeparture: (d: Departure) => void }) {

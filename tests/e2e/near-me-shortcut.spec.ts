@@ -16,7 +16,88 @@ async function openHome(page: Page, lang: 'en' | 'es') {
   await page.goto('/?now=2026-11-04T07:50&demo');
 }
 
+async function countLocationRequests(page: Page) {
+  await page.addInitScript(() => {
+    const requests: PositionOptions[] = [];
+    Object.assign(window, { locationRequests: requests });
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback, _error: PositionErrorCallback, options: PositionOptions) {
+        requests.push(options);
+        // Invented position next to the demo stops. Keep no real device coordinates.
+        success({ coords: { latitude: 40.8701, longitude: -74.04, accuracy: 25 } } as GeolocationPosition);
+      },
+    } });
+  });
+  return () => page.evaluate(() => (window as Window & { locationRequests?: PositionOptions[] }).locationRequests!.length);
+}
+
 for (const lang of ['en', 'es'] as const) {
+  for (const clear of ['backspace', 'clear'] as const) test(`clearing a query keeps input focus and one location request at 320px / 200% text (${clear}, ${lang})`, async ({ page }) => {
+    const t = strings[lang], calls = await countLocationRequests(page);
+    await page.setViewportSize({ width: 320, height: 850 });
+    await openHome(page, lang);
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    // Mounting home, before the tap, never asks for location.
+    expect(await calls()).toBe(0);
+    await page.getByRole('button', { name: dashboardStrings[lang].useLocation, exact: true }).click();
+    const nearby = page.locator('.near-me'), input = page.locator('#stop-search');
+    await expect(nearby.getByRole('heading')).toBeFocused();
+    await expect(nearby.locator('.results li')).toHaveCount(2);
+    expect(await calls()).toBe(1);
+    for (let round = 0; round < 2; round++) {
+      await input.fill('Broad');
+      await expect(nearby).toBeHidden();
+      if (clear === 'backspace') {
+        await input.press('End');
+        for (let i = 0; i < 'Broad'.length; i++) await input.press('Backspace');
+      } else await input.clear();
+      await expect(input).toHaveValue('');
+      await expect(input).toBeFocused();
+      await expect(nearby).toBeVisible();
+      await expect(nearby.locator('.results li')).toHaveCount(2);
+      expect(await calls()).toBe(1);
+    }
+    expect(await nearby.evaluate(el => !!(el.compareDocumentPosition(document.querySelector('search')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Continue typing without refocusing the input after clearing it.
+    await page.keyboard.type('Maple');
+    await expect(input).toHaveValue('Maple');
+    await expect(input).toBeFocused();
+    expect(await calls()).toBe(1);
+    await page.screenshot({ path: `test-results/near-me-query-clear-${clear}-${lang}-320-200.png` });
+  });
+
+  test(`city and stop round trips keep nearby results without asking or focusing nearby again (${lang})`, async ({ page }) => {
+    const t = strings[lang], calls = await countLocationRequests(page);
+    await page.setViewportSize({ width: 320, height: 850 });
+    await openHome(page, lang);
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    await page.getByRole('button', { name: dashboardStrings[lang].useLocation, exact: true }).click();
+    const nearby = page.locator('.near-me'), title = page.getByRole('heading', { level: 1 });
+    await expect(nearby.locator('.results li')).toHaveCount(2);
+    await page.locator('.find-stop-towns .city-choice').first().click();
+    await expect(nearby).toBeHidden();
+    await page.getByRole('button', { name: t.cityPicker.changeCity, exact: true }).click();
+    await expect(title).toBeFocused();
+    await expect(nearby.locator('.results li')).toHaveCount(2);
+    expect(await calls()).toBe(1);
+    await nearby.locator('.stop-choice').first().click();
+    await expect(title).toHaveText('Maple Ave & Main St (to NYC)');
+    await expect(nearby).toBeHidden();
+    await page.getByRole('button', { name: t.selection.change, exact: true }).click();
+    await expect(title).toHaveText(t.findStop);
+    await expect(title).toBeFocused();
+    await expect(nearby.locator('.results li')).toHaveCount(2);
+    expect(await calls()).toBe(1);
+    // A new explicit shortcut tap gets its own request and initial nearby focus.
+    await page.getByRole('button', { name: t.dash.tabs.dashboard, exact: true }).click();
+    expect(await calls()).toBe(1);
+    await page.getByRole('button', { name: dashboardStrings[lang].useLocation, exact: true }).click();
+    await expect(nearby.getByRole('heading')).toBeFocused();
+    await expect(nearby.locator('.results li')).toHaveCount(2);
+    expect(await calls()).toBe(2);
+  });
+
   test(`location shortcut shows nearby stops above search without scrolling (${lang})`, async ({ page }) => {
     const t = strings[lang];
     await openHome(page, lang);
