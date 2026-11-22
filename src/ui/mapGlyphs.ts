@@ -13,7 +13,8 @@ export function mapGlyphs(base: string, countFailure: () => void) {
       if (!response.ok) throw new Error('Map font unavailable');
       return { data: await response.arrayBuffer() };
     } catch {
-      if (active && !controller.signal.aborted) countFailure();
+      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (active) countFailure();
       // MapLibre may warn with this error. Do not attach the URL or original cause.
       throw new Error('Map font unavailable');
     }

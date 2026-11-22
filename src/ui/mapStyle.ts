@@ -23,7 +23,7 @@ export function bundledLabelLayers(layers: LayerSpecification[]): LayerSpecifica
 /** Limit our map overlay labels to the three Noto ranges shipped in public/map/fonts.
  * The original stop names elsewhere in the app are unchanged, including Spanish text. */
 export function bundledMapLabel(value: string): string {
-  return value.replace(/[^\u0000-\u01ff\u2000-\u20ff]/gu, '').trim();
+  return value.normalize('NFC').replace(/[^\u0000-\u01ff\u2000-\u20ff]/gu, '').trim();
 }
 /** Join only surviving label parts so an unavailable name never leaves a separator. */
 export function bundledStopLabel(name: string, city?: string): string {

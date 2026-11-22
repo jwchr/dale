@@ -30,8 +30,8 @@ async function ride(page: Page, lang: Lang) {
   return page.getByRole('dialog');
 }
 
-for (const lang of ['en', 'es'] as const) for (const view of ['street', 'transit'] as const) {
-  test(`a glyph range HTTP 404 keeps ${view} drawing at 320px in ${lang}`, async ({ page }) => {
+for (const lang of ['en', 'es'] as const) for (const view of ['street', 'transit'] as const) for (const size of ['100%', '200%']) {
+  test(`a glyph range HTTP 404 keeps ${view} drawing at 320px and ${size} text in ${lang}`, async ({ page }) => {
     let missingRanges = 0, glyphFallbacks = 0;
     const errors: string[] = [], outside: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -50,6 +50,7 @@ for (const lang of ['en', 'es'] as const) for (const view of ['street', 'transit
       return route.fulfill({ status: 404, body: '' });
     });
     const dialog = await ride(page, lang), t = strings[lang];
+    await page.evaluate(size => { document.documentElement.style.fontSize = size; }, size);
     await dialog.getByRole('button', { name: t.maps[view], exact: true }).click();
     const map = dialog.locator('.route-map'), canvas = map.locator('canvas');
     await expect(canvas).toBeVisible({ timeout: 15_000 });
@@ -69,7 +70,8 @@ for (const lang of ['en', 'es'] as const) for (const view of ['street', 'transit
     await expect(dialog.locator('.led-bar')).toBeVisible();
     await expect(map).toContainText('OpenStreetMap');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await dialog.screenshot({ path: `test-results/map-glyph-404-${view}-${lang}-320.png` });
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await dialog.screenshot({ path: `test-results/map-glyph-404-${view}-${lang}-320-${size}.png` });
     expect(errors).toEqual([]);
     expect(outside).toEqual([]);
   });

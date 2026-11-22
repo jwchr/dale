@@ -42,8 +42,15 @@ it('map stop labels retain Spanish accents and bundled punctuation but drop unsh
   expect(bundledMapLabel('')).toBe('');
   for (const point of [0x1ff, 0x200, 0x1fff, 0x2000, 0x20ff, 0x2100]) {
     const character = String.fromCodePoint(point);
-    expect(bundledMapLabel(`A${character}B`)).toBe(point <= 0x1ff || (point >= 0x2000 && point <= 0x20ff) ? `A${character}B` : 'AB');
+    // NFC maps EN QUAD to its canonical equivalent EN SPACE within the same range.
+    const retained = point === 0x2000 ? '\u2002' : character;
+    expect(bundledMapLabel(`A${character}B`)).toBe(point <= 0x1ff || (point >= 0x2000 && point <= 0x20ff) ? `A${retained}B` : 'AB');
   }
+});
+
+it.each(['José', 'Peña', 'Güemes', 'ÁÉÍÓÚ áéíóú Ññ Üü', 'Āvila'])('preserves decomposed accents in %s before filtering glyph ranges', name => {
+  expect(bundledMapLabel(`  中文 ${name.normalize('NFD')} 🚍  `)).toBe(name);
+  expect(bundledStopLabel(name.normalize('NFD'), 'San José'.normalize('NFD'))).toBe(`${name} · San José`);
 });
 
 it('stop names and cities are filtered before joining, without dangling separators', () => {

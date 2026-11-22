@@ -39,11 +39,36 @@ for (const failure of ['http', 'network', 'body'] as const) it(`counts a ${failu
   glyphs.dispose();
 });
 
-it('does not count cancellation as a glyph failure', async () => {
+it('preserves AbortError for an already cancelled glyph request without counting a failure', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')));
   const { count, glyphs, load, request } = setup(), controller = new AbortController();
   controller.abort();
-  await expect(load(request, controller)).rejects.toThrow('Map font unavailable');
+  await expect(load(request, controller)).rejects.toMatchObject({ name: 'AbortError', message: 'Aborted' });
+  expect(count).not.toHaveBeenCalled();
+  glyphs.dispose();
+});
+
+for (const phase of ['fetch', 'body'] as const) it(`preserves AbortError when cancelled during ${phase}, without exposing the abort reason`, async () => {
+  const { count, glyphs, load, request } = setup(), controller = new AbortController();
+  let ready!: () => void;
+  const waiting = new Promise<void>(resolve => { ready = resolve; });
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+    const pending = () => new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+      ready();
+    });
+    if (phase === 'fetch') return pending();
+    return { ok: true, arrayBuffer: pending };
+  }));
+  const pending = load(request, controller);
+  await waiting;
+  controller.abort(new Error('Private request detail'));
+  const error = await pending.catch(error => error);
+  expect(error).toBeInstanceOf(DOMException);
+  expect(error).toMatchObject({ name: 'AbortError', message: 'Aborted' });
+  expect(error.cause).toBeUndefined();
+  expect(String(error)).not.toContain('Private request detail');
+  expect(String(error)).not.toContain('example.invalid');
   expect(count).not.toHaveBeenCalled();
   glyphs.dispose();
 });
