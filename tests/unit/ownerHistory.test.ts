@@ -28,6 +28,22 @@ const record = { route: '165', source: 'NJ Transit', observation: { tripInstance
 const batch = { v: 1, receivedAt: NOW, records: [record, { ...record, route: '999' }], rider: 'MUST-NOT-APPEAR', quality: { feedState: 'ok', rider: 'MUST-NOT-APPEAR' } };
 const request = (token?: string, query = '', method = 'GET') => new Request(`https://owner.test${OWNER_HISTORY_PATH}${query}`, { method, headers: token ? { authorization: `Bearer ${token}` } : {} });
 
+it('returns parseable private JSON through the router when history storage is unavailable', async () => {
+  const { storage } = harness(), secret = randomUUID();
+  const { sql: _sql, transactionSync: _transaction, ...unavailable } = storage;
+  let network = 0;
+  const Feed = createFeedClass(ds, (async () => { network++; throw Error('no upstream'); }) as typeof fetch, () => NOW);
+  const object = new Feed({ storage: unavailable, blockConcurrencyWhile: async <T,>(cb: () => Promise<T>) => cb() }, { OWNER_HISTORY_SECRET: secret } as never);
+  const response = await createRouter(ds).fetch(request(secret), { OWNER_HISTORY_SECRET: secret,
+    FEED: { idFromName: () => 'corridor', get: () => ({ fetch: (r: Request) => object.fetch(r) }) } } as never);
+  expect(response.status).toBe(503);
+  expect(response.headers.get('content-type')).toContain('application/json');
+  expect(await response.json()).toEqual({ error: 'history-unavailable' });
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
+  expect(response.headers.has('access-control-allow-origin')).toBe(false);
+  expect(network).toBe(0);
+});
+
 it('authenticates at both boundaries: unset, missing and wrong never reach storage or upstream; right is read-only', async () => {
   const { db, storage } = harness();
   db.prepare('INSERT INTO dale_history_batches(attempt,received_at,feed_version,context_key,bytes,body) VALUES(?,?,?,?,?,?)').run(NOW, NOW, 'fixture', 'ctx', 1, JSON.stringify(batch));

@@ -12,7 +12,7 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
     const routes = new Set(routeIds), seen = new Set<string>();
     return ds.patterns.flatMap(p => {
       const index = p.stopIds.indexOf(stop);
-      if (!routes.has(p.routeId) || index < 0 || (direction !== undefined && p.directionId !== direction)
+      if ((routes.size > 0 && !routes.has(p.routeId)) || index < 0 || (direction !== undefined && p.directionId !== direction)
         || (toStop && !p.stopIds.some((id, i) => id === toStop && i > index))) return [];
       const route = ds.routes.find(r => r.id === p.routeId)?.shortName;
       const key = `${route}|${p.directionId}`;
@@ -22,12 +22,12 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
       return query ? [query] : [];
     });
   }, [ds, stop, routeIds.join('|'), direction, toStop]);
-  const key = JSON.stringify(queries), today = localYmd(now, ds.meta.timezone);
+  const today = localYmd(now, ds.meta.timezone), key = `${today}|${JSON.stringify(queries)}`;
   const [view, setView] = useState<{ key: string; answers?: (EarlierAnswer | undefined)[] }>({ key: '' });
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const answers = api && !ds.meta.demo ? await Promise.all(queries.map(q => loadEarlierBuses(api, q))) : [];
+      const answers = api && !ds.meta.demo ? await Promise.all(queries.map(q => loadEarlierBuses(api, q, today))) : [];
       if (alive) setView({ key, answers });
     };
     void load();
@@ -71,10 +71,10 @@ export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds:
   }
   return <details>
     <summary><span>{bus.route} · {s.scheduled} {bus.stop.scheduledAt === null ? s.unknown : clock(bus.stop.scheduledAt)}</span>
-      <span className="earlier-summary"><span className="earlier-place">{s.atStop}: {evidence(bus.stop)}</span><span className="earlier-place">{s.terminal}: {bus.portAuthority ? evidence(bus.portAuthority) : s.unknown}</span></span>
+      <span className="earlier-summary"><span className="earlier-place">{s.atStop}: {evidence(bus.stop)}</span>{bus.portAuthority !== null && <span className="earlier-place">{s.terminal}: {evidence(bus.portAuthority)}</span>}</span>
       <span className="small earlier-details-label">{s.details}</span>
     </summary>
-    <dl>{([[s.atStop, bus.stop], [s.terminal, bus.portAuthority]] as const).map(([label, time]) => <div key={label}>
+    <dl>{([[s.atStop, bus.stop], ...(bus.portAuthority !== null ? [[s.terminal, bus.portAuthority] as const] : [])] as const).map(([label, time]) => <div key={label}>
       <dt>{label}</dt><dd>{s.scheduled}: {time?.scheduledAt ? clock(time.scheduledAt) : s.unknown}
         <span className="small muted earlier-source">{s.scheduleSource} · {Number.isFinite(scheduleAge) ? age(scheduleAge) : s.unknown}</span>
         <div>{s.actual}: {s.unknown}</div>

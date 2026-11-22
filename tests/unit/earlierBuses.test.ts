@@ -129,6 +129,69 @@ it('retains normalized predictions only when opted in; original journal transact
   expect(body.tripChanges[0].predictions[0]).toMatchObject({ kind: 'arrival', observedAt: NOW });
 });
 
+it('starts a new schedule at its own first batch, without claiming coverage from the old schedule', () => {
+  const h = harness();
+  h.insert(at('06:00'), [], 'old-context');
+  h.insert(at('07:00'), [], 'old-context');
+  h.projection.fold(now, () => true);
+  expect(h.projection.answer(query, now)).toBeUndefined();
+  h.insert(at('07:03'), [sample(0, '07:03')]);
+  h.insert(at('07:03') + 30_000, [sample(1, '07:03')]);
+  const restarted = new EarlierBuses(h.storage, ds, 'ctx');
+  restarted.fold(now, () => true);
+  expect(restarted.answer(query, now)).toMatchObject({ coverageStart: at('07:03'), gap: false, items: [{ route: '165' }] });
+});
+
+for (const extra of [{}, { omissionReason: 'synthetic' }, { quality: { feedState: 'unavailable' } }]) {
+  it(`resets daily coverage and gaps at Eastern midnight, not UTC midnight (${JSON.stringify(extra)})`, () => {
+    const h = harness(), first = Date.parse('2026-11-03T23:50:00-05:00');
+    h.insert(first, [], 'ctx', extra);
+    h.insert(first + 60_000, []); // A polling gap is real for this day's coverage.
+    h.projection.fold(first + 60_000, () => true);
+    expect(h.projection.answer(query, first + 60_000)!.gap).toBe(true);
+    const midnight = Date.parse('2026-11-04T00:00:00-05:00');
+    expect(h.projection.answer(query, midnight)).toBeUndefined(); // Yesterday is never today's coverage.
+    h.insert(midnight, []);
+    h.insert(midnight + 30_000, []);
+    h.projection.fold(midnight + 60_000, () => true);
+    expect(h.projection.answer(query, midnight + 60_000)).toMatchObject({ coverageStart: midnight, through: midnight + 30_000, gap: false });
+    // UTC's next date starts at 7 PM Eastern. It must not reset today's gap.
+    const utcMidnight = Date.parse('2026-11-05T00:00:00Z');
+    h.insert(utcMidnight, []);
+    h.projection.fold(utcMidnight, () => true);
+    expect(h.projection.answer(query, utcMidnight)).toMatchObject({ coverageStart: midnight, gap: true });
+  });
+}
+
+it('retains overnight evidence while resetting the day, and preserves new-day failures across a crash and paged replay', () => {
+  const h = harness(), midnight = at('00:00');
+  h.insert(midnight - 30_000, []);
+  h.projection.fold(midnight - 1, () => true);
+  for (let i = 0; i < 28; i++) h.insert(midnight + i * 30_000, i === 26 ? [sample(0, '00:13', 'T2@20261103')] : [],
+    'ctx', i === 0 ? { quality: { feedState: 'unavailable' } } : {});
+  h.insert(at('01:03'), [sample(2, '01:03', 'T2@20261103')]);
+  h.crash(true); h.projection.fold(now, () => true);
+  expect(h.projection.answer(query, now)).toBeUndefined();
+  h.crash(false);
+  const restarted = new EarlierBuses(h.storage, ds, 'ctx');
+  restarted.fold(now, () => true);
+  expect(restarted.answer(query, now)).toMatchObject({ coverageStart: midnight, through: midnight + 23 * 30_000, gap: true });
+  restarted.fold(now + 30_000, () => true);
+  expect(restarted.answer(query, now)).toMatchObject({ coverageStart: midnight, gap: true,
+    items: [{ stop: { scheduledAt: at('00:10'), evidence: { at: at('00:13') } } }] });
+});
+
+for (const [before, after] of [
+  ['2026-03-08T01:59:30-05:00', '2026-03-08T03:00:00-04:00'],
+  ['2026-11-01T01:59:30-04:00', '2026-11-01T01:00:00-05:00'],
+]) it(`keeps continuous daily coverage through the DST change at ${after}`, () => {
+  const h = harness(), a = Date.parse(before!), b = Date.parse(after!);
+  h.insert(a, []); h.projection.fold(a, () => true);
+  h.insert(b, []);
+  new EarlierBuses(h.storage, ds, 'ctx').fold(b, () => true);
+  expect(h.projection.answer(query, b)).toMatchObject({ coverageStart: a, through: b, gap: false });
+});
+
 it('router is off by default and refuses malformed input without forwarding', async () => {
   const router = createRouter(ds); let calls = 0;
   const env = { EARLIER_BUSES: 'public', FEED: { idFromName: () => 'one', get: () => ({ fetch: async () => { calls++; return Response.json({ state: 'unavailable' }, { status: 503 }); } }) } };

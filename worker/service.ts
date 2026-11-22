@@ -296,7 +296,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         const query = ownerQuery(new URL(request.url));
         if (!query) return new Response('Invalid query', { status: 400, headers });
         await this.ready;
-        if (!this.journal || !this.ctx.storage.sql || !this.ctx.storage.transactionSync) return new Response('History unavailable', { status: 503, headers });
+        if (!this.journal || !this.ctx.storage.sql || !this.ctx.storage.transactionSync) return Response.json({ error: 'history-unavailable' }, { status: 503, headers });
         const bucket = this.env.HISTORY_ARCHIVE as unknown as Partial<ArchiveReader> | undefined;
         return new OwnerHistory(this.ctx.storage as HistoryStorage, typeof bucket?.list === 'function' && typeof bucket.get === 'function' ? bucket as ArchiveReader : undefined)
           .read(query, clock(), (units, at) => this.journal!.reserveSpareWrites(units, at, 2500));
