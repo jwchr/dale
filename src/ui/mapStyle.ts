@@ -1,5 +1,7 @@
 import type { ExpressionSpecification, LayerSpecification } from 'maplibre-gl';
 
+const IDENTIFIER_LAYERS = new Set(['roads_shields', 'address_label']);
+
 /** The basemap's default English style also adds local-script lines and font overrides.
  * Use one English/Latin name with the fonts/ranges already bundled on our own site. */
 export function bundledLabelLayers(layers: LayerSpecification[]): LayerSpecification[] {
@@ -11,9 +13,8 @@ export function bundledLabelLayers(layers: LayerSpecification[]): LayerSpecifica
     }), ''];
   return layers.map(layer => {
     if (layer.type !== 'symbol' || !layer.layout?.['text-field']) return layer;
-    const field = layer.layout['text-field'];
     // House numbers and road shields are identifiers, not multilingual names.
-    if (Array.isArray(field) && field[0] === 'get') return layer;
+    if (IDENTIFIER_LAYERS.has(layer.id)) return layer;
     return { ...layer, layout: { ...layer.layout, 'text-field': layer.id === 'places_region'
       ? ['step', ['zoom'], ['coalesce', ['get', 'ref:en'], ['get', 'ref'], ''], 6, latinName] : latinName } };
   });
@@ -23,6 +24,10 @@ export function bundledLabelLayers(layers: LayerSpecification[]): LayerSpecifica
  * The original stop names elsewhere in the app are unchanged, including Spanish text. */
 export function bundledMapLabel(value: string): string {
   return value.replace(/[^\u0000-\u01ff\u2000-\u20ff]/gu, '').trim();
+}
+/** Join only surviving label parts so an unavailable name never leaves a separator. */
+export function bundledStopLabel(name: string, city?: string): string {
+  return [bundledMapLabel(name), bundledMapLabel(city ?? '')].filter(Boolean).join(' · ');
 }
 /** Keep geographic bearings while removing minor-road, building and POI clutter. */
 export function transitContextLayers(layers: LayerSpecification[]): LayerSpecification[] {

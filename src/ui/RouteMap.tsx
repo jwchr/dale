@@ -1,5 +1,6 @@
-import { bundledLabelLayers, bundledMapLabel, transitContextLayers } from './mapStyle';
+import { bundledLabelLayers, bundledStopLabel, transitContextLayers } from './mapStyle';
 import { isFatalMapError } from './mapErrors';
+import { mapGlyphs } from './mapGlyphs';
 import type { MapStrings } from './mapStrings';
 import { leadPadding } from './leadPadding';
 // The ride on a street map (owner decision 2026-11-04: self-hosted OpenStreetMap). Everything is served
@@ -54,13 +55,18 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
     const baseLayers = bundledLabelLayers(layers('protomaps', namedFlavor(flavor), { lang: 'en' }));
     const contextLayers = presentation === 'street' ? baseLayers : transitContextLayers(baseLayers);
     const lons = stops.map((s) => s.lon), lats = stops.map((s) => s.lat);
+    const container = el.current;
+    let recoverableErrors = 0;
+    container.dataset.mapErrors = '0';
+    const countFailure = () => { container.dataset.mapErrors = String(++recoverableErrors); };
+    const glyphs = mapGlyphs(base, countFailure);
     let m: MapLibreMap;
     try {
       m = new MapLibreMap({
       container: el.current,
       style: {
         version: 8,
-        glyphs: `${base}map/fonts/{fontstack}/{range}.pbf`,
+        glyphs: glyphs.url,
         sprite: `${base}map/sprites/${flavor}`,
         sources: {
           protomaps: {
@@ -79,16 +85,16 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
       pitchWithRotate: false,
       });
     } catch {
+      glyphs.dispose();
       // No WebGL (an old phone, or graphics turned off): say so and leave the rest of ride mode alone.
       setFailed(true);
       return;
     }
-    let styleLoaded = false, recoverableErrors = 0;
-    m.getContainer().dataset.mapErrors = '0';
+    let styleLoaded = false;
     // Count only, without retaining/logging URLs, feature IDs, coordinates or error payloads.
     m.on('error', event => {
       if (isFatalMapError(event, styleLoaded)) setFailed(true);
-      else m.getContainer().dataset.mapErrors = String(++recoverableErrors);
+      else countFailure();
     });
     m.on('webglcontextlost', () => setFailed(true));
     m.touchZoomRotate.disableRotation();
@@ -130,13 +136,14 @@ export default function RouteMap({ stops, bus, you, dark, label, failedText, tex
       m.addLayer({ id: 'bus', type: 'circle', source: 'bus', paint: { 'circle-radius': 7, 'circle-color': '#ffd36e', 'circle-stroke-color': '#111111', 'circle-stroke-width': 3 } });
     });
     map.current = m;
-    return () => { const c = m.getCenter(); camera.current = { center: [c.lng, c.lat], zoom: m.getZoom() }; m.remove(); map.current = undefined; };
+    return () => { const c = m.getCenter(); camera.current = { center: [c.lng, c.lat], zoom: m.getZoom() }; glyphs.dispose(); m.remove(); map.current = undefined; };
   }, [dark, failed, presentation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // New progress moves the dots and the bus without rebuilding the map.
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
+    // Basemap tiles/glyphs may still be loading after our overlay sources exist.
+    if (!m || !['route', 'stops', 'bus', 'you'].every(id => m.getSource(id))) return;
     const stopKey = JSON.stringify(stops), busKey = JSON.stringify(bus) ?? '', youKey = JSON.stringify(you) ?? '';
     if (drawn.current.you !== youKey) { (m.getSource('you') as GeoJSONSource | undefined)?.setData(busData(you)); drawn.current.you = youKey; }
     const stopsChanged = drawn.current.stops !== stopKey, busChanged = drawn.current.bus !== busKey;
@@ -162,7 +169,7 @@ function routeData(stops: MapStop[]): Feature {
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: stops.map((s) => [s.lon, s.lat]) } };
 }
 function stopData(stops: MapStop[]): FeatureCollection {
-  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: bundledMapLabel(s.city ? `${s.name} · ${s.city}` : s.name), state: s.state, current: !!s.current }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
+  return { type: 'FeatureCollection', features: stops.map((s) => ({ type: 'Feature', properties: { name: bundledStopLabel(s.name, s.city), state: s.state, current: !!s.current }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
 }
 function busData(bus?: { lat: number; lon: number }): FeatureCollection {
   return { type: 'FeatureCollection', features: bus ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [bus.lon, bus.lat] } }] : [] };

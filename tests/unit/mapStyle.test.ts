@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest';
 import { layers, namedFlavor } from '@protomaps/basemaps';
 import { createExpression, validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { bundledLabelLayers, bundledMapLabel, transitContextLayers } from '../../src/ui/mapStyle';
+import type { LayerSpecification } from 'maplibre-gl';
+import { bundledLabelLayers, bundledMapLabel, bundledStopLabel, transitContextLayers } from '../../src/ui/mapStyle';
 it('transit view preserves towns, water and named major roads without unrelated point/minor-street clutter', () => {
   const original = layers('protomaps', namedFlavor('light'), { lang: 'en' }), before = structuredClone(original);
   const ids = transitContextLayers(original).map(l => l.id);
@@ -43,4 +44,29 @@ it('map stop labels retain Spanish accents and bundled punctuation but drop unsh
     const character = String.fromCodePoint(point);
     expect(bundledMapLabel(`A${character}B`)).toBe(point <= 0x1ff || (point >= 0x2000 && point <= 0x20ff) ? `A${character}B` : 'AB');
   }
+});
+
+it('stop names and cities are filtered before joining, without dangling separators', () => {
+  expect(bundledStopLabel('中文', 'San José')).toBe('San José');
+  expect(bundledStopLabel('Central Station', '中文')).toBe('Central Station');
+  expect(bundledStopLabel('中文', 'Москва')).toBe('');
+  expect(bundledStopLabel('José', 'Āvila')).toBe('José · Āvila');
+  expect(bundledStopLabel('Central Station')).toBe('Central Station');
+  expect(bundledStopLabel('', 'San José')).toBe('San José');
+});
+
+it('layer identity preserves complex identifiers while direct name expressions get Latin fallbacks', () => {
+  const original: LayerSpecification[] = [
+    { id: 'places_locality', type: 'symbol', source: 'protomaps', layout: { 'text-field': ['get', 'name'] } },
+    ...['roads_shields', 'address_label'].map((id): LayerSpecification => ({
+      id, type: 'symbol', source: 'protomaps', layout: { 'text-field': ['coalesce', ['get', 'ref'], ['get', 'housenumber'], ''] },
+    })),
+  ];
+  const safe = bundledLabelLayers(original);
+  const place = safe[0];
+  if (place?.type !== 'symbol') throw new Error('Missing place label');
+  const parsed = createExpression(place.layout!['text-field'], 'text-field');
+  expect(parsed.result).toBe('success');
+  if (parsed.result === 'success') expect(parsed.value.evaluate({ zoom: 15 }, { type: 1, properties: { name: '中文', 'name:en': 'English name' } })).toBe('English name');
+  expect(safe.slice(1)).toEqual(original.slice(1));
 });

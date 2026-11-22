@@ -56,11 +56,13 @@ for (const lang of ['en', 'es'] as const) for (const view of ['street', 'transit
     await expect(map).toHaveAttribute('data-presentation', view);
     await expect.poll(() => missingRanges, { timeout: 15_000 }).toBeGreaterThan(0);
     await expect.poll(() => glyphFallbacks, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => Number(await map.getAttribute('data-map-errors'))).toBeGreaterThan(0);
     await expect(dialog).not.toContainText(t.progress.mapFailed);
     // Prove a fresh frame is drawn after the failure and the camera still works.
     await canvas.evaluate(c => { c.dataset.mapDraws = '0'; });
     await dialog.getByRole('button', { name: t.maps.route, exact: true }).click();
     await expect(map).toHaveAttribute('data-camera', 'route');
+    await expect.poll(async () => Number(await map.getAttribute('data-map-errors'))).toBeGreaterThan(0);
     await expect.poll(async () => Number(await canvas.getAttribute('data-map-draws'))).toBeGreaterThan(0);
     await dialog.getByRole('button', { name: t.maps.close, exact: true }).click();
     await expect(map).toHaveAttribute('data-camera', 'bus');
