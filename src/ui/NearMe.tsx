@@ -27,12 +27,18 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
   const [state, setState] = useState<State>({ status: 'idle' });
   const giveUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const requestId = useRef(0);
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     setState({ status: 'idle' });
     return () => { requestId.current++; clearTimeout(giveUp.current); };
   }, [ds]);
   const askRef = useRef<() => void>(undefined);
-  useEffect(() => { if (autoAsk) askRef.current?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoAsk) {
+      heading.current?.focus();
+      askRef.current?.();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!hasStopLocations(ds)) return <p className="muted small" role="note">{n.unavailable}</p>;
 
   askRef.current = ask;
@@ -77,6 +83,7 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
 
   return (
     <div className="near-me">
+      {autoAsk && <h2 ref={heading} tabIndex={-1}>{n.button}</h2>}
       <button onClick={ask} disabled={state.status === 'asking'}>{n.button}</button>
       <p className="muted small">{n.explain}</p>
       <div role="status">

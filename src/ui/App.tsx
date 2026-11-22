@@ -1251,10 +1251,10 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
     return q.trim() ? searchStops({ ...ds, stops }, q, stops.length) : stops;
   }, [ds, q, city, towns]);
   // On the Routes & stops tab the saved stop's card is focused first (RoutesStop); the search never takes that focus away
-  // (also when development StrictMode runs this effect twice).
+  // (also when development StrictMode runs this effect twice). The location shortcut focuses NearMe instead.
   useEffect(() => {
-    if (!stop && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
-  }, [city, stop]);
+    if (!stop && !(nearMe && city === undefined) && document.activeElement?.id !== 'routes-stop-title') heading.current?.focus();
+  }, [city, stop, nearMe]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
   const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
@@ -1262,6 +1262,7 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
   if (!stop) return <section className="find-stop-towns">
     <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : <>{t.findStop}: <SignText text={cityLabel(city)} /></>}</h1>
     {city !== undefined && <button type="button" className="link" onClick={() => { setCity(undefined); setQ(''); }}>{t.cityPicker.changeCity}</button>}
+    {nearMe && !q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} autoAsk />}
     <search aria-label={t.findStop}>
       <label htmlFor="stop-search">{city === undefined ? t.findStop : t.cityPicker.searchStop}</label>
       <input id="stop-search" name="stop-search" className="search" type="search" value={q} placeholder={t.searchPlaceholder} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={e => setQ(e.currentTarget.value)} />
@@ -1273,7 +1274,7 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
       </ul></>}
       {q && !results.length && !visibleTowns.length && <p className="muted" role="status">{t.noResults}</p>}
     </search>
-    {!q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} autoAsk={nearMe} />}
+    {!nearMe && !q && city === undefined && <NearMe ds={ds} t={t} onPick={pick} />}
   </section>;
   const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
     <span>{s.name}</span>{s.code && <span className="small">{t.selection.stopNumber(s.code)}</span>}
