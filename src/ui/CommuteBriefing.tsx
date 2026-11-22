@@ -1,6 +1,7 @@
 import { commuteBriefing, sourceAge, type BriefingSelection } from '../domain/commuteBriefing';
 import type { Dataset } from '../domain/types';
 import type { ScheduleSource } from '../domain/commuteChanges';
+import { routeNumber } from '../domain/routeDisplay';
 import { formatTime12, localYmd, parseYmd, zonedWallTime } from '../domain/time';
 import type { Lang, Strings } from './i18n';
 
@@ -28,12 +29,15 @@ export function CommuteBriefing({ ds, selection, now, t, lang, onTimetable, onRe
 }) {
   const b = t.commuteChanges.briefing, tz = ds.meta.timezone;
   const model = selection && commuteBriefing(ds, selection);
+  const routeNames = (selection?.routeIds.length
+    ? selection.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName)
+    : model?.routeNames ?? []).map(name => name === undefined ? undefined : routeNumber(name));
   const at = (time: number) => `${briefingDate(localYmd(time, tz), lang, tz)} · ${formatTime12(time, tz, lang)}`;
   return <>
     {selection && model ? <>
-      <p className="briefing-scope">{selection.routeIds.length
-        ? selection.routeIds.map(id => ds.routes.find(r => r.id === id)?.shortName ?? b.missingRoute).join(' / ')
-        : model.routeNames.join(' / ') || b.allRoutes}
+      <p className="briefing-scope">{routeNames
+        .filter((name, i, names) => name === undefined || names.indexOf(name) === i)
+        .map(name => name ?? b.missingRoute).join(' / ') || b.allRoutes}
         {' · '}{ds.stops.find(s => s.id === selection.fromStopId)?.name ?? t.commuteChanges.briefing.missing}
         {' → '}{ds.stops.find(s => s.id === selection.toStopId)?.name ?? t.commuteChanges.briefing.missing}</p>
       <p>{briefingDate(selection.date, lang, tz)} · {b.allDay}</p>

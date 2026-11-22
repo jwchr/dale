@@ -56,7 +56,7 @@ for (const lang of ['en', 'es'] as const) test(`saved Turnpike bus keeps its ide
   }, { favorite, lang });
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  const card = page.getByRole('article');
+  const card = page.locator('article[data-favorite-id="express"]');
   await expect(card.locator('.dep .route-badge')).toHaveText(['165', '165', '165']);
   await expect(card.locator('.dep-dest').first()).toContainText('Turnpike Exp');
   await expect(page.locator('body')).not.toContainText('165T');

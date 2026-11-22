@@ -6,6 +6,7 @@ import { returnLeg } from '../../src/domain/direction';
 import { serviceTimeToInstant } from '../../src/domain/time';
 import { commuteBriefingStrings } from '../../src/ui/commuteBriefingStrings';
 import { liveDataset } from '../helpers/liveBus';
+import { expressDataset } from '../helpers/express';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CommuteChanges } from '../../src/ui/CommuteChanges';
@@ -212,6 +213,19 @@ describe('existing notice store metadata compatibility', () => {
 
 describe('bilingual briefing rendering without a network source', () => {
   for (const lang of ['en','es'] as const) {
+    it(`${lang}: selected and all-route summaries show 165 once without changing route identities`, () => {
+      const ds = expressDataset(), before = JSON.stringify(ds);
+      for (const routeIds of [[], ['R165', 'R165T'], ['R165T']]) {
+        const html = renderToStaticMarkup(createElement(CommuteBriefing, {
+          ds, selection: { fromStopId: 'D1', toStopId: 'PABT', date: '20261104', routeIds },
+          now, t: strings[lang], lang, onTimetable: () => {}, onReselect: () => {},
+        }));
+        expect(html).toContain('<p class="briefing-scope">165 · ');
+        expect(html).not.toContain('165T');
+        expect(html).not.toContain('165 / 165');
+      }
+      expect(JSON.stringify(ds)).toBe(before);
+    });
     it(`${lang}: missing route labels preserve the explicitly saved scope, including mixed routes`, () => {
       const ds = fixture(), t = strings[lang], b = t.commuteChanges.briefing;
       const render = (routeIds: string[]) => renderToStaticMarkup(createElement(CommuteBriefing, {
