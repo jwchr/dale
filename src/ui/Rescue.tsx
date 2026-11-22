@@ -1,3 +1,4 @@
+import { routeNumber, routeLabel, routeList, routeHeadsign } from '../domain/routeDisplay';
 // "Get me the fuck home" (issue #32): every scheduled way home in Dale's data, ranked by arrival,
 // with what was searched and what was not. Schedule only: it never claims a bus is running or that
 // no other way exists. Routes from the wider official schedule load only when this screen opens.
@@ -52,8 +53,9 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
     const gate = o.wider ? undefined : gateText(o);
     const body = (
       <>
-        {o.wider ? <span className="route-badge">{o.dep.route.shortName}</span> : badge(o.dep.route.id)}
+        {o.wider ? <span className="route-badge">{routeNumber(o.dep.route.shortName)}</span> : badge(o.dep.route.id)}
         <span className="dep-main">
+          <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName)}</span>
           <span className="dep-time">{day(o.dep.departs)}{o.dep.estimated ? '~' : ''}{clock(o.dep.departs)}</span>
           <span className="dep-sub">{r.arrives(`${o.arrivesEstimated ? '~' : ''}${clock(o.arrives)}`, name(o.alightStopId))}</span>
           {extra}
@@ -81,11 +83,12 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
     const { first, second } = x;
     const body = (
       <>
-        {first.wider ? <span className="route-badge">{first.dep.route.shortName}</span> : badge(first.dep.route.id)}
+        {first.wider ? <span className="route-badge">{routeNumber(first.dep.route.shortName)}</span> : badge(first.dep.route.id)}
         <span className="dep-main">
+          <span className="dep-sub">{routeHeadsign(first.dep.pattern.headsign, first.dep.route.shortName)}</span>
           <span className="dep-time">{day(first.dep.departs)}{first.dep.estimated ? '~' : ''}{clock(first.dep.departs)}</span>
           <span className="dep-sub">{w.transferRide(name(x.changeStopId), `${first.arrivesEstimated ? '~' : ''}${clock(first.arrives)}`)}</span>
-          <span className="dep-sub">{w.transferChange(second.dep.route.shortName, `${second.dep.estimated ? '~' : ''}${clock(second.dep.departs)}`, Math.round(x.waitMs / 60_000))}</span>
+          <span className="dep-sub">{w.transferChange(routeLabel(second.dep.route.shortName), `${second.dep.estimated ? '~' : ''}${clock(second.dep.departs)}`, Math.round(x.waitMs / 60_000))}</span>
           <span className="dep-sub">{r.arrives(`${second.arrivesEstimated ? '~' : ''}${clock(second.arrives)}`, name(second.alightStopId))}</span>
           {first.acrossFromBoard && <span className="dep-sub">{r.acrossBoard(name(first.boardStopId))}</span>}
           {second.acrossFromHome && <span className="dep-sub">{r.acrossHome}</span>}
@@ -121,8 +124,8 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
         </>
       )}
       <BackupPlans t={t} />
-      <p className="muted small" role="note">{r.coverage(result.routesSearched.join(', '))}</p>
-      {result.widerRoutes.length > 0 && <p className="muted small">{w.widerIncluded(result.widerRoutes.join(', '))}</p>}
+      <p className="muted small" role="note">{r.coverage(routeList(result.routesSearched))}</p>
+      {result.widerRoutes.length > 0 && <p className="muted small">{w.widerIncluded(routeList(result.widerRoutes))}</p>}
       {loaded.state === 'ready' && loaded.savedAt !== undefined && <p className="muted small">{w.savedCopy(clock(loaded.savedAt))}</p>}
       {missing && (soon.length > 0 || result.nearHome.length > 0 || result.transfers.length > 0) && <p className="muted small">{missing}</p>}
       <p className="muted small">{result.limitations.includes('no_walking_or_transfers') ? r.noWalking : w.walkNote}</p>

@@ -1,3 +1,4 @@
+import { routeHeadsign } from '../domain/routeDisplay';
 // Backup buses while waiting (issue #59): shown once the locked bus is late past the rider's chosen
 // threshold, or passed them. A choice only: opening one never changes the Bus Lock.
 import { useMemo, useState, type ReactNode } from 'react';
@@ -53,6 +54,7 @@ export function BackupDeadlines({ ds, session, alightIndex, now, t, lang, gateTe
                 <button className="dep" onClick={() => onOpen(o)}>
                   {badge(o.dep.route.id)}
                   <span className="dep-main">
+                    <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName)}</span>
                     <span className="dep-time">{clock(o.dep.departs, o.dep.estimated)}</span>
                     <span className="dep-sub">{b.left(minutesLeft)}</span>
                     <span className="dep-sub">{t.rescue.arrives(clock(o.arrives, o.arrivesEstimated), name(o.alightStopId))}</span>

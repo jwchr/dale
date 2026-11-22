@@ -9,9 +9,11 @@ const skins: readonly Skin[] = ['household', 'garden', 'turnpike', 'parkway', 'n
 
 test.use({ serviceWorkers: 'block' });
 const API = 'https://dale-live.test.workers.dev';
-async function setup(page: Page, { lang = 'en', skin = 'clean', code = '00302', phone = 'android', denied = false, fallback = false } = {}) {
+async function setup(page: Page, { lang = 'en', skin = 'clean', code = '00302', phone = 'android', denied = false, fallback = false, express = false } = {}) {
   const ds = structuredClone(liveDataset);
   ds.stops.find(s => s.id === '2')!.code = code;
+  // A split Turnpike route can have an ordinary headsign with no 165T prefix.
+  if (express) ds.routes.find(r => r.id === '10')!.shortName = '165T';
   await page.clock.install({ time: NOW });
   await page.addInitScript(({ lang, skin, phone, denied, fallback }) => {
     localStorage.setItem('arriba.settings.v1', JSON.stringify({ lang, skin, theme: 'light', count: 3 }));
@@ -61,6 +63,17 @@ test('an open lookup and focused control survive missing → fresh → missing G
 });
 
 for (const lang of ['en', 'es'] as Lang[]) {
+  test(`MyBus identifies a Turnpike trip without a headsign prefix (${lang})`, async ({ page }) => {
+    const panel = await setup(page, { lang, express: true });
+    await expect(panel).toContainText(`${myBusStrings[lang].direction}: 165 NEW YORK · Turnpike Exp`);
+    await expect(panel).not.toContainText('165T');
+    await expect(panel.locator('.mybus-code')).toHaveText('00302');
+    const saved = JSON.parse((await lock(page))!);
+    expect(saved.dep.route.shortName).toBe('165T');
+    expect(saved.dep.pattern.headsign).toBe('165 NEW YORK');
+    expect(saved.session.lock.tripInstanceId).toBe(saved.dep.tripInstanceId);
+  });
+
   test(`Android handoff copies once, opens only on action, and preserves the bus (${lang})`, async ({ page }) => {
     const t = myBusStrings[lang];
     let officialRequests = 0;
