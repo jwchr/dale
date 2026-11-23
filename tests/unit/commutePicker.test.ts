@@ -114,6 +114,11 @@ describe('reversed favorite recovery', () => {
     const restored = cityDataset();
     expect(favoriteLeg(restored, saved, true)).toEqual({ ...saved.returnStops, routeIds: [route] });
     expect(changeFavoriteStops(restored, saved, '3', '5', true)).toEqual({ ...f, returnStops: { fromStopId: '3', toStopId: '5' } });
+    // A new forward pair drops the old commute's confirmed return instead of reusing it silently.
+    const moved = changeFavoriteStops(restored, saved, '1', '3', false)!;
+    expect(moved).toEqual({ ...f, fromStopId: '1', label: `${restored.stops.find(s => s.id === '1')!.name} → ${restored.stops.find(s => s.id === '3')!.name}` });
+    expect(moved.returnStops).toBeUndefined();
+    expect(changeFavoriteStops(restored, saved, '2', '3', false)?.returnStops).toEqual(saved.returnStops);
     const removed = structuredClone(ds); removed.stops = removed.stops.filter(s => s.id !== '1');
     expect(favoriteLeg(removed, saved, true)?.toStopId).toBe('1');
     expect(changeFavoriteStops(removed, saved, '3', '1', true)).toBeUndefined();

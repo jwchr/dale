@@ -106,6 +106,15 @@ describe('saved-commute schedule comparison', () => {
     moved.stops.find(s => s.id === 'home-back')!.lat! += .001;
     expect(compareCommute(a, moved, favorite, '20261104')?.kind).toBe('stops');
   });
+  it('keeps checking the forward leg when a saved return stop was already missing from the old feed', () => {
+    const f: Favorite = { ...favorite, returnStops: { fromStopId: '3', toStopId: 'gone-before' } };
+    const b = newer(); retime(b);
+    expect(compare(b, f)?.kind).toBe('timetable');
+    const gone = newer(); gone.stops = gone.stops.filter(s => s.id !== '3');
+    expect(compare(gone, f)?.kind).toBe('selection');
+    const known = old(); known.stops.push({ id: 'gone-before', name: 'Fictional return stop', lat: 40.8, lon: -74 });
+    expect(compareCommute(known, newer(), f, '20261104')?.kind).toBe('selection');
+  });
   it('does not invent changes when overlapping weekly files contain a thousand unchanged trips', () => {
     const a = old(), b = newer();
     for (const ds of [a,b]) {

@@ -43,7 +43,10 @@ export function changeFavoriteStops(ds: Dataset, favorite: Favorite, from: strin
   if (reversed && (favorite.returnStops || !favoriteLeg(ds, favorite, true))) {
     return { ...favorite, returnStops: { fromStopId: from, toStopId: to } };
   }
-  return { ...favorite, fromStopId: from, toStopId: to,
+  // A confirmed return belongs to the old commute pair; a new pair starts with its own inferred return.
+  const { returnStops, ...base } = favorite;
+  const samePair = from === favorite.fromStopId && to === favorite.toStopId;
+  return { ...base, ...(samePair && returnStops ? { returnStops } : {}), fromStopId: from, toStopId: to,
     label: isGeneratedFavoriteLabel(ds, favorite) ? `${origin.name} → ${destination.name}` : favorite.label,
     ...(reversed && favorite.leave ? { leave: { ...(favorite.leave.back ? { out: favorite.leave.back } : {}), ...(favorite.leave.out ? { back: favorite.leave.out } : {}) } } : {}),
   };
