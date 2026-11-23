@@ -1,21 +1,23 @@
 // Used by the private Worker and its deployment-time static-feed builder. Fixed official host only.
-export type NjtEndpoint = 'authenticateUser' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates';
+export type NjtEndpoint = 'authenticateUser' | 'getToken' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates';
+export const RAW_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
 export interface Credentials { NJT_API_USERNAME: string; NJT_API_PASSWORD: string }
 export class NjtError extends Error {
   code: string;
   constructor(code: string) { super(code); this.code = code; }
 }
-const SAFE_FAILURES = new Set(['configuration-missing', 'authentication-cooldown', 'access-denied', 'rate-limited', 'http-error', 'empty-response', 'response-too-large', 'timed-out', 'network-error', 'invalid-token', 'invalid-response', 'redirect-refused']);
+const SAFE_FAILURES = new Set(['configuration-missing', 'authentication-cooldown', 'request-ceiling', 'access-denied', 'rate-limited', 'http-error', 'empty-response', 'response-too-large', 'timed-out', 'network-error', 'invalid-token', 'invalid-response', 'redirect-refused']);
 /** Never expose an exception message, upstream body or arbitrary error code in diagnostics. */
 export function safeNjtFailure(error: unknown): string {
   return error instanceof NjtError && SAFE_FAILURES.has(error.code) ? error.code : 'unknown-error';
 }
-export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, string>, maxBytes: number, fetchImpl: typeof fetch = fetch, timeoutMs = 15_000): Promise<Uint8Array> {
+export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, string>, maxBytes: number, fetchImpl: typeof fetch = fetch, timeoutMs = 15_000, api: 'bus' | 'rail-gtfsrt' = 'bus'): Promise<Uint8Array<ArrayBuffer>> {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const body = new FormData();
     for (const [key, value] of Object.entries(fields)) body.set(key, value);
-    const response = await fetchImpl(`https://pcsdata.njtransit.com/api/GTFSG2/${endpoint}`, {
+    const base = api === 'rail-gtfsrt' ? 'https://raildata.njtransit.com/api/GTFSRT' : 'https://pcsdata.njtransit.com/api/GTFSG2';
+    const response = await fetchImpl(`${base}/${endpoint}`, {
       method: 'POST', body, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
     });
     if (response.status >= 300 && response.status < 400) throw new NjtError('redirect-refused');

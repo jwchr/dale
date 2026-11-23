@@ -80,6 +80,24 @@ export class HistoryArchive {
       const state = this.read(); state.failures++; state.reason = 'archive-error'; state.nextAt = now + Math.min(3600_000, 30_000 * 2 ** Math.min(state.failures, 7)); this.write(state);
     });
   }
+  /** Raw feeds buy durable blocks, rather than writing one SQL reservation per file.
+   * The caller checkpoints consumption before I/O. Lost blocks are never refunded.
+   * Spare-write accounting preserves the corridor collector's remaining normal day. */
+  reserveRaw(bytes: number, a: number, b: number, writes: number, now: number): string | undefined {
+    const before = this.read(), usage = this.totals(now);
+    if (before.reservedBytes + bytes >= BYTE_LIMIT) return 'free-storage-budget';
+    if (usage.a + a > A_LIMIT || usage.b + b > B_LIMIT) return 'free-operation-budget';
+    if (!this.journal.reserveSpareWrites(writes + 4, now)) return 'sql-write-budget';
+    return this.storage.transactionSync(() => {
+      const state = this.read(), totals = this.totals(now);
+      if (state.reservedBytes + bytes >= BYTE_LIMIT) return 'free-storage-budget';
+      if (totals.a + a > A_LIMIT || totals.b + b > B_LIMIT) return 'free-operation-budget';
+      state.reservedBytes += bytes;
+      this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', date(now), a, b);
+      this.write(state);
+      return undefined;
+    });
+  }
   private async upload(body: string, kind: 'schedule' | 'batch', version: string, now: number, attempt?: number, contextManifestKey?: string): Promise<ArchiveReceipt | undefined> {
     const raw = encode(body), rawDigest = await sha(raw), rawSHA256 = hex(rawDigest);
     const versionHash = hex(await sha(encode(version))).slice(0, 24);
