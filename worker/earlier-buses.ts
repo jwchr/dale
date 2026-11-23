@@ -62,7 +62,7 @@ export class EarlierBuses {
       if (new TextEncoder().encode(body).byteLength > EARLIER_MAX_BYTES || Object.keys(next.trips).length > EARLIER_MAX_TRIPS) {
         // Omit this page's derived evidence explicitly, preserving the prior bounded evidence.
         // The checkpoint must pass the page so later polls can still be folded.
-        next.trips = previousTrips; next.gap = true;
+        next.trips = this.domain.prune(previousTrips, next.through); next.gap = true;
         body = JSON.stringify(next);
       }
       const size = this.storage.sql.databaseSize;

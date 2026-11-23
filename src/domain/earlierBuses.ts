@@ -44,16 +44,24 @@ export function createEarlierDomain(ds: Dataset) {
       || !ds.calendars[trip.serviceId] || !isServiceActive(ds.calendars[trip.serviceId]!, date)) return;
     return { trip, pattern, date, route: route.shortName };
   }
-  function fold(state: EarlierState, raw: unknown, now: number) {
-    const batch = raw as { records?: { observation?: { tripInstanceId?: string; observedAt?: number; stopCall?: { status: string; stopIndex: number; stopId: string } } }[];
-      tripChanges?: { tripInstanceId: string; observedAt: number; cancelled?: boolean; skippedStops?: number[]; predictions?: LivePrediction[] }[] };
+  function keepAt(now: number) {
     const today = localYmd(now, ds.meta.timezone), yesterday = addDays(today, -1);
-    const validAt = (at: unknown): at is number => typeof at === 'number' && Number.isSafeInteger(at) && at > 0 && at <= now;
-    const keep = (id: string) => {
+    return (id: string) => {
       const m = match(id);
       if (!m || m.date < yesterday || m.date > today) return;
       return m;
     };
+  }
+  /** Return retained evidence without mutating the input; yesterday's service may run overnight. */
+  function prune(rows: EarlierState['trips'], through: number): EarlierState['trips'] {
+    const keep = keepAt(through);
+    return Object.fromEntries(Object.entries(rows).filter(([id]) => keep(id)));
+  }
+  function fold(state: EarlierState, raw: unknown, now: number) {
+    const batch = raw as { records?: { observation?: { tripInstanceId?: string; observedAt?: number; stopCall?: { status: string; stopIndex: number; stopId: string } } }[];
+      tripChanges?: { tripInstanceId: string; observedAt: number; cancelled?: boolean; skippedStops?: number[]; predictions?: LivePrediction[] }[] };
+    const keep = keepAt(now);
+    const validAt = (at: unknown): at is number => typeof at === 'number' && Number.isSafeInteger(at) && at > 0 && at <= now;
     for (const r of batch.records ?? []) {
       const o = r.observation, call = o?.stopCall;
       if (!o || typeof o.tripInstanceId !== 'string' || !validAt(o.observedAt) || !call || call.status !== 'stopped_at') continue;
@@ -80,7 +88,7 @@ export function createEarlierDomain(ds: Dataset) {
         if (p.observedAt > (row.predictions[key]?.observedAt ?? 0)) row.predictions[key] = { stopIndex: p.stopIndex, kind: p.kind, at: p.at, observedAt: p.observedAt };
       }
     }
-    for (const id of Object.keys(state.trips)) if (!keep(id)) delete state.trips[id];
+    state.trips = prune(state.trips, now);
   }
   function answer(state: EarlierState, query: EarlierQuery, now: number): EarlierAnswer {
     const today = localYmd(now, ds.meta.timezone);
@@ -104,7 +112,7 @@ export function createEarlierDomain(ds: Dataset) {
     items.sort((a, b) => b.scheduled - a.scheduled);
     return { v: 1, query, generatedAt: now, coverageStart: state.coverageStart, through: state.through, gap: state.gap, items: items.slice(0, 5).map(i => i.bus) };
   }
-  return { fold, answer };
+  return { fold, answer, prune };
 }
 
 /** Fail closed on a mismatched/malformed answer before rendering any time as history. */

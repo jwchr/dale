@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, expect, it } from 'vitest';
 import { createEarlierDomain, parseEarlierAnswer, parseEarlierQuery, type EarlierQuery, type EarlierState } from '../../src/domain/earlierBuses';
-import { EarlierBuses } from '../../worker/earlier-buses';
+import { EarlierBuses, EARLIER_MAX_BYTES, EARLIER_MAX_TRIPS } from '../../worker/earlier-buses';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { createFeedClass, createRouter } from '../../worker/service';
 import { liveDataset as ds, NOW } from '../helpers/liveBus';
@@ -335,6 +335,58 @@ it('omits an oversized byte page atomically, retains prior evidence, then contin
   new EarlierBuses(h.storage, data, 'ctx').fold(now + 600000, () => true);
   expect(h.projection.answer(query, now + 600000)).toMatchObject({ gap: true, through: at('07:43'),
     items: [{ stop: { evidence: { at: at('07:03') } } }] });
+});
+
+it('shares pure pruning with normal folding for stale, future, unknown and inactive service trips', () => {
+  const domain = createEarlierDomain(ds), through = Date.parse('2026-11-05T00:00:00-05:00');
+  const row = { gps: { 0: at('07:03') }, predictions: {} };
+  const input = Object.fromEntries(['T1@20261103', 'T1@20261104', 'T2@20261104', 'T1@20261105',
+    'T1@20261106', 'unknown@20261105', 'T1@invalid'].map(id => [id, structuredClone(row)]));
+  const before = structuredClone(input), expected = {
+    'T1@20261104': row, 'T2@20261104': row, 'T1@20261105': row,
+  };
+  expect(domain.prune(input, through)).toEqual(expected);
+  expect(input).toEqual(before);
+  const state = { ...fresh(), trips: structuredClone(input) };
+  domain.fold(state, {}, through);
+  expect(state.trips).toEqual(expected);
+  // Thanksgiving explicitly removes WK service in the synthetic calendar.
+  expect(domain.prune({ 'T1@20261126': row }, Date.parse('2026-11-26T12:00:00-05:00'))).toEqual({});
+});
+
+it.each(['trips', 'bytes'] as const)('prunes restored trips at advanced Eastern through after repeated %s overflows', limit => {
+  const midnight = Date.parse('2026-11-05T00:00:00-05:00'), before = midnight - 30_000;
+  const data = structuredClone(ds), trip = data.trips.find(t => t.id === 'T1')!;
+  if (limit === 'trips') data.trips.push(...Array.from({ length: EARLIER_MAX_TRIPS + 1 }, (_, i) => ({ ...trip, id: `OVERFLOW${i}` })));
+  const pattern = data.patterns.find(p => p.id === trip.patternId)!;
+  if (limit === 'bytes') pattern.stopIds.push(...Array.from({ length: 15000 }, () => '1'));
+  const h = harness(data);
+  h.insert(before, [sample(0, '07:03', 'T1@20261103'), sample(0, '07:03')], 'ctx', { tripChanges: [{
+    tripInstanceId: 'T2@20261104', observedAt: before,
+    predictions: [{ stopIndex: 0, kind: 'departure', at: midnight + 13 * 60_000, observedAt: before }],
+  }] });
+  h.projection.fold(before, () => true);
+  const read = () => JSON.parse(String(h.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body)) as EarlierState;
+  const initial = read();
+  expect(Object.keys(initial.trips).sort()).toEqual(['T1@20261103', 'T1@20261104', 'T2@20261104']);
+  const retained = { 'T1@20261104': initial.trips['T1@20261104'], 'T2@20261104': initial.trips['T2@20261104'] };
+  // The first oversized page straddles midnight. Subsequent oversized pages must not resurrect old trips.
+  h.insert(midnight - 15_000, []);
+  for (const pageAt of [midnight, midnight + 300_000]) {
+    const records = limit === 'trips' ? data.trips.filter(t => t.id.startsWith('OVERFLOW')).map(t => ({ observation: {
+      tripInstanceId: `${t.id}@20261105`, observedAt: pageAt, stopCall: { status: 'stopped_at', stopIndex: 0, stopId: '1' },
+    } })) : [];
+    const tripChanges = limit === 'bytes' ? [{ tripInstanceId: 'T1@20261105', observedAt: pageAt,
+      predictions: pattern.stopIds.map((_, stopIndex) => ({ stopIndex, kind: 'arrival', at: pageAt, observedAt: pageAt })) }] : [];
+    h.insert(pageAt, records, 'ctx', { tripChanges });
+    // Delayed replay must prune for through (Nov 5), not the processing clock (Nov 6).
+    new EarlierBuses(h.storage, data, 'ctx').fold(pageAt + 86_400_000, () => true);
+    const saved = read();
+    expect(saved).toMatchObject({ checkpoint: pageAt, through: pageAt, coverageStart: midnight, gap: true });
+    expect(saved.trips).toEqual(retained);
+    expect(Object.keys(saved.trips).length).toBeLessThanOrEqual(EARLIER_MAX_TRIPS);
+    expect(Buffer.byteLength(JSON.stringify(saved))).toBeLessThanOrEqual(EARLIER_MAX_BYTES);
+  }
 });
 
 it.each([NaN, -1, 450000000])('refuses unsafe database size %s without checkpoint or reservation', size => {
