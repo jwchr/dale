@@ -252,26 +252,25 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const railDue = !!this.rawArchive && this.env.RAIL_GTFSRT_RAW === 'enabled'
         && !['free-storage-budget', 'free-operation-budget', 'sql-write-budget'].includes(this.saved.rawArchive?.reason ?? '');
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
-        if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('request-ceiling');
+        if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
       }, fetchImpl, clock) : undefined;
       const railPlan = rail?.prepare(now);
-      if (rail && !railPlan && this.saved.railGtfsrt?.reason === 'request-ceiling') {
-        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, 'request-ceiling', now);
+      const railReason = this.saved.railGtfsrt?.reason;
+      if (rail && !railPlan && railReason && ['request-ceiling', 'token-limit', 'configuration-missing'].includes(railReason)) {
+        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, railReason, now);
       }
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
-      const busAllowed = reserveRequests(this.saved.busBudget ??= { hours: {} }, needsAuth ? 3 : 2, now);
+      const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
+      const busAllowed = !authCooldown && reserveRequests(this.saved.busBudget ??= { hours: {} }, needsAuth ? 3 : 2, now);
       // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
       await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
       const raw: RawResponse[] = [], rawSecrets = [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD];
       try {
-        if (!busAllowed) {
-          for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, 'request-ceiling', now);
-          throw new NjtError('request-ceiling');
-        }
+        if (authCooldown) throw new NjtError('authentication-cooldown');
+        if (!busAllowed) throw new NjtError('request-ceiling');
         if (!this.saved.token || this.saved.token.expiresAt <= now) {
-          if (now - this.saved.authAt < AUTH_RETRY_MS) throw new NjtError('authentication-cooldown');
           this.saved.authAt = now;
           await this.ctx.storage.put('state-v1', this.saved);
           this.saved.token = { value: await authenticate(this.env, fetchImpl), expiresAt: now + 20 * 3600_000 };
@@ -304,6 +303,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (denials > 0 && successes === 0) this.saved.token = undefined;
         this.saved.vehicles = vehicles; this.saved.updates = updates;
       } catch (error) {
+        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };

@@ -93,7 +93,7 @@ export class RawArchive {
   }
   /** Fixed codes only, never upstream error text. Oversized streams have no saved/truncated original. */
   recordFailure(feed: RawFeed, code: string, at: number) {
-    const safe = ['response-too-large', 'request-ceiling', 'access-denied', 'rate-limited', 'http-error', 'empty-response',
+    const safe = ['response-too-large', 'request-ceiling', 'authentication-cooldown', 'sql-write-budget', 'access-denied', 'rate-limited', 'http-error', 'empty-response',
       'timed-out', 'network-error', 'invalid-token', 'invalid-response', 'redirect-refused', 'configuration-missing', 'token-limit'].includes(code) ? code : 'unknown-error';
     const h = hour(at), ledger = this.state.ledgers[h] ??= { hour: h, feeds: {} };
     const events = (ledger.events ??= {})[feed] ??= {};
@@ -102,8 +102,9 @@ export class RawArchive {
     if (safe === 'response-too-large') this.state.missing++;
   }
   async capture(responses: RawResponse[], now: number, secrets: string[]): Promise<void> {
-    const failuresBefore = this.state.failures;
-    // Compare receipt order, independent of whether the previous upload succeeded.
+    const failuresBefore = this.state.failures, blockedBefore = this.state.blockedSecrets;
+    // Stage receipt comparisons until credit and recovery allow the new intents to commit.
+    const last = { ...this.state.last }, lastAt = { ...this.state.lastAt };
     // Prepare bounded originals independently; a bad/failed feed never prevents the other.
     const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer> }[] = [];
     for (const response of responses) {
@@ -113,12 +114,12 @@ export class RawArchive {
       try {
         const gzip = new Uint8Array(await new Response(new Blob([response.bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
         const sha256 = await hash(response.bytes);
-        if (this.state.lastAt[response.feed] === response.receivedAt && this.state.last[response.feed] === sha256) continue;
+        if (lastAt[response.feed] === response.receivedAt && last[response.feed] === sha256) continue;
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
-          identical: this.state.last[response.feed] === sha256 ? 1 : 0,
+          identical: last[response.feed] === sha256 ? 1 : 0,
           upstreamHeaderTimestamp: headerTimestamp(response.bytes) };
-        this.state.last[response.feed] = sha256; this.state.lastAt[response.feed] = response.receivedAt;
+        last[response.feed] = sha256; lastAt[response.feed] = response.receivedAt;
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.pb.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
@@ -143,6 +144,7 @@ export class RawArchive {
       // Recovery consumed a checkpoint; debit another before committing the new intent.
       if (!this.credit(0, 0, 0, now)) return;
     }
+    this.state.last = last; this.state.lastAt = lastAt;
     this.state.pending.push(...prepared.map(p => p.item));
     await this.checkpoint();
     // Pending originals from an older hour must be reconciled before closing it. Ledgers
@@ -160,7 +162,7 @@ export class RawArchive {
       this.acknowledge(item);
     }));
     for (const result of results) if (result.status === 'rejected') this.state.failures++;
-    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets ? 'secret-response-rejected' : 'ready';
+    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets > blockedBefore ? 'secret-response-rejected' : 'ready';
   }
   private async verifyObject(object: { size: number; arrayBuffer(): Promise<ArrayBuffer> }, size: number, sha256: string) {
     if (object.size !== size) throw new Error('raw-size');

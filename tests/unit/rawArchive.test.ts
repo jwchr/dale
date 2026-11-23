@@ -1,14 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HistoryArchive, type HistoryBucket } from '../../worker/history-archive';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from '../../worker/raw-archive';
 import { createFeedClass } from '../../worker/service';
 import { liveDataset as ds, NOW, binaryFeed, vehicle, update } from '../helpers/liveBus';
 const databases: DatabaseSync[] = [];
-afterEach(() => { for (const db of databases.splice(0)) db.close(); });
+afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const original = () => new Uint8Array(binaryFeed([{ id: 'synthetic', vehicle: vehicle() }]));
 const input = (receivedAt = NOW, bytes = original()): RawResponse => ({ feed: 'getVehiclePositions', receivedAt, bytes });
@@ -48,11 +48,12 @@ async function harness() {
     },
   };
   const archive = new HistoryArchive(storage, journal, bucket);
-  let state = newRawArchiveState(), saved = structuredClone(state), checkpoints = 0;
-  const make = () => new RawArchive(state, archive, bucket, async () => { checkpoints++; saved = structuredClone(state); });
+  let state = newRawArchiveState(), saved = structuredClone(state), checkpoints = 0, failCheckpoint = false;
+  const make = () => new RawArchive(state, archive, bucket, async () => { checkpoints++; if (failCheckpoint) { failCheckpoint = false; throw new Error('synthetic checkpoint failure'); } saved = structuredClone(state); });
   let raw = make();
   return { db, storage, journal, archive, objects, calls, bucket,
     get raw() { return raw; }, get state() { return state; }, get checkpoints() { return checkpoints; },
+    failNextCheckpoint: () => { failCheckpoint = true; },
     finish: () => { saved = structuredClone(state); },
     restart: () => { state = structuredClone(saved); raw = make(); },
     fail: (value: string) => { fail = value; }, ambiguous: () => { ambiguous = true; } };
@@ -78,6 +79,42 @@ describe('private as-received raw archives', () => {
     const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish(); h.restart();
     await h.raw.capture([input(NOW + 30_000)], NOW + 30_000, []); h.finish();
     await h.raw.capture([input(NOW + 30_000)], NOW + 30_000, []);
+    expect(h.objects.size).toBe(4);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions).toMatchObject({ count: 2, identical: 1 });
+  });
+  it.each(['same-receipt', 'committed-predecessor'])('does not remember a credit-denied response: %s', async retry => {
+    const h = await harness(), changed = new Uint8Array([255, 0, 64, 201, 17]);
+    await h.raw.capture([input()], NOW, []);
+    h.state.credit.writes = 0;
+    const reservation = vi.spyOn(h.archive, 'reserveRaw').mockReturnValue('sql-write-budget');
+    await h.raw.capture([input(NOW + 30_000, changed)], NOW + 30_000, []);
+    expect(h.objects.size).toBe(2); expect(h.state.pending).toHaveLength(0);
+    h.finish(); h.restart(); reservation.mockRestore();
+    const at = retry === 'same-receipt' ? NOW + 30_000 : NOW + 60_000;
+    const bytes = retry === 'same-receipt' ? changed : original();
+    await h.raw.capture([input(at, bytes)], at, []);
+    const key = [...h.objects.keys()].find(key => key.includes(`/${at}-`) && key.endsWith('.pb.gz'))!;
+    expect(key).toBeDefined();
+    expect(new Uint8Array(gunzipSync(h.objects.get(key)!))).toEqual(bytes);
+    const manifest = JSON.parse(new TextDecoder().decode(h.objects.get(key + '.manifest.json')));
+    expect(manifest.identical).toBe(retry === 'same-receipt' ? 0 : 1);
+    await h.raw.capture([input(at, bytes)], at, []);
+    expect(h.objects.size).toBe(4);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(2);
+  });
+  it('retries an uncommitted receipt after a recovery checkpoint fails and the relay saves its final state', async () => {
+    const h = await harness(), changed = new Uint8Array([255, 0, 64, 201, 17]);
+    h.ambiguous(); await h.raw.capture([input()], NOW, []);
+    h.failNextCheckpoint();
+    await expect(h.raw.capture([input(NOW + 30_000, changed)], NOW + 30_000, [])).rejects.toThrow('synthetic checkpoint failure');
+    h.finish(); h.restart();
+    await h.raw.capture([input(NOW + 30_000, changed)], NOW + 30_000, []);
+    expect(h.objects.size).toBe(4); expect(h.state.pending).toHaveLength(0);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions).toMatchObject({ count: 2, identical: 0 });
+  });
+  it('compares staged responses in one batch and skips duplicate receipts', async () => {
+    const h = await harness();
+    await h.raw.capture([input(), input(), input(NOW + 30_000)], NOW + 30_000, []);
     expect(h.objects.size).toBe(4);
     expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions).toMatchObject({ count: 2, identical: 1 });
   });
@@ -172,7 +209,9 @@ describe('private as-received raw archives', () => {
     await h.raw.capture(secrets.map((secret, n) => ({ feed: 'rail-getVehiclePositions', receivedAt: NOW + n,
       bytes: new TextEncoder().encode(JSON.stringify({ echo: secret })) })), NOW, secrets);
     expect(h.objects.size).toBe(0); expect(h.raw.status().blockedSecrets).toBe(3);
+    expect(h.raw.status().reason).toBe('secret-response-rejected');
     await h.raw.capture([input()], NOW, secrets);
+    expect(h.raw.status().reason).toBe('ready'); expect(h.raw.status().blockedSecrets).toBe(3);
     const all = [...h.objects.values()].map(b => new TextDecoder().decode(b)).join('');
     for (const secret of secrets) expect(all).not.toContain(secret);
     const health = JSON.stringify(h.raw.status());
@@ -211,7 +250,7 @@ describe('raw collection through the bus Worker', () => {
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
-    return { ...h, poll, saved, urls, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; },
+    return { ...h, poll, saved, urls, env, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; },
       restart: () => { object = new Feed(ctx, env); }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
   }
   it('saves both rail protobuf originals every 30 seconds, including after eviction, using one cached token', async () => {
@@ -244,6 +283,49 @@ describe('raw collection through the bus Worker', () => {
     const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;
     expect(feeds.getVehiclePositions).toBeUndefined(); expect(feeds.getTripUpdates).toBeUndefined();
     expect(feeds['rail-getVehiclePositions'].count).toBe(1); expect(feeds['rail-getTripUpdates'].count).toBe(1);
+  });
+  it('reserves no bus requests during auth cooldown and records each skipped feed across restart', async () => {
+    const h = await service(true, false); h.failAuth(); await h.poll();
+    const budget = () => (h.saved.get('state-v1') as { busBudget: { hours: Record<string, number> } }).busBudget;
+    const first = structuredClone(budget());
+    expect(Object.values(first.hours)).toEqual([3]);
+    for (const at of [NOW + 30_000, NOW + 60_000]) { h.restart(); h.time(at); await h.poll(); }
+    expect(budget()).toEqual(first);
+    expect(h.urls).toHaveLength(1);
+    const ledger = (await h.health()).rawArchive.hoursUTC[0];
+    for (const feed of ['getVehiclePositions', 'getTripUpdates']) {
+      expect(ledger.events[feed]).toEqual({ 'access-denied': 1, 'authentication-cooldown': 2 });
+      expect(ledger.feeds[feed]).toBeUndefined();
+    }
+    h.time(NOW + 3600_000); await h.poll();
+    expect(Object.values(budget().hours).reduce((sum, n) => sum + n, 0)).toBe(6);
+    expect(h.urls).toHaveLength(2);
+  });
+  it('reports a rail token-save SQL budget failure without mislabeling the agency ceiling', async () => {
+    const reserve = HistoryJournal.prototype.reserveSpareWrites;
+    vi.spyOn(HistoryJournal.prototype, 'reserveSpareWrites').mockImplementation(function (this: HistoryJournal, units, now, keep) {
+      return units === 3 ? false : reserve.call(this, units, now, keep);
+    });
+    const h = await service(); await h.poll();
+    expect(h.urls.filter(url => url.endsWith('/getToken'))).toHaveLength(1);
+    expect(h.railCalls).toBe(0);
+    expect((h.saved.get('state-v1') as { railGtfsrt: { reason: string } }).railGtfsrt.reason).toBe('sql-write-budget');
+    const ledger = (await h.health()).rawArchive.hoursUTC[0];
+    for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates']) expect(ledger.events[feed]).toEqual({ 'sql-write-budget': 1 });
+    expect(ledger.feeds.getVehiclePositions.count).toBe(1);
+  });
+  it.each(['token-limit', 'configuration-missing'])('records rail prepare %s for both skipped feeds', async code => {
+    const h = await service(); await h.poll();
+    const state = h.saved.get('state-v1') as { railGtfsrt: { token?: unknown; mints: number[] } };
+    state.railGtfsrt.token = undefined;
+    if (code === 'token-limit') state.railGtfsrt.mints = [NOW];
+    else h.env.NJT_API_USERNAME = '';
+    const before = h.urls.length;
+    h.restart(); h.time(NOW + 30_000); await h.poll();
+    expect(h.urls.slice(before).filter(url => url.includes('/GTFSRT/'))).toHaveLength(0);
+    const ledger = (await h.health()).rawArchive.hoursUTC[0];
+    for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates']) expect(ledger.events[feed]).toEqual({ [code]: 1 });
+    expect(ledger.feeds.getVehiclePositions.count).toBe(2);
   });
   it('leaves rail off when the flag is absent and continues bus raw saving', async () => {
     const h = await service(true, false); await h.poll();
@@ -280,7 +362,10 @@ describe('raw collection through the bus Worker', () => {
     const urls = h.urls.slice(before);
     expect(urls.filter(url => api === 'bus' ? url.includes('/GTFSG2/') : url.includes('/GTFSRT/'))).toHaveLength(0);
     expect(urls.filter(url => api === 'bus' ? url.includes('/GTFSRT/') : url.includes('/GTFSG2/'))).toHaveLength(2);
-    const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;
+    const ledger = (await h.health()).rawArchive.hoursUTC[0];
+    for (const feed of api === 'bus' ? ['getVehiclePositions', 'getTripUpdates'] : ['rail-getVehiclePositions', 'rail-getTripUpdates'])
+      expect(ledger.events[feed]).toEqual({ 'request-ceiling': 1 });
+    const feeds = ledger.feeds;
     expect(feeds[api === 'bus' ? 'rail-getVehiclePositions' : 'getVehiclePositions'].count).toBe(2);
   });
   it('does not collect raw data or call rail when history collection is disabled', async () => {
