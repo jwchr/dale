@@ -2,7 +2,7 @@ import { routeHeadsign } from '../domain/routeDisplay';
 import { useEffect, useId, useRef, useState } from 'react';
 import { MYBUS_WEB, myBusPhone, myBusSms, myBusStop } from '../domain/myBus';
 import type { Dataset, Departure } from '../domain/types';
-import type { Lang } from './i18n';
+import { strings, type Lang } from './i18n';
 import { myBusStrings } from './myBusStrings';
 
 function CopyStopCode({ code, lang }: { code: string; lang: Lang }) {
@@ -45,7 +45,7 @@ export function MyBusFallback({ ds, dep, lang }: { ds?: Dataset; dep?: Departure
     <summary>{t.title}</summary>
     <p className="small">{t.note}</p>
     {stop ? <>
-      <p><strong>{t.boarding}: {stop.name}</strong><br />{t.direction}: {routeHeadsign(stop.headsign, dep?.route.shortName)}</p>
+      <p><strong>{t.boarding}: {stop.name}</strong><br />{t.direction}: {routeHeadsign(stop.headsign, dep?.route.shortName, strings[lang].gateTurnpikeExpress)}</p>
       <p className="small">{t.confirm}</p>
       <CopyStopCode key={`${stop.code}:${lang}`} code={stop.code} lang={lang} />
     </> : <p>{t.missing}</p>}

@@ -22,7 +22,7 @@ type State =
   | { status: 'denied' | 'failed' | 'timeout' | 'unsupported' };
 
 /** `autoAsk`: the rider already tapped "Use my location" on home, so ask once on opening instead of a second tap. */
-export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; onPick: (s: Stop) => void; autoAsk?: boolean }) {
+export function NearMe({ ds, t, onPick, autoAsk, visible }: { ds: Dataset; t: Strings; onPick: (s: Stop) => void; autoAsk?: boolean; visible: boolean }) {
   const n = t.nearMe;
   const [state, setState] = useState<State>({ status: 'idle' });
   const giveUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -46,7 +46,7 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
   const askRef = useRef<() => void>(undefined);
   askRef.current = ask;
   useEffect(() => {
-    if (autoAsk) (heading.current ?? unavailable.current)?.focus();
+    if (autoAsk && visible) (heading.current ?? unavailable.current)?.focus();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!hasLocations || !unavailableFocused.current) return;
@@ -55,17 +55,17 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
     if (autoAsk && document.activeElement === document.body && !heading.current?.closest('[hidden]')) heading.current?.focus();
   }, [autoAsk, hasLocations]);
   useEffect(() => {
-    if (!autoAsk || !hasLocations || autoAsked.current) return;
+    if (!autoAsk || !visible || !hasLocations || autoAsked.current) return;
     let cancelled = false;
     // Let StrictMode's setup/cleanup replay finish before consuming this shortcut tap.
     queueMicrotask(() => {
-      if (cancelled || autoAsked.current) return;
+      if (cancelled || autoAsked.current || heading.current?.closest('[hidden]')) return;
       autoAsked.current = true;
       autoAskPending.current = true;
       askRef.current?.();
     });
     return () => { cancelled = true; };
-  }, [autoAsk, hasLocations, ds]);
+  }, [autoAsk, visible, hasLocations, ds]);
 
   function ask() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {

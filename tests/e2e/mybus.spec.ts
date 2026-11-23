@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
+import { strings } from '../../src/ui/i18n';
 import { myBusStrings } from '../../src/ui/myBusStrings';
 import { LIVE_SOURCE } from '../../src/domain/liveBus';
 import type { Lang } from '../../src/ui/i18n';
@@ -65,7 +66,7 @@ test('an open lookup and focused control survive missing → fresh → missing G
 for (const lang of ['en', 'es'] as Lang[]) {
   test(`MyBus identifies a Turnpike trip without a headsign prefix (${lang})`, async ({ page }) => {
     const panel = await setup(page, { lang, express: true });
-    await expect(panel).toContainText(`${myBusStrings[lang].direction}: 165 NEW YORK · Turnpike Exp`);
+    await expect(panel).toContainText(`${myBusStrings[lang].direction}: 165 NEW YORK · ${strings[lang].gateTurnpikeExpress}`);
     await expect(panel).not.toContainText('165T');
     await expect(panel.locator('.mybus-code')).toHaveText('00302');
     const saved = JSON.parse((await lock(page))!);
