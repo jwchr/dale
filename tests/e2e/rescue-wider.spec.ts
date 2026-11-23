@@ -54,8 +54,8 @@ for (const lang of ['en', 'es'] as const) {
     await expect(rescue.getByRole('heading', { name: w.transfersTitle })).toBeVisible();
     const change = rescue.locator('h2', { hasText: w.transfersTitle }).locator('xpath=following-sibling::ol[1]/li').first();
     await expect(change).toContainText(lang === 'en' ? 'same stop' : 'misma parada');
-    await expect(change).toContainText('165T');
-    await expect(rescue).toContainText(t.rescue.coverage('163, 164, 165, 165T, 166, 167, 168'));
+    await expect(change).toContainText(`165 · ${t.gateTurnpikeExpress}`);
+    await expect(rescue).toContainText(t.rescue.coverage(`163, 164, 165, 165 · ${t.gateTurnpikeExpress}, 166, 167, 168`));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const { violations } = await new AxeBuilder({ page }).include('.rescue').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
     expect(violations).toEqual([]);
@@ -67,7 +67,7 @@ for (const lang of ['en', 'es'] as const) {
     await page.locator('.rescue-chip').first().click();
     const rescue = page.locator('.rescue');
     await expect(rescue).toContainText(w.missing.not_offered);
-    await expect(rescue).toContainText(t.rescue.coverage('163, 164, 165, 165T'));
+    await expect(rescue).toContainText(t.rescue.coverage(`163, 164, 165, 165 · ${t.gateTurnpikeExpress}`));
     await expect(rescue.locator('.rescue-list li', { hasText: w.widerTag })).toHaveCount(0);
   });
 }

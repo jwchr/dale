@@ -2,7 +2,7 @@ import { boardingInfo } from '../domain/stopInfo';
 import type { Dataset, Stop } from '../domain/types';
 import type { Strings } from './i18n';
 export function StopChoice({ ds, stop, t, onPick, distance }: { ds: Dataset; stop: Stop; t: Strings; onPick: (s: Stop) => void; distance?: string }) {
-  const info = boardingInfo(ds, stop.id), destinations = info.destinations.map(s => s === 'PABT' ? t.commuteNewYork + ' · ' + t.commutePabt : s);
+  const info = boardingInfo(ds, stop.id, t.gateTurnpikeExpress), destinations = info.destinations.map(s => s === 'PABT' ? t.commuteNewYork + ' · ' + t.commutePabt : s);
   return <button type="button" className="stop-choice" onClick={() => onPick(stop)}>
     <strong>{stop.name}</strong>
     <span className="stop-number">{stop.code ? t.selection.stopNumber(stop.code) : t.selection.numberUnknown}{distance && <> · {distance}</>}</span>

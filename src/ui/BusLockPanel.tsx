@@ -1,3 +1,4 @@
+import { routeHeadsign } from '../domain/routeDisplay';
 import { ButtonLabel } from './BilingualButtons';
 import { useRouteGeometry } from './useRouteGeometry';
 import { RouteDistance } from './RouteDistance';
@@ -111,7 +112,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
         <h2 id="bus-lock-heading" tabIndex={-1} ref={heading}>{b.title}</h2>
         <button className="ghost" onClick={onUnlock}><ButtonLabel translate={other => other.unlockBus}>{t.unlockBus}</ButtonLabel></button>
       </div>
-      <p className="lock-route">{dep.pattern.headsign}</p>
+      <p className="lock-route">{routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</p>
       <p className="small">{b.schedule(dateText, `${dep.estimated ? '~' : ''}${clock(dep.departs)}`, stopName(dep.pattern.stopIds[dep.stopIndex]!))}</p>
       {dep.estimated && <p className="muted small">{t.estimatedNote}</p>}
       <p className={`lock-status ${lock.status === 'tracked' && lastRecord?.source === 'official' ? 'live-glow' : ''}`} data-status={lock.status}>

@@ -1,3 +1,4 @@
+import { strings } from '../../src/ui/i18n';
 import { describe, it, expect } from 'vitest';
 import { demoDataset } from '../../src/data/demo';
 import { boardingInfo, destinationGroups } from '../../src/domain/stopInfo';
@@ -31,9 +32,9 @@ describe('verified stop information and city labels', () => {
   });
   it('names only boardable pattern destinations, without a compass guess from direction0/1', () => {
     const input = ds(), pattern = input.patterns.find(p => p.stopIds.includes('2'))!;
-    const info = boardingInfo(input, '2'); expect(info.destinations).toContain('PABT');
+    const info = boardingInfo(input, '2', strings.en.gateTurnpikeExpress); expect(info.destinations).toContain('PABT');
     for (const p of input.patterns) if (p.stopIds.includes('2')) p.noPickup = [p.stopIds.indexOf('2')];
-    expect(boardingInfo(input, '2').destinations).toEqual([]);
+    expect(boardingInfo(input, '2', strings.en.gateTurnpikeExpress).destinations).toEqual([]);
     expect(pattern.directionId).toBe(0);
   });
   it('pins final Port Authority first and groups other stops only by supplied cities', () => {

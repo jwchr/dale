@@ -2,7 +2,7 @@
 
 ## Owner decision and delivery
 
-[D74](../DECISIONS.md) is the authority: Jeff, November 21, 2026, wants statewide buses, trains in the app, and everything retained privately and indefinitely to build the data he wants. It replaces the corridor-only archive scope in D33/D60/D73 and D63's bounded-only rail authorization. NJ Transit's Data Feed Agreement, summarized in D73, permits storage on our own server. Do not ask again whether statewide storage is wanted. This plan does not deploy code, activate feeds, approve spending or establish live coverage.
+[D77](../DECISIONS.md) is the authority: Jeff, November 21, 2026, wants statewide buses, trains in the app, and everything retained privately and indefinitely to build the data he wants. It replaces the corridor-only archive scope in D33/D60/D73 and D63's bounded-only rail authorization. NJ Transit's Data Feed Agreement, summarized in D73, permits storage on our own server. Do not ask again whether statewide storage is wanted. This plan does not deploy code, activate feeds, approve spending or establish live coverage.
 
 The outcome is all observations returned by the statewide feeds at each admitted poll, with original evidence and schedule context preserved. It cannot capture agency updates between polls or recover a response lost before durable storage. Indefinite retention and continuous collection are different: original raw poll copies, observation meaning and context never expire under the current authorization, and collection must pause before Free capacity runs out. Section 3a compares storage with and without a possible future owner-authorized raw-deletion policy; it grants no deletion authority. Statewide indefinite growth cannot fit a finite Free allowance forever. Report the gap and ask Jeff about money before resuming growth beyond it.
 
@@ -115,7 +115,7 @@ Keep a persistent global admission ledger for all account usage and in-flight ma
 
 ## 3a. Efficient long-term storage without slower screens
 
-Jeff, November 21, 2026: store everything more efficiently "and not at a sacrifice of speed... Everything needs to stay speedy", without losing meaning. This section is the single home for the two-tier design. **Raw R2 deletion is NOT authorized.** Jeff must explicitly decide whether any completed raw objects may ever be deleted, with the scope, reason and amended D60/D74 retention authority recorded in `docs/DECISIONS.md` before deletion can be designed for release or enabled. His efficiency request alone does not grant this exception. Until then, all raw objects remain immutable indefinitely under D60/D74, CLAUDE.md and HISTORY_COLLECTION.md; compaction only adds a verified representation. The seven-day deletion scenario below is a cost comparison for that pending owner decision, not an approved retention window. No spending or live switch changes follow.
+Jeff, November 21, 2026: store everything more efficiently "and not at a sacrifice of speed... Everything needs to stay speedy", without losing meaning. This section is the single home for the two-tier design. **Raw R2 deletion is NOT authorized.** Jeff must explicitly decide whether any completed raw objects may ever be deleted, with the scope, reason and amended D60/D77 retention authority recorded in `docs/DECISIONS.md` before deletion can be designed for release or enabled. His efficiency request alone does not grant this exception. Until then, all raw objects remain immutable indefinitely under D60/D77, CLAUDE.md and HISTORY_COLLECTION.md; compaction only adds a verified representation. The seven-day deletion scenario below is a cost comparison for that pending owner decision, not an approved retention window. No spending or live switch changes follow.
 
 ### Two tiers and lossless observation replay
 
@@ -254,7 +254,7 @@ Each item is a small PR; split a large item again rather than mixing Worker chan
 
 | Order | Reviewable change and acceptance | Risk/release gate |
 | --- | --- | --- |
-| 1 | This docs-only D74 plan and scope corrections; no code, calls or switches | Plan review; no deployment |
+| 1 | This docs-only D77 plan and scope corrections; no code, calls or switches | Plan review; no deployment |
 | 2 | Offline statewide static/distance index, synthetic calendars/shapes/frequency tests; existing corridor output unchanged | Normal review for pure offline builder; retaining real context or changing rollout tooling separately needs risky review |
 | 3 | Versioned batched archive/spool format and original bus capture; crash tests, old/new reader compatibility and metered full-day write/operation proof; feature off | **History/privacy risk: Jeff's Gemini Neon review** before collection or deployment |
 | 3a | Additive compaction and permanent schedule-file deduplication; full-day replay, hourly rollover closure, reservation/PUT/ack crash recovery, metered writes/operations and latency proof | **Gated security prerequisite:** review and explicitly authorize the dedicated credential and internal Worker/DO control route in section 3a before provisioning/activation. **Jeff's Neon review**, then separate release/activation. Raw deletion excluded until an explicit owner decision in DECISIONS.md and separate reviewed implementation |

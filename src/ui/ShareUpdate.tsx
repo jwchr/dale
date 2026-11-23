@@ -1,3 +1,4 @@
+import { routeLabel } from '../domain/routeDisplay';
 // One-tap trip update (issue #61): the rider sends it through their own app (Web Share) or copies it.
 // Dale itself sends nothing and includes no position.
 import { useEffect, useRef, useState } from 'react';
@@ -18,7 +19,7 @@ export function ShareUpdate({ ds, session, alightIndex, now, t, lang }: { ds: Da
   const clock = (at: number, estimated: boolean) => `${estimated ? '~' : ''}${formatTime12(at, ds.meta.timezone, lang)}`;
   const stopName = (id: string) => place(ds.stops.find((x) => x.id === id)?.name ?? id);
   const to = u.update.kind === 'onboard' && u.update.to ? { stop: stopName(u.update.to.stopId), time: clock(u.update.to.at, u.update.to.estimated) } : undefined;
-  const text = `${u.demo ? s.demo : ''}${s.text(u.update, u.route, clock(u.departs, u.estimated), stopName(u.stopId), to)}`;
+  const text = `${u.demo ? s.demo : ''}${s.text(u.update, routeLabel(u.route, t.gateTurnpikeExpress), clock(u.departs, u.estimated), stopName(u.stopId), to)}`;
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   async function share() {

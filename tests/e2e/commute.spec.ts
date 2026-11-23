@@ -33,7 +33,7 @@ test('first run: wrong-side guard, save, zero-tap home on return', async ({ page
   await expect(card.locator('[data-end="to"] .highway-name')).toHaveText('New York');
   await expect(card.locator('[data-end="to"] .commute-stop')).toHaveText('Port Authority');
   await expect(card.locator('.dep-time')).toHaveText(['8:06 AM', '8:06 AM', '8:26 AM']);
-  await expect(card.locator('.route-badge')).toHaveText(['165', '165T', '165T']);
+  await expect(card.locator('.route-badge')).toHaveText(['165', '165', '165']);
   await expect(card.locator('.destination-clock .dep-arrival-scheduled').first()).toHaveText('8:55 AM');
   await expect(card.getByText('Scheduled only').first()).toBeVisible();
 
@@ -376,7 +376,7 @@ test.describe('printed timetable data (route 165)', () => {
 
     const card = page.getByRole('article');
     await expect(card.locator('.dep-time')).toHaveCount(3);
-    await expect(card.locator('.route-badge').first()).toHaveText(/^165T?$/);
+    await expect(card.locator('.route-badge').first()).toHaveText('165');
 
     // Return trip: board at Port Authority, get off at the same corner's twin on the Westwood-bound side.
     await page.getByRole('button', { name: /Reverse/ }).click();
@@ -452,7 +452,7 @@ test.describe('Get me home (issue #32)', () => {
     const items = page.locator('.rescue-list li');
     expect(await items.count()).toBeGreaterThan(2);
     await expect(items.first()).toContainText('Gate');
-    await expect(page.locator('.rescue')).toContainText('Only routes in Dale’s data are searched: 165, 165T');
+    await expect(page.locator('.rescue')).toContainText('Only routes in Dale’s data are searched: 165, 165 · Turnpike express');
     await expect(page.locator('.rescue')).toContainText('No walking routes or transfers are suggested');
     await expect(page.locator('.rescue')).toContainText('Last tonight on your line');
     const { violations } = await new AxeBuilder({ page }).include('.rescue').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -589,7 +589,7 @@ test.describe('leave-by countdown (issue #54)', () => {
     // Two 8:06 buses: the 165T express gets in first, and the card says why.
     await expect(card.locator('.dep').nth(1).locator('.tag-first')).toHaveText('Arrives first');
     await expect(card.locator('.tag-first')).toHaveCount(1);
-    await expect(card.locator('.leave-why')).toHaveText(/^The 165T at 8:06 AM leaves at the same time and is scheduled to arrive (about )?\d+ min sooner\.$/);
+    await expect(card.locator('.leave-why')).toHaveText(/^The 165 · Turnpike express at 8:06 AM leaves at the same time and is scheduled to arrive (about )?\d+ min sooner\.$/);
   });
 
   test('counts down to leaving, plans an arrive-by time, and keeps the plan on this phone', async ({ page }) => {

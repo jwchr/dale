@@ -1,3 +1,4 @@
+import { routeLabel, routeNumber } from '../domain/routeDisplay';
 import { useMemo } from 'react';
 import { icsEvent, untilParts } from '../domain/calendar';
 import { lastReturn } from '../domain/lastReturn';
@@ -31,7 +32,7 @@ export function LastReturnCard({ ds, outbound, toStopId, t, lang, now, onOpen }:
   return (
     <section className="card last-return" aria-labelledby="last-return-heading">
       <h2 id="last-return-heading">{l.title}</h2>
-      <p className="small">{l.operatingDay(outbound.route.shortName, fmtDate(result.serviceDate))}</p>
+      <p className="small">{l.operatingDay(routeLabel(outbound.route.shortName, t.gateTurnpikeExpress), fmtDate(result.serviceDate))}</p>
       {stop && <p className="small">{l.destination(stop.name)}</p>}
       {result.status === 'unconfirmed' && <p className="warn small">{l.unconfirmed}</p>}
       {result.status === 'no_return_listed' && <p className="warn small">{l.noReturn}</p>}
@@ -69,13 +70,13 @@ function LastBusReminder({ ds, t, lang, now, dep, from, overnight }: { ds: Datas
   function download() {
     const ics = icsEvent({
       uid: `${dep.tripInstanceId}@dale`, start: dep.departs, minutes: 15, alarmMinutes: 30, now,
-      summary: l.calendarSummary(dep.route.shortName, clock, from),
+      summary: l.calendarSummary(routeLabel(dep.route.shortName, t.gateTurnpikeExpress), clock, from),
       description: overnight ? `${l.calendarNote} ${l.ongoing}` : l.calendarNote,
     });
     const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dale-last-${dep.route.shortName}-${localYmd(dep.departs, ds.meta.timezone)}.ics`;
+    a.download = `dale-last-${routeNumber(dep.route.shortName)}-${localYmd(dep.departs, ds.meta.timezone)}.ics`;
     a.click();
     // Some mobile browsers read the file late; keep the link alive for a minute.
     setTimeout(() => URL.revokeObjectURL(url), 60_000);

@@ -325,7 +325,7 @@ test('trip update: the rider shares or copies a plain message; Dale sends nothin
   const lock = page.locator('.bus-lock');
   await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();
   await lock.getByRole('button', { name: 'Share a trip update' }).click();
-  await expect(lock.getByTestId('share-text')).toHaveText(/^\[DEMO, invented data\] Waiting at Maple Ave & Main St for the \d{1,2}:\d\d AM 165T?\.$/);
+  await expect(lock.getByTestId('share-text')).toHaveText(/^\[DEMO, invented data\] Waiting at Maple Ave & Main St for the \d{1,2}:\d\d AM 165(?: · Turnpike express)?\.$/);
   await expect(lock.getByTestId('share-text')).toBeFocused();
   await expect(lock.locator('.share-update')).toContainText('Dale sends nothing');
   await expect(lock.locator('.share-update')).toContainText('No GPS location is included; the message names your stop.');
@@ -351,7 +351,7 @@ test('trip update: the rider shares or copies a plain message; Dale sends nothin
   await page.getByRole('button', { name: 'I boarded', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: /Riding to/ });
   await dialog.getByRole('button', { name: 'Share a trip update' }).click();
-  await expect(dialog.getByTestId('share-text')).toHaveText(/^\[DEMO, invented data\] I'm on the \d{1,2}:\d\d AM 165T? from Maple Ave & Main St\. Scheduled to reach Port Authority Bus Terminal at \d{1,2}:\d\d AM\.$/);
+  await expect(dialog.getByTestId('share-text')).toHaveText(/^\[DEMO, invented data\] I'm on the \d{1,2}:\d\d AM 165(?: · Turnpike express)? from Maple Ave & Main St\. Scheduled to reach Port Authority Bus Terminal at \d{1,2}:\d\d AM\.$/);
   await expect(dialog.getByTestId('share-text')).not.toContainText(/\d+\.\d{3}/); // no coordinates
 });
 
@@ -368,7 +368,7 @@ test('trip update on the printed timetable has no DEMO mark, and reads in Spanis
   await page.locator('.dep').first().click();
   await page.getByRole('button', { name: /Seguir este autobús/ }).click();
   await page.getByRole('button', { name: 'Compartir cómo va el viaje' }).click();
-  await expect(page.getByTestId('share-text')).toHaveText(/^Pienso tomar el 165T? de las? \d{1,2}:\d\d a\. ?m\. desde Westwood - Broadway at Irvington St\.$/);
+  await expect(page.getByTestId('share-text')).toHaveText(/^Pienso tomar el 165(?: · Expreso por Turnpike)? de las? \d{1,2}:\d\d a\. ?m\. desde Westwood - Broadway at Irvington St\.$/);
 });
 
 test('backup buses appear once the bus is late past the rider’s threshold, and never change the lock', async ({ page }) => {

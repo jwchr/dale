@@ -1,3 +1,4 @@
+import { routeLabel } from '../domain/routeDisplay';
 // "Your connection" on the home dashboard (#101): the schematic route map from the mock-up, with the next bus
 // and, when the rider taps for it, their own phone moving along it. No new location sources: the bus dot is the
 // official GPS from the home live check (only when fresh and on this trip's route) or the timetable's estimate,
@@ -54,7 +55,7 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
   // The same freshness limits as fixPosition: an old fix leaves both maps until the phone sends a new one.
   const fresh = phone && now - phone.at <= FIX_MAX_AGE_MS && phone.at <= now + 60_000 ? phone : undefined;
   const you = fresh ? fixPosition(stops, 0, fresh, now) : undefined;
-  const route = dep.route.shortName;
+  const route = routeLabel(dep.route.shortName, t.gateTurnpikeExpress);
 
   // The street map reuses the waiting map's pieces: official GPS, or the same straight-line timetable estimate.
   const mapStops: MapStop[] = useMemo(() => stops.flatMap((s, i) => s?.lat !== undefined && s.lon !== undefined
