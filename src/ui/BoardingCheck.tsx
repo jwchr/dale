@@ -50,7 +50,7 @@ export function BoardingCheck({ ds, dep, toStopId, t, lang, gate }: Props) {
       <section className="driver-card" aria-label={c.cardLabel}>
         <h1 className="driver-q" lang="en" tabIndex={-1} ref={cardHeading}>{strings.en.boarding.ask(place(dest))}</h1>
         <p className="driver-q" lang="es">{strings.es.boarding.ask(place(dest))}</p>
-        <p className="driver-route">{routeLabel(dep.route.shortName)} · {routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</p>
+        <p className="driver-route">{routeLabel(dep.route.shortName, t.gateTurnpikeExpress)} · {routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</p>
         <button className="primary wide" onClick={() => setCard(false)}>{c.closeCard}</button>
       </section>
     );
@@ -59,8 +59,8 @@ export function BoardingCheck({ ds, dep, toStopId, t, lang, gate }: Props) {
     <section className="boarding-check">
       <h1>{c.title}</h1>
       <dl className="lock-facts">
-        <div><dt>{c.route}</dt><dd>{routeLabel(dep.route.shortName)}{variant ? ` · ${variant}` : ''}</dd></div>
-        <div><dt>{c.direction}</dt><dd>{routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</dd></div>
+        <div><dt>{c.route}</dt><dd>{routeLabel(dep.route.shortName, t.gateTurnpikeExpress)}{variant ? ` · ${variant}` : ''}</dd></div>
+        <div><dt>{c.direction}</dt><dd>{routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</dd></div>
         <div><dt>{c.leaves}</dt><dd>{dep.estimated ? '~' : ''}{clock(dep.departs)} · {name(dep.pattern.stopIds[dep.stopIndex]!)}</dd></div>
         <div><dt>{c.gettingOff}</dt><dd>{dest}</dd></div>
       </dl>

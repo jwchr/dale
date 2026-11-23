@@ -307,6 +307,7 @@ describe('fixed secret-safe connection diagnostics', () => {
     expect(safeNjtFailure(new NjtError('token-secret'))).toBe('unknown-error');
     expect(safeNjtFailure(new NjtError('timed-out'))).toBe('timed-out');
     expect(safeNjtFailure(new NjtError('network-error'))).toBe('network-error');
+    expect(safeNjtFailure(new NjtError('sql-write-budget'))).toBe('sql-write-budget');
   });
 });
 

@@ -452,7 +452,7 @@ test.describe('Get me home (issue #32)', () => {
     const items = page.locator('.rescue-list li');
     expect(await items.count()).toBeGreaterThan(2);
     await expect(items.first()).toContainText('Gate');
-    await expect(page.locator('.rescue')).toContainText('Only routes in Dale’s data are searched: 165, 165 · Turnpike Exp');
+    await expect(page.locator('.rescue')).toContainText('Only routes in Dale’s data are searched: 165, 165 · Turnpike express');
     await expect(page.locator('.rescue')).toContainText('No walking routes or transfers are suggested');
     await expect(page.locator('.rescue')).toContainText('Last tonight on your line');
     const { violations } = await new AxeBuilder({ page }).include('.rescue').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -589,7 +589,7 @@ test.describe('leave-by countdown (issue #54)', () => {
     // Two 8:06 buses: the 165T express gets in first, and the card says why.
     await expect(card.locator('.dep').nth(1).locator('.tag-first')).toHaveText('Arrives first');
     await expect(card.locator('.tag-first')).toHaveCount(1);
-    await expect(card.locator('.leave-why')).toHaveText(/^The 165 · Turnpike Exp at 8:06 AM leaves at the same time and is scheduled to arrive (about )?\d+ min sooner\.$/);
+    await expect(card.locator('.leave-why')).toHaveText(/^The 165 · Turnpike express at 8:06 AM leaves at the same time and is scheduled to arrive (about )?\d+ min sooner\.$/);
   });
 
   test('counts down to leaving, plans an arrive-by time, and keeps the plan on this phone', async ({ page }) => {

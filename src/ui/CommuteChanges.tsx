@@ -18,7 +18,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
   };
   const clock = (instant: number, day: string) => `${localYmd(instant, tz) === day ? '' : dateLabel(localYmd(instant, tz)) + ' · '}${formatTime12(instant, tz, lang)}`;
   const rows = (values: ChangedDeparture[], day: string) => values.length ? <ul>{values.map((row, i) => <li key={i}>
-    {row.direction === 'out' ? messages.out : messages.back} · {routeLabel(row.route)} · {formatTime12(row.departure, tz, lang)}
+    {row.direction === 'out' ? messages.out : messages.back} · {routeLabel(row.route, t.gateTurnpikeExpress)} · {formatTime12(row.departure, tz, lang)}
     {row.estimated && <> ({messages.estimate})</>} · {row.arrival === undefined ? messages.unknownArrival : `${messages.arrival} ${clock(row.arrival, day)}`}
   </li>)}</ul> : <p>{messages.none}</p>;
   return <section ref={region} className="commute-changes" aria-labelledby={heading}>

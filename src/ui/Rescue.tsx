@@ -55,7 +55,7 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
       <>
         {o.wider ? <span className="route-badge">{routeNumber(o.dep.route.shortName)}</span> : badge(o.dep.route.id)}
         <span className="dep-main">
-          <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName)}</span>
+          <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName, t.gateTurnpikeExpress)}</span>
           <span className="dep-time">{day(o.dep.departs)}{o.dep.estimated ? '~' : ''}{clock(o.dep.departs)}</span>
           <span className="dep-sub">{r.arrives(`${o.arrivesEstimated ? '~' : ''}${clock(o.arrives)}`, name(o.alightStopId))}</span>
           {extra}
@@ -85,10 +85,10 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
       <>
         {first.wider ? <span className="route-badge">{routeNumber(first.dep.route.shortName)}</span> : badge(first.dep.route.id)}
         <span className="dep-main">
-          <span className="dep-sub">{routeHeadsign(first.dep.pattern.headsign, first.dep.route.shortName)}</span>
+          <span className="dep-sub">{routeHeadsign(first.dep.pattern.headsign, first.dep.route.shortName, t.gateTurnpikeExpress)}</span>
           <span className="dep-time">{day(first.dep.departs)}{first.dep.estimated ? '~' : ''}{clock(first.dep.departs)}</span>
           <span className="dep-sub">{w.transferRide(name(x.changeStopId), `${first.arrivesEstimated ? '~' : ''}${clock(first.arrives)}`)}</span>
-          <span className="dep-sub">{w.transferChange(routeLabel(second.dep.route.shortName), `${second.dep.estimated ? '~' : ''}${clock(second.dep.departs)}`, Math.round(x.waitMs / 60_000))}</span>
+          <span className="dep-sub">{w.transferChange(routeLabel(second.dep.route.shortName, t.gateTurnpikeExpress), `${second.dep.estimated ? '~' : ''}${clock(second.dep.departs)}`, Math.round(x.waitMs / 60_000))}</span>
           <span className="dep-sub">{r.arrives(`${second.arrivesEstimated ? '~' : ''}${clock(second.arrives)}`, name(second.alightStopId))}</span>
           {first.acrossFromBoard && <span className="dep-sub">{r.acrossBoard(name(first.boardStopId))}</span>}
           {second.acrossFromHome && <span className="dep-sub">{r.acrossHome}</span>}
@@ -124,8 +124,8 @@ export function Rescue({ ds, t, lang, now, fromStopId, homeStopId, usualRouteId,
         </>
       )}
       <BackupPlans t={t} />
-      <p className="muted small" role="note">{r.coverage(routeList(result.routesSearched))}</p>
-      {result.widerRoutes.length > 0 && <p className="muted small">{w.widerIncluded(routeList(result.widerRoutes))}</p>}
+      <p className="muted small" role="note">{r.coverage(routeList(result.routesSearched, t.gateTurnpikeExpress))}</p>
+      {result.widerRoutes.length > 0 && <p className="muted small">{w.widerIncluded(routeList(result.widerRoutes, t.gateTurnpikeExpress))}</p>}
       {loaded.state === 'ready' && loaded.savedAt !== undefined && <p className="muted small">{w.savedCopy(clock(loaded.savedAt))}</p>}
       {missing && (soon.length > 0 || result.nearHome.length > 0 || result.transfers.length > 0) && <p className="muted small">{missing}</p>}
       <p className="muted small">{result.limitations.includes('no_walking_or_transfers') ? r.noWalking : w.walkNote}</p>
