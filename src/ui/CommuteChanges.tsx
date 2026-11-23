@@ -1,11 +1,10 @@
 import { routeLabel } from '../domain/routeDisplay';
 import { useId, useRef, useState } from 'react';
 import type { CommuteChange, ChangedDeparture } from '../domain/commuteChanges';
-import type { Favorite } from '../domain/favorites';
+import { favoriteLeg, type Favorite } from '../domain/favorites';
 import { addDays, formatTime12, localYmd } from '../domain/time';
 import type { Lang, Strings } from './i18n';
 import type { Dataset } from '../domain/types';
-import { returnLeg } from '../domain/direction';
 import { briefingSelectionKnown, type BriefingSelection } from '../domain/commuteBriefing';
 import { briefingDate, CommuteBriefing, SourceClock } from './CommuteBriefing';
 
@@ -39,7 +38,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
       </aside>
       {favorites.map(favorite => {
         const reversed = reversedIds.has(favorite.id);
-        const leg = reversed ? returnLeg(ds, favorite.fromStopId, favorite.toStopId, favorite.routeIds) : favorite;
+        const leg = favoriteLeg(ds, favorite, reversed);
         return <article className="card briefing-commute" key={favorite.id}>
           <h3>{favorite.label} · {reversed ? messages.back : messages.out}</h3>
           <CommuteBriefing ds={ds} selection={leg ? { ...leg, routeIds: favorite.routeIds, date } : undefined}
@@ -70,7 +69,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
           <h4>{b.beforeSource}</h4><SourceClock source={notice.sources?.before} now={now} t={t} lang={lang} tz={tz} />
         </details>
         {favorite && directions.map(direction => {
-          const leg = direction === 'out' ? favorite : returnLeg(ds, favorite.fromStopId, favorite.toStopId, favorite.routeIds);
+          const leg = favoriteLeg(ds, favorite, direction === 'back');
           return leg && briefingSelectionKnown(ds, { ...leg, routeIds: favorite.routeIds }) && <button key={direction} type="button" onClick={() => onTimetable({ ...leg, routeIds: favorite.routeIds, date: notice.date && notice.date >= today ? notice.date : date })}>
             {b.timetable} · {direction === 'out' ? messages.out : messages.back}
           </button>;

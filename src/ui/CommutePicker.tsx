@@ -1,11 +1,27 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { cityBoardingStops, cityDestinationStops, cityStopGroups, stopCity } from '../domain/cityStops';
+import { useEffect, useId, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { changeFavoriteStops, cityBoardingStops, cityDestinationStops, cityStopGroups, stopCity } from '../domain/cityStops';
 import { checkDirection } from '../domain/direction';
+import { favoriteLeg, type Favorite } from '../domain/favorites';
 import type { Dataset, Stop } from '../domain/types';
 import type { Lang, Strings } from './i18n';
 import { StopChoice } from './StopChoice';
 
 export type CommutePickEnd = 'from' | 'to';
+/** Bind the stop picker to a saved favorite so all reselection entry points share its save rules. */
+export function FavoriteCommutePicker({ favorite, reversed, onSaved, ...props }: Omit<ComponentProps<typeof CommutePicker>, 'initialFrom' | 'initialTo' | 'routeIds' | 'onSave'> & {
+  favorite: Favorite; reversed: boolean; onSaved: (favorite: Favorite, reversed: boolean) => void;
+}) {
+  // Swapped forward stops are only a draft seed, never a claimed return service.
+  const leg = favoriteLeg(props.ds, favorite, reversed) ?? { fromStopId: favorite.toStopId, toStopId: favorite.fromStopId };
+  return <CommutePicker {...props} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds}
+    onSave={(from, to) => {
+      const updated = changeFavoriteStops(props.ds, favorite, from, to, reversed);
+      if (!updated) return false;
+      onSaved(updated, reversed && !!updated.returnStops);
+      return true;
+    }} />;
+}
+
 const folded = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 /** A local draft: cities first, then source-qualified stops; only Save commits the new pair. */
 export function CommutePicker({ ds, t, lang, initialFrom, initialTo, routeIds, end, level, onSave, onCancel }: {

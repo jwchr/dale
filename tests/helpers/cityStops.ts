@@ -15,3 +15,16 @@ export function cityDataset() {
   ds.trips.push({ ...trip, id: 'return-trip', patternId: 'return', times: [30000, 32400, 33000], arrivals: [30000, 32400, 33000] });
   return ds;
 }
+
+// The available return ends outside the home stop's twin/nearby set. Only an
+// explicit rider choice can save this alternative without inventing a way home.
+export function missingReturnDataset() {
+  const ds = cityDataset();
+  const pattern = ds.patterns.find(p => p.id === 'return')!;
+  pattern.stopIds = ['3', '1'];
+  // The copied three-stop pattern's sequences must match this two-stop fixture.
+  pattern.stopSequences = [1, 2];
+  const trip = ds.trips.find(t => t.id === 'return-trip')!;
+  trip.times = [30000, 33000]; trip.arrivals = [30000, 33000];
+  return ds;
+}

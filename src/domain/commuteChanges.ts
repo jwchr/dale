@@ -1,6 +1,5 @@
-import { returnLeg } from './direction';
 import { boardIndex, dropIndex } from './place';
-import type { Favorite } from './favorites';
+import { favoriteLeg, type Favorite } from './favorites';
 import { departuresOn, tripArrivalAt } from './schedule';
 import { addDays, localYmd } from './time';
 import type { Dataset } from './types';
@@ -36,7 +35,8 @@ export interface CommuteChangeState {
 }
 
 export const officialSchedule = (ds: Dataset) => !ds.meta.demo && !ds.meta.transcribed && ds.meta.realtime?.provider === 'njt-bus-g2';
-export const favoriteKey = (f: Favorite) => JSON.stringify([f.id, f.fromStopId, f.toStopId, [...f.routeIds].sort()]);
+export const favoriteKey = (f: Favorite) => JSON.stringify([f.id, f.fromStopId, f.toStopId, [...f.routeIds].sort(),
+  ...(f.returnStops ? [[f.returnStops.fromStopId, f.returnStops.toStopId]] : [])]);
 
 function coverage(ds: Dataset) {
   const used = new Set(ds.trips.map(t => t.serviceId));
@@ -47,9 +47,9 @@ function coverage(ds: Dataset) {
 
 /** Reuse the app's exact pickup/drop-off, return-side, after-midnight and DST rules. */
 function commuteDataset(ds: Dataset, f: Favorite) {
-  const back = returnLeg(ds, f.fromStopId, f.toStopId, f.routeIds);
+  const back = favoriteLeg(ds, f, true);
   const legs = [{ direction: 'out' as const, fromStopId: f.fromStopId, toStopId: f.toStopId },
-    ...(back ? [{ direction: 'back' as const, ...back }] : [])];
+    ...(back ? [{ direction: 'back' as const, fromStopId: back.fromStopId, toStopId: back.toStopId }] : [])];
   const patterns = ds.patterns.filter(p => (!f.routeIds.length || f.routeIds.includes(p.routeId)) && legs.some(leg => {
     const from = boardIndex(ds, p, leg.fromStopId), to = from < 0 ? -1 : dropIndex(ds, p, leg.toStopId, from + 1);
     return from >= 0 && to > from;
@@ -120,7 +120,7 @@ function removeUnchanged(a: ReturnType<typeof commuteDataset>, b: ReturnType<typ
 /** First provable changed day within both loaded schedules, not an extrapolation beyond their calendars. */
 export function compareCommute(old: Dataset, next: Dataset, favorite: Favorite, today: string): Omit<CommuteChange, 'id' | 'favoriteId' | 'favoriteKey' | 'fromVersion' | 'toVersion'> | undefined {
   if (!officialSchedule(old) || !officialSchedule(next) || old.meta.timezone !== next.meta.timezone || old.meta.feedVersion === next.meta.feedVersion) return undefined;
-  const stops = [favorite.fromStopId, favorite.toStopId];
+  const stops = [favorite.fromStopId, favorite.toStopId, ...(favorite.returnStops ? [favorite.returnStops.fromStopId, favorite.returnStops.toStopId] : [])];
   if (stops.some(id => !old.stops.some(s => s.id === id))) return undefined; // No known old selection to compare.
   if (stops.some(id => !next.stops.some(s => s.id === id)) || favorite.routeIds.some(id => old.routes.some(r => r.id === id) && !next.routes.some(r => r.id === id))) {
     return { kind: 'selection', before: [], after: [] };

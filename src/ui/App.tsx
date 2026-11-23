@@ -8,8 +8,8 @@ import { useDepartureDistances } from './useDepartureDistances';
 import { RouteDistance } from './RouteDistance';
 import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { AppHeader } from './AppHeader';
-import { changeFavoriteStops, cityBoardingStops, cityStopGroups } from '../domain/cityStops';
-import { CommutePicker, type CommutePickEnd } from './CommutePicker';
+import { cityBoardingStops, cityStopGroups } from '../domain/cityStops';
+import { FavoriteCommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
 import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
@@ -18,8 +18,8 @@ import { ArrivalResult } from './DestinationArrival';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
-import { checkDirection, destinationsFrom, hasStopLocations, returnLeg, searchStops } from '../domain/direction';
-import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
+import { checkDirection, destinationsFrom, hasStopLocations, searchStops } from '../domain/direction';
+import { addFavorite, favoriteLeg, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
@@ -526,14 +526,12 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
           onTrain={() => { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }} onFind={() => setScreen({ name: 'search' })} />}
         {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onGuide={() => setScreen({ name: 'guide' })} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
         {screen.name === 'commute' && (() => {
-          const favorite = favorites.find(f => f.id === screen.favoriteId), leg = favorite && legFor(ds, favorite, screen.reversed);
-          return favorite && leg ? <CommutePicker ds={ds} t={t} lang={settings.lang} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds} end={screen.end} level={screen.level} onCancel={back}
-            onSave={(from, to) => {
-              const updated = changeFavoriteStops(ds, favorite, from, to, screen.reversed);
-              if (!updated) return false;
+          const favorite = favorites.find(f => f.id === screen.favoriteId);
+          return favorite ? <FavoriteCommutePicker ds={ds} t={t} lang={settings.lang} favorite={favorite} reversed={screen.reversed} end={screen.end} level={screen.level} onCancel={back}
+            onSaved={(updated, reversed) => {
               setFavorites(list => list.map(f => f.id === favorite.id ? updated : f));
-              setReversedIds(ids => { const next = new Set(ids); next.delete(favorite.id); return next; });
-              setScreen({ name: 'home' }); return true;
+              setReversedIds(ids => { const next = new Set(ids); if (reversed) next.add(favorite.id); else next.delete(favorite.id); return next; });
+              setScreen({ name: 'home' });
             }} /> : <p className="warn">{t.noReturnStop}</p>;
         })()}
         {screen.name === 'timetable' && (
@@ -669,10 +667,7 @@ function arrivalAt(ds: Dataset, d: Departure, stopId: string): { at: number; est
 }
 
 function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefined {
-  if (!reversedView) return { fromStopId: f.fromStopId, toStopId: f.toStopId, routeIds: f.routeIds };
-  // Return trip: board where we got off, or across the street; get off at home or its twin.
-  const back = returnLeg(ds, f.fromStopId, f.toStopId, f.routeIds);
-  return back ? { ...back, routeIds: f.routeIds } : undefined;
+  return favoriteLeg(ds, f, reversedView);
 }
 
 function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone, onLocation }: {
