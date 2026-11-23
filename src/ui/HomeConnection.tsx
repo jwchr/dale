@@ -55,7 +55,7 @@ export function HomeConnection({ ds, t, lang, now, dep, toStopId, gps, onDetails
   // The same freshness limits as fixPosition: an old fix leaves both maps until the phone sends a new one.
   const fresh = phone && now - phone.at <= FIX_MAX_AGE_MS && phone.at <= now + 60_000 ? phone : undefined;
   const you = fresh ? fixPosition(stops, 0, fresh, now) : undefined;
-  const route = routeLabel(dep.route.shortName);
+  const route = routeLabel(dep.route.shortName, t.gateTurnpikeExpress);
 
   // The street map reuses the waiting map's pieces: official GPS, or the same straight-line timetable estimate.
   const mapStops: MapStop[] = useMemo(() => stops.flatMap((s, i) => s?.lat !== undefined && s.lon !== undefined

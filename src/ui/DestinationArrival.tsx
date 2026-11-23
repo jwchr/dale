@@ -8,7 +8,7 @@ import type { Strings, Lang } from './i18n';
 export function ArrivalResult({ value, t, lang, tz }: { value: Arrival; t: Strings; lang: Lang; tz: string }) {
   const a = t.arrival, clock = (at: number) => formatTime12(at, tz, lang);
   return <>
-    <p><strong>{routeLabel(value.route)} · {value.destination}</strong></p>
+    <p><strong>{routeLabel(value.route, t.gateTurnpikeExpress)} · {value.destination}</strong></p>
     <p className="small">{new Intl.DateTimeFormat(lang, { timeZone: tz, dateStyle: 'medium' }).format(value.at)}</p>
     <dl className="arrival-times"><div><dt>{a.scheduled}</dt><dd>{value.scheduledAt === undefined ? a.scheduleUnknown : clock(value.scheduledAt)}</dd></div>
       <div><dt>{value.source === 'rider' ? a.rider : a.official}</dt><dd>{clock(value.at)}</dd></div></dl>

@@ -1,4 +1,4 @@
-import { routeNumber, routeLabel, routeHeadsign } from '../domain/routeDisplay';
+import { routeNumber, routeLabel, routeHeadsign, isTurnpikeExpress } from '../domain/routeDisplay';
 import { BilingualButtons, ButtonLabel } from './BilingualButtons';
 import { HomePhotoProvider, HomePhotoSettings } from './HomePhoto';
 import { chooseOpeningSlogan } from '../domain/openingSlogan';
@@ -476,7 +476,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
       <main>
         {((screen.name === 'home' && !favorites.length) || (screen.name === 'penn' && screen.railOnly)) && toolbar}
         {resumable && !activeLock && <aside className="lock-return" role="note">
-          <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), routeLabel(resumable.dep.route.shortName), stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
+          <p>{t.busLock.resumePrompt(formatTime12(resumable.dep.departs, tz, settings.lang), routeLabel(resumable.dep.route.shortName, t.gateTurnpikeExpress), stopName(resumable.dep.pattern.stopIds[resumable.dep.stopIndex]!))}</p>
           <div className="row-between">
             <button className="primary" onClick={() => { setActiveLock({ dep: resumable.dep, leg: resumable.leg, session: resumable.session }); setScreen({ name: 'departure', dep: resumable.dep, leg: resumable.leg }); setResumable(undefined); }}>{t.busLock.resumeYes}</button>
             <button onClick={() => { forgetLock(store); setResumable(undefined); }}>{t.busLock.resumeNo}</button>
@@ -484,7 +484,7 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
         </aside>}
         {activeLock && !lockOnScreen && <aside className="lock-return">
           <button className="primary wide" onClick={() => setScreen({ name: 'departure', dep: activeLock.dep, leg: activeLock.leg })}>
-            {t.busLock.resume} · {routeLabel(activeLock.dep.route.shortName)} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
+            {t.busLock.resume} · {routeLabel(activeLock.dep.route.shortName, t.gateTurnpikeExpress)} · {formatTime12(activeLock.dep.departs, tz, settings.lang)}
           </button>
         </aside>}
         {liveBus && activeLock && lockOnScreen && <LiveBusStatus ds={ds} state={liveBus.state} hasStopChanges={!!activeLock.session.stopChanges?.indices.length} skippedKnown={activeLock.session.stopChanges?.indices.includes(activeLock.dep.stopIndex)} lockStatus={activeLock.session.lock.status} lockVehicleId={activeLock.session.lock.vehicleId} snapshot={liveBus.snapshot} dep={activeLock.dep} now={lockNow} t={t} lang={settings.lang} tz={tz} />}
@@ -789,7 +789,7 @@ interface DashboardParts { onLocation?: (() => void) | undefined; gps: (d: Depar
 function boardDestination(ds: Dataset, d: Departure, t: Strings): { main: string; sub?: string } {
   const last = ds.stops.find(s => s.id === d.pattern.stopIds[d.pattern.stopIds.length - 1]);
   const toPabt = last?.terminal === 'PABT';
-  const sign = routeHeadsign(d.pattern.headsign, d.route.shortName);
+  const sign = routeHeadsign(d.pattern.headsign, d.route.shortName, t.gateTurnpikeExpress);
   const prefix = routeNumber(d.route.shortName).toLowerCase() + ' ';
   const head = (sign.toLowerCase().startsWith(prefix) ? sign.slice(prefix.length) : sign).trim();
   const main = head || (toPabt ? t.commuteNewYork : stopLabel(last?.name ?? '').town);
@@ -869,7 +869,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <span className="dep-right"><span className="dep-min">{live?.kind === 'cancelled' ? t.live.rows.cancelledShort : shown < now && live ? t.live.rows.timePassed : t.busCountdown(minutesUntil(now, shown))}</span></span>
         </span>
         <span className="dep-main">
-          {d.route.shortName === '165T' && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName)}</span>}
+          {isTurnpikeExpress(d.route.shortName, d.pattern.headsign) && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName, t.gateTurnpikeExpress)}</span>}
           <DepartureTimes evidence={live ?? { kind: 'unavailable' }} boarding={d.departs} boardingEstimated={d.estimated} arrival={arr} destination={arrivalPlace} t={t}
             time={(at, estimated) => <><TimeText ctx={ctx} at={at} estimated={estimated} />{localYmd(at, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(at, ctx.tz), ctx.lang)}</span>}</>} />
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
@@ -951,14 +951,14 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
     : plan && <LeaveBy ctx={ctx} plan={plan} options={ahead} onEdit={() => setPlanning(true)} editRef={planButton} />);
   const extras = <>
   {express && <p className="next-express" data-testid="next-express">
-    <span>{t.nextExpress}</span><span className="express-mini">165</span><span>Turnpike Exp</span>
+    <span>{t.nextExpress}</span><span className="express-mini">165</span><span>{t.gateTurnpikeExpress}</span>
     <span><TimeText ctx={ctx} at={express.departs} estimated={express.estimated} />
       {localYmd(express.departs, ctx.tz) !== localYmd(now, ctx.tz) && <> · {new Intl.DateTimeFormat(ctx.lang, { timeZone: ctx.tz, month: 'short', day: 'numeric' }).format(express.departs)}</>}
       {' · '}{t.inMin(minutesUntil(now, express.departs))}{' · '}{t.scheduledOnly}
     </span>
   </p>}
   {soonest && rows[soonest.index] && <p className="small leave-why">{t.leave.arrivesFirstWhy(
-    routeLabel(rows[soonest.index]!.d.route.shortName),
+    routeLabel(rows[soonest.index]!.d.route.shortName, t.gateTurnpikeExpress),
     `${rows[soonest.index]!.d.estimated ? '~' : ''}${formatTime12(rows[soonest.index]!.d.departs, ctx.tz, ctx.lang)}`, soonest.laterMin, soonest.earlierMin, soonest.estimated)}</p>}
   {anyEstimated && <p className="muted small">{t.estimatedNote}</p>}
   </>;
@@ -1091,7 +1091,7 @@ function RoutesStop({ ctx, fav, reversed, count, onReverse, onChangeStop, onDepa
   const leg: Leg = { fromStopId: saved.fromStopId, toStopId: saved.toStopId, routeIds: shownRoutes };
   const deps = upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: shownRoutes }, now, count).ahead.slice(0, count);
   const next = deps[0];
-  const routeName = (id: string) => routeLabel(ds.routes.find(x => x.id === id)?.shortName ?? id);
+  const routeName = (id: string) => routeLabel(ds.routes.find(x => x.id === id)?.shortName ?? id, t.gateTurnpikeExpress);
   return <>
     {directions}
     <section className="dash-panel routes-stop" aria-labelledby="routes-stop-title">
@@ -1146,7 +1146,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
     if (!leg || !key || seen.has(key) || ds.stops.find(s => s.id === leg.fromStopId)?.terminal !== 'PABT') return [];
     seen.add(key);
     // Two saved trips between the same stops with different buses get their own lists, named by their routes.
-    const routes = leg.routeIds.map(id => routeLabel(ds.routes.find(r => r.id === id)?.shortName ?? id)).join(', ');
+    const routes = leg.routeIds.map(id => routeLabel(ds.routes.find(r => r.id === id)?.shortName ?? id, t.gateTurnpikeExpress)).join(', ');
     return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}${routes ? ` (${routes})` : ''}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
   }));
   const anyGate = legs.some(l => l.deps.some(dep => { const g = departureGate(ds, dep); return !!g && g.status !== 'unknown'; }));
@@ -1161,7 +1161,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
       {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
-          <span><span className="gate-service">{dep.route.shortName === '165T' ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
+          <span><span className="gate-service">{isTurnpikeExpress(dep.route.shortName, dep.pattern.headsign) ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
           <ArrowRight />
         </button>
       </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}
@@ -1263,14 +1263,15 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
   }, [city, stop, nearMe]);
   const destinations = useMemo(() => stop ? destinationsFrom(ds, stop.id) : [], [ds, stop]);
   const groups = useMemo(() => destinationGroups(ds, stop?.id ?? '', destinations), [ds, stop, destinations]);
-  const info = stop && boardingInfo(ds, stop.id), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
+  const info = stop && boardingInfo(ds, stop.id, t.gateTurnpikeExpress), check = stop && dest ? checkDirection(ds, stop.id, dest) : undefined;
   const pick = (s: Stop) => { setStop(s); setSaveError(false); };
   // Keep NearMe mounted for this search visit, including during stop selection. Hiding a view must
   // not consume another shortcut tap, discard nearby results or take focus away from the search input.
+  const nearMeVisible = !stop && !q && city === undefined;
   const search = <section className="find-stop-towns" hidden={!!stop}>
     <h1 ref={heading} tabIndex={-1}>{city === undefined ? t.findStop : <>{t.findStop}: <SignText text={cityLabel(city)} /></>}</h1>
     {city !== undefined && <button type="button" className="link" onClick={() => { setCity(undefined); setQ(''); }}>{t.cityPicker.changeCity}</button>}
-    {nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} autoAsk /></div>}
+    {nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} visible={nearMeVisible} autoAsk /></div>}
     <search aria-label={t.findStop}>
       <label htmlFor="stop-search">{city === undefined ? t.findStop : t.cityPicker.searchStop}</label>
       <input id="stop-search" name="stop-search" className="search" type="search" value={q} placeholder={t.searchPlaceholder} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" onChange={e => setQ(e.currentTarget.value)} />
@@ -1282,7 +1283,7 @@ function Search({ ctx, onSave, nearMe }: { ctx: Ctx; onSave: (f: Favorite) => vo
       </ul></>}
       {q && !results.length && !visibleTowns.length && <p className="muted" role="status">{t.noResults}</p>}
     </search>
-    {!nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} /></div>}
+    {!nearMe && <div hidden={!!q || city !== undefined}><NearMe ds={ds} t={t} onPick={pick} visible={nearMeVisible} /></div>}
   </section>;
   if (!stop) return <>{search}</>;
   const destination = (s: Stop) => <button key={s.id} type="button" className="chip destination-choice" aria-pressed={dest === s.id} onClick={() => { setDest(s.id); setSaveError(false); }}>
@@ -1353,7 +1354,7 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
           {rows.map(({ d, arr }) => (
             <tr key={d.tripInstanceId} className={d.departs < now ? 'past' : ''}>
               <td className="tt-time"><button className="link-cell" onClick={() => onDeparture(d)}><TimeText ctx={ctx} at={d.departs} estimated={d.estimated} /></button></td>
-              <td><RouteBadge ds={ds} routeId={d.route.id} />{d.route.shortName === '165T' && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName)}</span>}</td>
+              <td><RouteBadge ds={ds} routeId={d.route.id} />{isTurnpikeExpress(d.route.shortName, d.pattern.headsign) && <span className="dep-sub">{routeHeadsign(d.pattern.headsign, d.route.shortName, t.gateTurnpikeExpress)}</span>}</td>
               <td>{arr ? <TimeText ctx={ctx} at={arr.at} estimated={arr.estimated} /> : ''}</td>
             </tr>
           ))}
@@ -1415,9 +1416,9 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   return (
     <section>
       {/* A printed timetable gives no sign text, so a transcribed dataset's headsign is Dale's own route-and-destination label, not what the sign reads. */}
-      <div className="sign" aria-label={`${ds.meta.transcribed ? t.routeAndDirection : t.checkSign}: ${routeHeadsign(dep.pattern.headsign, dep.route.shortName)}`}>
+      <div className="sign" aria-label={`${ds.meta.transcribed ? t.routeAndDirection : t.checkSign}: ${routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}`}>
         <span className="sign-label">{ds.meta.transcribed ? t.routeAndDirection : t.checkSign}</span>
-        <span className="sign-led">{routeHeadsign(dep.pattern.headsign, dep.route.shortName)}</span>
+        <span className="sign-led">{routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</span>
       </div>
       {dep.pattern.variant && t.variantNotes[dep.pattern.variant] && <p className="muted small">{t.variantNotes[dep.pattern.variant]}</p>}
       {boardStop?.noteId && t.stopNotes[boardStop.noteId] && <p className="muted small" role="note">{t.stopNotes[boardStop.noteId]}</p>}

@@ -96,20 +96,25 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.getByRole('note')).toBeFocused();
     await page.locator('#stop-search').fill('Broad');
     await render(page, { lang, hasLocations: true, hidden });
-    await requests(page, 1);
+    await requests(page, hidden ? 0 : 1);
     await expect(page.locator('#stop-search')).toBeFocused();
+    await render(page, { lang, hasLocations: true, hidden });
+    await requests(page, hidden ? 0 : 2); // Hidden dataset refreshes must not ask either.
     await page.locator('#stop-search').clear();
-    await render(page, { lang, hasLocations: true });
+    await render(page, { lang, hasLocations: true, refresh: false });
     await expect(page.locator('#stop-search')).toBeFocused();
-    await requests(page, 2); // Still pending: this second dataset update retries, without taking focus.
+    await requests(page, hidden ? 1 : 2); // Showing the same dataset consumes the shortcut once.
   });
 
   test(`late stop coordinates do not focus a hidden nearby view (${lang})`, async ({ page }) => {
     await open(page, { lang, hasLocations: false });
     await expect(page.getByRole('note')).toBeFocused();
     await render(page, { lang, hasLocations: true, hidden: true });
-    await requests(page, 1);
+    await requests(page, 0);
     await expect(page.locator('.near-me h2')).not.toBeFocused();
     await expect(page.locator('.near-me')).toBeHidden();
+    await render(page, { lang, hasLocations: true, refresh: false });
+    await expect(page.locator('.near-me')).toBeVisible();
+    await requests(page, 1);
   });
 }
