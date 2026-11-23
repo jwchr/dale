@@ -283,7 +283,7 @@ it('returns only the latest five exact scheduled trips', () => {
   expect(answer.items.map(i => i.stop.scheduledAt)).toEqual([5, 4, 3, 2, 1].map(i => at('07:00') + i * 60_000));
 });
 
-it('refuses storage and trip-count limits before reserving writes or moving the checkpoint', () => {
+it('refuses unsafe storage but advances an oversized trip page with an explicit gap', () => {
   const h = harness(); let reserves = 0;
   h.insert(at('07:03'), [sample(0, '07:03')]); h.insert(at('07:43'), [sample(2, '07:43')]);
   h.databaseSize(450_000_000);
@@ -301,6 +301,45 @@ it('refuses storage and trip-count limits before reserving writes or moving the 
   }
   let beyondLimitReserves = 0;
   full.projection.fold(now, () => { beyondLimitReserves++; return true; });
-  expect(beyondLimitReserves).toBe(0);
-  expect(full.projection.answer(query, now)).toBeUndefined();
+  expect(beyondLimitReserves).toBe(1);
+  expect(full.projection.answer(query, now)).toMatchObject({ gap: true, through: at('07:03') + 2000, items: [] });
+  const saved = JSON.parse(String(full.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body));
+  expect(saved.checkpoint).toBe(at('07:03') + 2000);
+  expect(Object.keys(saved.trips).length).toBeLessThanOrEqual(2000);
+  full.insert(at('07:43'), [], 'ctx');
+  new EarlierBuses(full.storage, data, 'ctx').fold(now + 300000, () => true);
+  expect(full.projection.answer(query, now + 300000)).toMatchObject({ gap: true, through: at('07:43') });
+});
+
+
+it('omits an oversized byte page atomically, retains prior evidence, then continues replay after restart', () => {
+  const data = structuredClone(ds), trip = data.trips.find(t => t.id === 'T1')!;
+  const pattern = data.patterns.find(p => p.id === trip.patternId)!;
+  pattern.stopIds.push(...Array.from({ length: 15000 }, () => '1'));
+  const h = harness(data);
+  h.insert(at('07:03'), [sample(0, '07:03')]);
+  h.projection.fold(now, () => true);
+  const before = String(h.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body);
+  h.insert(at('07:04'), [], 'ctx', { tripChanges: [{ tripInstanceId: 'T1@20261104', observedAt: at('07:04'),
+    predictions: pattern.stopIds.map((_, stopIndex) => ({ stopIndex, at: at('07:45'), observedAt: at('07:04'), kind: 'arrival' })) }] });
+  h.projection.fold(now + 300000, () => false);
+  expect(h.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body).toBe(before);
+  h.crash(true); new EarlierBuses(h.storage, data, 'ctx').fold(now + 300000, () => true);
+  expect(h.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body).toBe(before);
+  h.crash(false); new EarlierBuses(h.storage, data, 'ctx').fold(now + 300000, () => true);
+  const row = String(h.db.prepare('SELECT body FROM dale_earlier_buses').get()!.body), saved = JSON.parse(row);
+  expect(saved).toMatchObject({ checkpoint: at('07:04'), through: at('07:04'), gap: true });
+  expect(saved.trips).toEqual(JSON.parse(before).trips);
+  expect(Buffer.byteLength(row)).toBeLessThanOrEqual(1000000);
+  h.insert(at('07:43'), [sample(2, '07:43')]);
+  new EarlierBuses(h.storage, data, 'ctx').fold(now + 600000, () => true);
+  expect(h.projection.answer(query, now + 600000)).toMatchObject({ gap: true, through: at('07:43'),
+    items: [{ stop: { evidence: { at: at('07:03') } } }] });
+});
+
+it.each([NaN, -1, 450000000])('refuses unsafe database size %s without checkpoint or reservation', size => {
+  const h = harness(); h.insert(at('07:03'), []); h.databaseSize(size);
+  let reserves = 0; h.projection.fold(now, () => { reserves++; return true; });
+  expect(reserves).toBe(0);
+  expect(h.db.prepare('SELECT body FROM dale_earlier_buses').get()).toBeUndefined();
 });

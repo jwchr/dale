@@ -257,3 +257,33 @@ it('marks legacy overflow attribution unknown instead of claiming a complete zer
  const batch=JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_batches WHERE attempt=?').get(attempt)!.body));
  expect(batch.quality.collectorInterruptions.windowAttribution).toMatchObject({count:0,unknownDetails:10});
 });
+
+it('omits oversized optional predictions while preserving GPS, context, watermarks and the payload limit', () => {
+  const h = harness(), journal = new HistoryJournal(h.storage, ds, ds.meta.feedVersion, true);
+  journal.setEnabled(true, NOW);
+  const updates = { feed: { state: 'ok' as const, timestamp: NOW }, observations: [], updates: [{
+    tripInstanceId: 'T1@20261104', observedAt: NOW, cancelled: false, skippedStops: [1],
+    predictions: Array.from({ length: 2000 }, () => ({ stopIndex: 2, at: NOW + 60000, observedAt: NOW, kind: 'arrival' as const })),
+  }] };
+  journal.complete(journal.beginAttempt(NOW)!, feed(), NOW, updates);
+  const row = h.db.prepare('SELECT body,bytes FROM dale_history_batches').get()!;
+  const body = JSON.parse(String(row.body));
+  expect(body.records).toHaveLength(1);
+  expect(body.omissionReason).toBe('predictions-payload-limit');
+  expect(body.tripChanges).toEqual([{ tripInstanceId: 'T1@20261104', observedAt: NOW, cancelled: false, skippedStops: [1] }]);
+  expect(Buffer.byteLength(String(row.body))).toBeLessThanOrEqual(128000);
+  expect(row.bytes).toBe(Buffer.byteLength(String(row.body)));
+  expect(journal.status(NOW)).toMatchObject({ observations: 1, reason: 'collecting' });
+  journal.complete(journal.beginAttempt(NOW + 30000)!, feed(), NOW + 30000);
+  expect(journal.status(NOW + 30000)).toMatchObject({ observations: 1, duplicates: 1 });
+});
+
+it('still applies the payload fallback when GPS cannot fit without optional predictions', () => {
+  const h = harness(), journal = new HistoryJournal(h.storage, ds, ds.meta.feedVersion, true), many = feed();
+  many.observations = Array.from({ length: 500 }, (_, i) => ({ ...many.observations[0]!, vehicleId: `synthetic-${i}` }));
+  journal.setEnabled(true, NOW); journal.complete(journal.beginAttempt(NOW)!, many, NOW);
+  const row = h.db.prepare('SELECT body,bytes FROM dale_history_batches').get()!;
+  expect(JSON.parse(String(row.body))).toMatchObject({ records: [], omissionReason: 'payload-limit' });
+  expect(row.bytes).toBeLessThanOrEqual(128000);
+  expect(journal.status(NOW)).toMatchObject({ observations: 0, reason: 'payload-limit' });
+});

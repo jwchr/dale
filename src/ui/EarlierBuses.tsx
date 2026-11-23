@@ -3,6 +3,7 @@ import { loadEarlierBuses } from '../data/earlierBuses';
 import { parseEarlierQuery, type EarlierAnswer, type EarlierBus, type EarlierTime } from '../domain/earlierBuses';
 import { formatTime12, localYmd } from '../domain/time';
 import { routeLabel } from '../domain/routeDisplay';
+import { samePlace } from '../domain/place';
 import type { Dataset } from '../domain/types';
 import { strings, type Lang } from './i18n';
 
@@ -14,7 +15,7 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
     return ds.patterns.flatMap(p => {
       const index = p.stopIds.indexOf(stop);
       if ((routes.size > 0 && !routes.has(p.routeId)) || index < 0 || (direction !== undefined && p.directionId !== direction)
-        || (toStop && !p.stopIds.some((id, i) => id === toStop && i > index))) return [];
+        || (toStop && !p.stopIds.some((id, i) => samePlace(ds, id, toStop) && i > index))) return [];
       const route = ds.routes.find(r => r.id === p.routeId)?.shortName;
       const key = `${route}|${p.directionId}`;
       if (!route || seen.has(key)) return [];
@@ -64,7 +65,9 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
  */
 export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds: Dataset; lang: Lang; now: number }) {
   const s = strings[lang].earlierBuses;
-  const clock = (at: number) => formatTime12(at, ds.meta.timezone, lang);
+  const today = localYmd(now, ds.meta.timezone);
+  const clock = (at: number) => localYmd(at, ds.meta.timezone) === today ? formatTime12(at, ds.meta.timezone, lang)
+    : new Intl.DateTimeFormat(lang === 'es' ? 'es-US' : 'en-US', { timeZone: ds.meta.timezone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).format(at);
   const age = (at: number) => s.age(Math.max(0, Math.floor((now - at) / 60_000)));
   const scheduleAge = Date.parse(ds.meta.builtAt);
   function evidence(t: EarlierTime) {

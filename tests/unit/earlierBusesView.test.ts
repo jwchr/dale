@@ -42,3 +42,21 @@ for (const lang of ['en', 'es'] as const) {
     for (const q of queries) expect(html).toContain(`${routeLabel(q.route)} · ${strings[lang].earlierBuses.unavailable}`);
   });
 }
+
+for (const lang of ['en', 'es'] as const) {
+  for (const placement of ['after', 'before', 'unrelated'] as const) {
+    it(`matches equivalent destinations only after the origin: ${placement} (${lang})`, () => {
+      const data = structuredClone(ds);
+      data.stops.find(s => s.id === '3')!.terminal = 'PABT';
+      data.stops.push({ id: 'other-pabt', name: 'Synthetic terminal', terminal: 'PABT' });
+      for (const p of data.patterns) p.stopIds = placement === 'after' ? ['1', '2', '3']
+        : placement === 'before' ? ['3', '1', '2'] : ['1', '2'];
+      vi.mocked(useState).mockReturnValue([{ key: `${today}|${JSON.stringify(placement === 'after' ? queries : [])}`, answers: queries.map(q => answer(q)) }, vi.fn()]);
+      const html = renderToStaticMarkup(createElement(EarlierBuses, {
+        ds: data, stop: '1', routeIds: data.routes.map(r => r.id), toStop: 'other-pabt', direction: 0, lang, now: NOW,
+      }));
+      expect(html.includes(strings[lang].earlierBuses.empty)).toBe(placement === 'after');
+      expect(html.includes(strings[lang].earlierBuses.unavailable)).toBe(placement !== 'after');
+    });
+  }
+}

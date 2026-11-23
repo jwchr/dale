@@ -215,6 +215,11 @@ export class HistoryJournal {
         observedAt: p.observedAt, qualification: p.qualification }));
       state.reason = selected.feedUsable ? 'collecting' : 'feed-gap';
       let body = JSON.stringify({ v: 1, feedVersion: this.feedVersion, contextKey: this.contextKey, receivedAt, quality, census, tripChanges, records });
+      if (this.keepPredictions && new TextEncoder().encode(body).byteLength > MAX_BATCH_BYTES) {
+        const withoutPredictions = tripChanges.map(({ predictions: _predictions, ...change }) => change);
+        body = JSON.stringify({ v: 1, feedVersion: this.feedVersion, contextKey: this.contextKey, receivedAt, quality, census,
+          tripChanges: withoutPredictions, omissionReason: 'predictions-payload-limit', records });
+      }
       if (new TextEncoder().encode(body).byteLength > MAX_BATCH_BYTES
         || new TextEncoder().encode(JSON.stringify(selected.watermarks)).byteLength > 256_000) {
         state.reason = 'payload-limit'; records = [];
@@ -260,9 +265,16 @@ export class HistoryJournal {
   /** Optional derived work (arrival confidence, #91) may use only the spare margin: the rest of today's normal
    * collection/archive/prune reservations stay reserved, plus `keep` units left for other optional work. */
   reserveSpareWrites(units: number, now: number, keep = 0): boolean {
+    return this.reserveOptionalWrites(units, now, keep, true);
+  }
+  /** Owner reads charge the same spare budget even while collection is paused; never enable it. */
+  reserveReadWrites(units: number, now: number, keep = 0): boolean {
+    return this.reserveOptionalWrites(units, now, keep, false);
+  }
+  private reserveOptionalWrites(units: number, now: number, keep: number, requireEnabled: boolean): boolean {
     return this.storage.transactionSync(() => {
       const state = this.read(now);
-      if (!state.enabled || !Number.isSafeInteger(units) || units < 1 || !Number.isSafeInteger(keep) || keep < 0) return false;
+      if ((requireEnabled && !state.enabled) || !Number.isSafeInteger(units) || units < 1 || !Number.isSafeInteger(keep) || keep < 0) return false;
       if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
       const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
       const normal = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;

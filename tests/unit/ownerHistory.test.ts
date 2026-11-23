@@ -204,3 +204,39 @@ it.each(['classA', 'classB', 'missing-ledger'])('charges no spare writes or R2 o
     class_a: reason === 'classA' ? A_LIMIT / 2 : 0, class_b: reason === 'classB' ? B_LIMIT / 2 : 0,
   });
 });
+
+it.each(['list', 'object'] as const)('serves owner archive %s reads while paused, with shared quotas and no collection side effects', async kind => {
+  const { db, storage } = harness();
+  const journal = new HistoryJournal(storage, ds, 'ctx');
+  journal.setEnabled(true, NOW); journal.setEnabled(false, NOW);
+  const raw = new TextEncoder().encode(JSON.stringify(batch));
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map(n => n.toString(16).padStart(2, '0')).join('');
+  const key = `v1/2026-11-04/batches/${NOW}-${hash}.json.gz`;
+  const bytes = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  let archiveReads = 0, network = 0, alarms = 0;
+  const bucket = {
+    get: async () => { archiveReads++; return { size: bytes.byteLength, arrayBuffer: async () => bytes }; },
+    list: async () => { archiveReads++; return { objects: [{ key, size: bytes.byteLength }], truncated: false }; },
+  };
+  storage.setAlarm = async () => { alarms++; };
+  const Feed = createFeedClass(ds, async () => { network++; throw Error('must not poll'); }, () => NOW);
+  const secret = randomUUID();
+  const object = new Feed({ storage, blockConcurrencyWhile: async <T,>(cb: () => Promise<T>) => cb() },
+    { OWNER_HISTORY_SECRET: secret, HISTORY_ARCHIVE: bucket, HISTORY_COLLECTION: 'disabled' } as never);
+  const q = kind === 'list' ? '?day=2026-11-04' : `?key=${key}`;
+  const before = journal.status(NOW);
+  const response = await object.fetch(request(secret, q));
+  expect(response.status).toBe(200);
+  expect(archiveReads).toBe(1);
+  expect(journal.status(NOW)).toMatchObject({ enabled: false, reason: 'disabled', batches: 0, observations: 0,
+    reservedWrites: before.reservedWrites + 2 });
+  expect(journal.beginAttempt(NOW)).toBeUndefined();
+  expect(journal.reserveSpareWrites(1, NOW)).toBe(false);
+  expect([network, alarms]).toEqual([0, 0]);
+  const state = JSON.parse(String(db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+  state.reservedWrites = 75000;
+  db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+  expect((await object.fetch(request(secret, q))).status).toBe(503);
+  expect(archiveReads).toBe(1);
+  expect(db.prepare('SELECT class_a,class_b FROM dale_archive_days').get()).toEqual({ class_a: kind === 'list' ? 1 : 0, class_b: kind === 'object' ? 1 : 0 });
+});

@@ -42,6 +42,7 @@ export class EarlierBuses {
         coverageStart: Number(oldest), through: Number(oldest), gap: false, trips: {} };
       const rows = this.storage.sql.exec('SELECT attempt,context_key,body FROM dale_history_batches WHERE attempt>? ORDER BY attempt LIMIT ?', next.checkpoint, EARLIER_BATCHES).toArray();
       if (!rows.length) return;
+      const previousTrips = structuredClone(next.trips);
       for (const row of rows) {
         const attempt = Number(row.attempt);
         if (attempt > now) return;
@@ -57,9 +58,16 @@ export class EarlierBuses {
         else next.gap = true;
         next.checkpoint = attempt; next.through = attempt;
       }
-      const body = JSON.stringify(next), size = this.storage.sql.databaseSize;
+      let body = JSON.stringify(next);
+      if (new TextEncoder().encode(body).byteLength > EARLIER_MAX_BYTES || Object.keys(next.trips).length > EARLIER_MAX_TRIPS) {
+        // Omit this page's derived evidence explicitly, preserving the prior bounded evidence.
+        // The checkpoint must pass the page so later polls can still be folded.
+        next.trips = previousTrips; next.gap = true;
+        body = JSON.stringify(next);
+      }
+      const size = this.storage.sql.databaseSize;
       if (new TextEncoder().encode(body).byteLength > EARLIER_MAX_BYTES || Object.keys(next.trips).length > EARLIER_MAX_TRIPS
-        || !Number.isSafeInteger(size) || size >= 450_000_000 || !reserve(2, now)) return;
+        || !Number.isSafeInteger(size) || size < 0 || size >= 450_000_000 || !reserve(2, now)) return;
       this.storage.transactionSync(() => this.storage.sql.exec('INSERT INTO dale_earlier_buses(id,body) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body', body));
       // At most one bounded fold per existing 30-second alarm while catching up.
       this.nextAt = now + (rows.length === EARLIER_BATCHES || localYmd(next.through, this.ds.meta.timezone) !== today ? 30_000 : INTERVAL);
