@@ -36,19 +36,16 @@ describe('nearby physical stops', () => {
     expect(ds).toEqual(before);
   });
 
-  it('merges matching public codes and nearby normalized names but keeps distinct boarding places', () => {
+  it('keeps other stops separate even when codes or names match, because a tap selects one stop ID', () => {
     const ds = dataset([
       stop('code-far', 40, { code: '90001' }), stop('code-near', 10, { code: '90001' }),
       stop('named', 60, { name: 'Maple & Main' }), stop('copy', 65, { name: '  MAPLE   & MAIN  ' }),
-      stop('distant', 100, { name: 'Maple & Main' }),
       stop('opposite', 61, { name: 'Maple & Main', twin: 'named' }),
-      stop('code-a', 120, { name: 'Oak', code: '90002' }), stop('code-b', 121, { name: 'Oak', code: '90003' }),
     ]);
     const results = nearbyStops(ds, pos, 500, 10);
-    expect(results.map(x => x.stop.id)).toEqual(['code-near', 'named', 'opposite', 'distant', 'code-a', 'code-b']);
-    expect(results.map(x => x.distanceM)).toEqual([10, 60, 61, 100, 120, 121]);
-    expect(results[0]!.stopIds).toEqual(['code-near', 'code-far']);
-    expect(results[1]!.stopIds).toEqual(['named', 'copy']);
+    expect(results.map(x => x.stop.id)).toEqual(['code-near', 'code-far', 'named', 'opposite', 'copy']);
+    expect(results.map(x => x.distanceM)).toEqual([10, 40, 60, 61, 65]);
+    expect(results.every(x => x.stopIds.length === 1 && x.stopIds[0] === x.stop.id)).toBe(true);
   });
 
   it('ignores entries without coordinates, arrival-only and no-pickup entries', () => {
@@ -64,21 +61,10 @@ describe('nearby physical stops', () => {
     expect(nearbyStops(ds, pos)[0]).toMatchObject({ stop: { id: 'z-near' }, distanceM: 10 });
   });
 
-  it('retains strongly identified aliases without coordinates and deduplicates repeated IDs', () => {
-    const ds = dataset([stop('a', 10, { code: '90001' }), { id: 'b', name: 'Another spelling', code: '90001' }]);
+  it('shows a repeated stop ID once and skips entries with invalid coordinates', () => {
+    const ds = dataset([stop('a', 10), stop('invalid', NaN, { terminal: 'PABT' }), stop('platform', 20, { terminal: 'PABT' })]);
     ds.stops.push({ ...ds.stops[0]! });
-    expect(nearbyStops(ds, pos)).toMatchObject([{ stop: { id: 'a' }, stopIds: ['a', 'b'] }]);
-  });
-
-  it('does not let invalid coordinates hide a valid alias', () => {
-    const ds = dataset([stop('invalid', NaN, { code: '90001' }), stop('valid', 20, { code: '90001' })]);
-    expect(nearbyStops(ds, pos)).toMatchObject([{ stop: { id: 'valid' }, distanceM: 20, stopIds: ['valid', 'invalid'] }]);
-  });
-
-  it('does not merge stops more than 10 m apart or bridge opposite-side twins through an alias', () => {
-    const ds = dataset([stop('a', 10, { name: 'Maple' }), stop('b', 12, { name: 'Maple', twin: 'a' }),
-      stop('alias', 11, { name: 'Maple' }), stop('boundary', 23, { name: 'Maple' })]);
-    expect(nearbyStops(ds, pos).map(x => x.stopIds)).toEqual([['a', 'alias'], ['b'], ['boundary']]);
+    expect(nearbyStops(ds, pos)).toMatchObject([{ stop: { id: 'a' }, stopIds: ['a'] }, { stop: { id: 'platform' }, distanceM: 20, stopIds: ['platform'] }]);
   });
 
   for (const lang of ['en', 'es'] as const) it(`renders all grouped routes and destinations once (${lang})`, () => {

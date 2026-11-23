@@ -16,7 +16,9 @@ export function render({ lang, hasLocations, hidden = false, autoAsk = true, ref
   const ds: Dataset = !refresh && dataset ? dataset : { ...demoDataset, stops: hasLocations ? [...demoDataset.stops]
     : demoDataset.stops.map(({ lat: _lat, lon: _lon, ...stop }) => stop) };
   if (duplicates && refresh) {
-    ds.stops.push({ ...demoDataset.stops.find(s => s.id === 'D2')!, id: 'D2-copy', lat: 40.87004 });
+    // Two platform entries of one terminal, like Port Authority's twelve entries sharing stop number 26229.
+    ds.stops = ds.stops.map(s => s.id === 'D2' ? { ...s, terminal: 'PABT' as const } : s);
+    ds.stops.push({ ...ds.stops.find(s => s.id === 'D2')!, id: 'D2-copy', lat: 40.87004 });
     ds.routes = [...demoDataset.routes, { id: 'R164', shortName: '164', longName: 'Invented duplicate-source route' }];
     ds.patterns = [...demoDataset.patterns, { ...demoDataset.patterns[0]!, id: 'copy', routeId: 'R164', stopIds: ['D2-copy', 'PABT'] }];
   }

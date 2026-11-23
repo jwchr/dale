@@ -198,45 +198,21 @@ export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
  */
 export function nearbyStops(ds: Dataset, pos: { lat: number; lon: number }, radiusM = 500, limit = 6): { stop: Stop; distanceM: number; stopIds: string[] }[] {
   const served = new Set(ds.patterns.flatMap((p) => p.stopIds.slice(0, -1).filter((_, i) => !p.noPickup?.includes(i))));
-  const name = (s: Stop) => s.name.trim().replace(/\s+/g, ' ').toLowerCase();
-  const same = (a: Stop, b: Stop): boolean => {
-    if (a.id === b.id) return true;
-    if (a.twin === b.id || b.twin === a.id) return false;
-    if (a.terminal === 'PABT' && b.terminal === 'PABT') return true;
-    if (a.code?.trim() && b.code?.trim()) return a.code.trim() === b.code.trim();
-    return !!name(a) && name(a) === name(b) && located(a) && located(b) && distanceM(a, b) <= 10;
-  };
-  type Group = { stop: Stop; distanceM: number; stopIds: string[]; members: Stop[] };
-  const groups: Group[] = [], index = new Map<string, Group[]>();
-  // Sort new result objects only. Retain aliases outside the radius for their route labels,
-  // but never change the original stop IDs, patterns or exact-bus selection.
-  const candidates = ds.stops.filter(s => served.has(s.id))
-    .map(stop => {
-      const distance = located(stop) ? distanceM(pos, stop) : Infinity;
-      return { stop, distanceM: Number.isFinite(distance) ? distance : Infinity };
-    })
-    .sort((a, b) => a.distanceM - b.distanceM || a.stop.name.localeCompare(b.stop.name));
-  for (const entry of candidates) {
-    const s = entry.stop, keys = [`id:${s.id}`, `name:${name(s)}`];
-    if (s.code?.trim()) keys.push(`code:${s.code.trim()}`);
-    if (s.terminal === 'PABT') keys.push('terminal:PABT');
-    const matches = new Set(keys.flatMap(key => index.get(key) ?? []));
-    // Check every member so an imprecise entry cannot bridge opposite-side stops.
-    let group = [...matches].find(g => g.members.every(member => same(member, s)));
-    if (!group) {
-      group = { ...entry, stopIds: [], members: [] };
-      groups.push(group);
-    }
-    if (!group.stopIds.includes(s.id)) group.stopIds.push(s.id);
-    group.members.push(s);
-    for (const key of keys) {
-      const bucket = index.get(key) ?? [];
-      if (!bucket.includes(group)) bucket.push(group);
-      index.set(key, bucket);
-    }
-  }
-  return groups.filter(g => Number.isFinite(g.distanceM) && g.distanceM <= radiusM).slice(0, limit)
-    .map(({ stop, distanceM, stopIds }) => ({ stop, distanceM: Math.round(distanceM), stopIds }));
+  // Port Authority is one place (src/domain/place.ts), so its platform entries show once and a tap on
+  // any of them boards every platform. Other stops stay separate: a tap selects exactly one stop ID.
+  const groups = new Map<string, { stop: Stop; distanceM: number; stopIds: string[] }>();
+  ds.stops.filter((s): s is Located => served.has(s.id) && located(s))
+    .map((s) => ({ stop: s as Stop, d: distanceM(pos, s) }))
+    .filter(({ d }) => Number.isFinite(d))
+    .sort((a, b) => a.d - b.d || a.stop.name.localeCompare(b.stop.name))
+    .forEach(({ stop, d }) => {
+      const key = stop.terminal === 'PABT' ? 'terminal:PABT' : `id:${stop.id}`;
+      const group = groups.get(key);
+      if (group) { if (!group.stopIds.includes(stop.id)) group.stopIds.push(stop.id); }
+      else groups.set(key, { stop, distanceM: d, stopIds: [stop.id] });
+    });
+  return [...groups.values()].filter((g) => g.distanceM <= radiusM).slice(0, limit)
+    .map((g) => ({ ...g, distanceM: Math.round(g.distanceM) }));
 }
 
 /** True when the dataset has stop coordinates, so a location-based suggestion can work at all. */
