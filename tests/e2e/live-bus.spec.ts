@@ -15,6 +15,15 @@ async function setup(page: Page, response: () => LiveBusSnapshot | null | Promis
   await page.route(API + '/v1/departures?**', (route) => route.abort('failed'));
   await page.route(API + '/v1/geometry?**', r => r.abort('failed'));
   await page.route(API + '/v1/schedule', (route) => route.fulfill({ json: liveDataset, headers: { 'access-control-allow-origin': '*' } }));
+  // This card loads on both the picker and the lock. Keep its synthetic response
+  // local too: an unmocked request would try to resolve the fake API hostname.
+  await page.route(API + '/v1/earlier-buses?**', route => {
+    const query = new URL(route.request().url()).searchParams;
+    return route.fulfill({ json: {
+      v: 1, query: { route: query.get('route'), stop: query.get('stop'), direction: Number(query.get('direction')) },
+      generatedAt: NOW, coverageStart: NOW - 3600_000, through: NOW, gap: false, items: [],
+    }, headers: { 'access-control-allow-origin': '*' } });
+  });
   await page.route(API + '/v1/live?**', async (route) => {
     const body = await response();
     if (body) await route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*' } });
@@ -219,11 +228,12 @@ for (const cancelled of [false, true]) test(`same-packet ${cancelled ? 'cancella
 
 test('tracker opens close to bus, keeps manual overview, and offers transit geography plus a line diagram', async ({ page }) => {
   const errors: string[] = [], outside: string[] = [];
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', m => { if (m.type() === 'error') errors.push(`${m.text()} (${m.location().url})`); });
   page.on('request', r => { const host = new URL(r.url()).hostname; if (!['localhost', 'dale-live.test.workers.dev'].includes(host)) outside.push(host); });
   const stop = liveDataset.stops.find(s => s.id === '2')!;
   const body = packet(); body.observations[0] = { ...body.observations[0]!, lat: stop.lat!, lon: stop.lon! };
   await setup(page, () => body);
+  await expect(page.locator('.earlier-buses')).toContainText('No earlier buses confirmed');
   const wrapper = page.locator('.waiting-map .map-views'), map = wrapper.locator('.route-map');
   await expect(map.locator('canvas')).toBeVisible({ timeout: 15000 }).catch(error => { throw new Error(String(error) + '\nMap diagnostics: ' + errors.join(' | ')); }); await expect(map).toHaveAttribute('data-camera', 'bus');
   await wrapper.getByRole('button', { name: 'Whole route', exact: true }).click(); await expect(map).toHaveAttribute('data-camera', 'route');
