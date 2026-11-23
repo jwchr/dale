@@ -1,6 +1,6 @@
 // "Stops near me" (issue #31): opt-in, one position from the device, used locally to list nearby
 // stops and then dropped. Never stored, logged or sent. The rider picks the stop; the direction guard
-// and the printed fare zones still decide the rest. Hidden where stops have no coordinates.
+// and the printed fare zones still decide the rest. Explains when stops have no coordinates.
 import { useEffect, useRef, useState } from 'react';
 import { hasStopLocations, nearbyStops } from '../domain/direction';
 import type { Dataset, Stop } from '../domain/types';
@@ -27,22 +27,57 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
   const [state, setState] = useState<State>({ status: 'idle' });
   const giveUp = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const requestId = useRef(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const unavailable = useRef<HTMLParagraphElement>(null);
+  const unavailableFocused = useRef(false);
+  const autoAsked = useRef(false);
+  const autoAskPending = useRef(false);
+  const hasLocations = hasStopLocations(ds);
   useEffect(() => {
     setState({ status: 'idle' });
-    return () => { requestId.current++; clearTimeout(giveUp.current); };
+    return () => {
+      requestId.current++;
+      clearTimeout(giveUp.current);
+      // A dataset refresh may cancel a GPS fix, but must not consume the rider's shortcut tap.
+      if (autoAskPending.current) autoAsked.current = false;
+      autoAskPending.current = false;
+    };
   }, [ds]);
   const askRef = useRef<() => void>(undefined);
-  useEffect(() => { if (autoAsk) askRef.current?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!hasStopLocations(ds)) return <p className="muted small" role="note">{n.unavailable}</p>;
-
   askRef.current = ask;
+  useEffect(() => {
+    if (autoAsk) (heading.current ?? unavailable.current)?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!hasLocations || !unavailableFocused.current) return;
+    unavailableFocused.current = false;
+    // Restore focus only if the removed note held it and the rider has not moved elsewhere.
+    if (autoAsk && document.activeElement === document.body && !heading.current?.closest('[hidden]')) heading.current?.focus();
+  }, [autoAsk, hasLocations]);
+  useEffect(() => {
+    if (!autoAsk || !hasLocations || autoAsked.current) return;
+    let cancelled = false;
+    // Let StrictMode's setup/cleanup replay finish before consuming this shortcut tap.
+    queueMicrotask(() => {
+      if (cancelled || autoAsked.current) return;
+      autoAsked.current = true;
+      autoAskPending.current = true;
+      askRef.current?.();
+    });
+    return () => { cancelled = true; };
+  }, [autoAsk, hasLocations, ds]);
+
   function ask() {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) { setState({ status: 'unsupported' }); return; }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      autoAskPending.current = false;
+      setState({ status: 'unsupported' }); return;
+    }
     const id = ++requestId.current;
     let attempt = 0;
     const finish = (next: State) => {
       requestId.current++; // Ignore late callbacks after success, failure, retry or navigation.
       clearTimeout(giveUp.current);
+      autoAskPending.current = false;
       setState(next);
     };
     const locate = (highAccuracy: boolean) => {
@@ -75,8 +110,12 @@ export function NearMe({ ds, t, onPick, autoAsk }: { ds: Dataset; t: Strings; on
     locate(true);
   }
 
+  if (!hasLocations) return <p ref={unavailable} tabIndex={-1} className="muted small" role="note"
+    onFocus={() => { unavailableFocused.current = true; }} onBlur={() => { unavailableFocused.current = false; }}>{n.unavailable}</p>;
+
   return (
     <div className="near-me">
+      {autoAsk && <h2 ref={heading} tabIndex={-1}>{n.button}</h2>}
       <button onClick={ask} disabled={state.status === 'asking'}>{n.button}</button>
       <p className="muted small">{n.explain}</p>
       <div role="status">
