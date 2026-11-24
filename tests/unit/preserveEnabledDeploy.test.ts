@@ -42,7 +42,7 @@ function deployment(scenario: string) {
         byteLimit:250000000,databaseByteLimit:500000000,dailyWriteReservationLimit:75000,budgetDay:'2026-11-04',
         archive:{configured:true,reason:'ready',failures:0,verifiedObjects:uploaded&&scenario==='archive-regression'?20:21+progress,lastSuccessAt:archiveSuccess,
           reservedBytes:5000+progress*500,classAReserved32Days:30,classBReserved32Days:30,sqlWriteBudgetRemaining:74000,oldestUnarchivedAt:null,backlogAgeMs:0,
-          byteLimit:9000000000,classALimit32Days:800000,classBLimit32Days:8000000}};
+          byteLimit:uploaded&&scenario==='guard-39'?39000000000:uploaded&&scenario==='guard-20'?20000000000:9000000000,classALimit32Days:800000,classBLimit32Days:8000000}};
     }
     const calls=[];
     globalThis.fetch=async(input, options={})=>{
@@ -79,13 +79,13 @@ function deployment(scenario: string) {
     await import(${JSON.stringify(entry)});
     if(temporary)assert.equal(fs.existsSync(temporary),false);
     if(['ok','slow-ack','late-valid'].includes(scenario)){assert.ok(clock > acknowledgedAt + 300000, 'EARLY_OLD_ACTOR_SUCCESS');assert.ok(actorReads.length>0&&actorReads.every(at=>at>acknowledgedAt+300000));}
-    assert.equal(uploaded,['wrong-version','local-context-change','disabled','quota'].includes(scenario)?0:1);
+    assert.equal(uploaded,['wrong-version','local-context-change','disabled','quota','raw-before-bad'].includes(scenario)?0:1);
     assert.ok(!calls.some(p=>/authenticate|getGTFS|VehiclePositions|TripUpdates|v1\\/status|v1\\/live/.test(p)));
   `], { env: { NODE_NO_WARNINGS: '1', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'jwchr/dale', GITHUB_SHA: 'a'.repeat(40),
     HISTORY_COLLECTION_MODE: 'preserve-enabled', HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     CLOUDFLARE_API_TOKEN: 'PRIVATE_SENTINEL_TOKEN', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev', NJT_API_USERNAME: 'PRIVATE_SENTINEL_USER', NJT_API_PASSWORD: 'PRIVATE_SENTINEL_PASSWORD' }, encoding: 'utf8', timeout: 10000 });
 }
-it.each(['ok', 'slow-ack', 'late-valid'])('actual native preservation waits beyond the acknowledged transition before proving native/archive progress: %s', scenario => {
+it.each(['ok', 'slow-ack', 'late-valid', 'raw-already-on', 'guard-39'])('actual native preservation waits beyond the acknowledged transition before proving native/archive progress: %s', scenario => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status, r.stderr).toBe(0);
   const proofLine = r.stdout.split('\n').find(line => line.startsWith('Post-deferral proof:'))!;
   const proof = Object.fromEntries([...proofLine.matchAll(/(\w+)=(\d+)/g)].map(m => [m[1]!, Number(m[2])]));
@@ -97,7 +97,7 @@ it.each(['ok', 'slow-ack', 'late-valid'])('actual native preservation waits beyo
   expect(r.stdout).toContain('Existing enabled collector preserved'); expect(r.stdout).toContain('not proof of zero interruption');
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError/);
 });
-it.each(['wrong-version', 'local-context-change', 'disabled', 'quota', 'served-context-change', 'archive-regression', 'namespace-change', 'no-native-progress', 'early-only', 'old-actor-late-receipt'])('actual native preservation refuses %s without any stop/activation/automatic rollback or secret leak', scenario => {
+it.each(['wrong-version', 'local-context-change', 'disabled', 'quota', 'served-context-change', 'archive-regression', 'namespace-change', 'no-native-progress', 'early-only', 'old-actor-late-receipt', 'raw-off', 'raw-before-bad', 'guard-20'])('actual native preservation refuses %s without any stop/activation/automatic rollback or secret leak', scenario => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   expect(r.stdout).not.toContain('Existing enabled collector preserved');
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError|https:/);

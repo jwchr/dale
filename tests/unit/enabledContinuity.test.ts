@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { historyContextKey } from '../../worker/history-journal';
+import { CORRIDOR_RESERVE } from '../../worker/history-archive';
 // @ts-expect-error native deployment helper
-import { canonicalIdentity, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
+import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const ds = structuredClone(liveDataset); ds.meta.feedVersion = 'abcdef123456'; ds.meta.source = 'NJ Transit GTFS BUS G2';
 const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
 const env = { HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' };
@@ -55,6 +56,29 @@ describe('enabled collector preservation without migration or mutation', () => {
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 39_000_000_001 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 8_999_999_999 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 800_001 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 20_000_000_000 } })).toThrow();
+    // D78: raw limits arrive with the corridor reserve, then never change.
+    const big = { ...after.archive, byteLimit: 39_000_000_000 };
+    const raw78 = { ...big, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 };
+    expect(preservesEnabled(before, { ...after, archive: raw78 }, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, archive: { ...raw78, rawByteLimit: 39_000_000_000 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...raw78, rawClassALimit32Days: 650_001 } })).toThrow();
+    const live = { ...before, archive: { ...before.archive, byteLimit: 39_000_000_000, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 } };
+    expect(preservesEnabled(live, { ...after, archive: raw78 }, NOW)).toBe(true);
+    expect(() => preservesEnabled(live, { ...after, archive: { ...raw78, rawClassBLimit32Days: 7_000_000 } })).toThrow();
+    expect(() => preservesEnabled(live, { ...after, archive: big })).toThrow();
+    // A rollback keeps the 39 GB guard: lowering it is refused (turn RAW_ARCHIVE off instead).
+    expect(() => preservesEnabled(live, { ...after, archive: { ...raw78, byteLimit: 9_000_000_000 } })).toThrow();
+  });
+  it('keeps the deploy proof corridor reserve equal to the Worker reserve', () => {
+    expect(SCRIPT_RESERVE).toEqual(CORRIDOR_RESERVE);
+  });
+  it('projects raw limits from live health only when present', () => {
+    const c = collection(); Object.assign(c.archive, { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 });
+    expect(enabledCheckpoint(c, ds.meta.feedVersion, NOW).archive).toMatchObject({ rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000 });
+    expect(enabledCheckpoint(collection(), ds.meta.feedVersion, NOW).archive.rawByteLimit).toBeUndefined();
+    const bad = collection(); Object.assign(bad.archive, { rawByteLimit: 37_000_000_000 });
+    expect(() => enabledCheckpoint(bad, ds.meta.feedVersion, NOW)).toThrow();
   });
   it('reads only bounded static schedule and collection health, never auth/live/status or a mutation', async () => {
     const calls: string[] = [];

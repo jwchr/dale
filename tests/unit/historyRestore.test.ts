@@ -60,17 +60,17 @@ function restore(scenario='ok') {
     };
     await import(${JSON.stringify(entry)});
     if(temporary)assert.equal(fs.existsSync(temporary),false);
-    assert.equal(uploaded,['not-disabled','unapplied-migration','partial-archive','mixed-archive','active-archive','unconfigured-archive','missing-credentials'].includes(scenario)?0:1);
-    assert.equal(patched,['ok','full-counters','lost-known-counters','archive-regression','stop-code-change'].includes(scenario)?1:0);
+    assert.equal(uploaded,['not-disabled','unapplied-migration','partial-archive','mixed-archive','active-archive','unconfigured-archive','missing-credentials','raw-before-bad'].includes(scenario)?0:1);
+    assert.equal(patched,['ok','full-counters','raw-already-on','lost-known-counters','archive-regression','stop-code-change'].includes(scenario)?1:0);
   `],{env:{NODE_NO_WARNINGS:'1',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'jwchr/dale',GITHUB_SHA:'a'.repeat(40),HISTORY_COLLECTION_MODE:'restore-disabled',CLOUDFLARE_API_TOKEN:'PRIVATE_SENTINEL_TOKEN',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),DALE_WORKER_URL:'https://dale-live.synthetic.workers.dev',NJT_API_USERNAME:'PRIVATE_SENTINEL_USER',NJT_API_PASSWORD:scenario==='missing-credentials'?undefined:'PRIVATE_SENTINEL_PASSWORD'},encoding:'utf8',timeout:10000});
 }
-it.each(['ok','full-counters'])('actual native recovery accepts valid disabled health %s and binds reviewed artifact/strict stop with retained journal evidence',scenario=>{
+it.each(['ok','full-counters','raw-already-on'])('actual native recovery accepts valid disabled health %s and binds reviewed artifact/strict stop with retained journal evidence',scenario=>{
   const r=restore(scenario);expect(r.error).toBeUndefined();expect(r.status).toBe(0);expect(r.stderr).toBe('');
   expect(r.stdout).toContain('Known reviewed code restored disabled');
   expect(r.stdout).toContain('completeModulesEqual=true metadataEtagEqual=false');
   expect(r.stdout).not.toContain('PRIVATE_SENTINEL');
 });
-it.each(['mixed-archive','active-archive','partial-archive','unconfigured-archive','missing-credentials','lost-known-counters','archive-regression','unapplied-migration','not-disabled','extra-artifact','forged-readme','artifact-mismatch','binding-change','runtime-change','stop-code-change'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
+it.each(['mixed-archive','active-archive','partial-archive','unconfigured-archive','missing-credentials','lost-known-counters','archive-regression','unapplied-migration','not-disabled','extra-artifact','forged-readme','artifact-mismatch','binding-change','runtime-change','stop-code-change','raw-off','raw-before-bad'])('recovery refuses %s, cleans temporary secrets and never enables or retries',scenario=>{
   const r=restore(scenario);expect(r.error).toBeUndefined();expect(r.status).toBe(1);
   expect(r.stderr).toContain('Live Worker deployment or validation failed');
   expect(r.stdout+r.stderr).not.toMatch(/PRIVATE_SENTINEL|AssertionError|FORBIDDEN|https:/);

@@ -357,6 +357,19 @@ describe('raw collection through the bus Worker', () => {
     expect(health.enabled).toBe(true);
     expect(h.urls.filter(url => url.endsWith('/getVehiclePositions'))).toHaveLength(1);
   });
+  it('turned off, finishes its open hourly ledger without saving or fetching anything new', async () => {
+    const h = await service(); await h.poll();
+    const rawKeys = () => [...h.objects.keys()].filter(key => key.startsWith('raw/') && key.endsWith('.pb.gz')).length;
+    const saved = rawKeys(), railCalls = h.railCalls;
+    expect((await h.health()).rawArchive.hoursUTC).toHaveLength(1);
+    (h.env as { RAW_ARCHIVE?: string }).RAW_ARCHIVE = undefined; h.restart();
+    h.time(NOW + 3600_000); await h.poll();
+    expect(rawKeys()).toBe(saved); expect(h.railCalls).toBe(railCalls);
+    expect([...h.objects.keys()].filter(key => key.startsWith('raw/') && key.includes('ledger'))).toHaveLength(1);
+    expect((await h.health()).rawArchive).toMatchObject({ saving: false, pending: 0, hoursUTC: [] });
+    h.restart(); h.time(NOW + 3630_000); await h.poll();
+    expect((await h.health()).rawArchive).toBeUndefined(); expect(rawKeys()).toBe(saved);
+  });
   it('leaves rail off when the flag is absent and continues bus raw saving', async () => {
     const h = await service(true, false); await h.poll();
     expect(h.railCalls).toBe(0); expect(h.urls.some(url => url.includes('/GTFSRT/'))).toBe(false);
