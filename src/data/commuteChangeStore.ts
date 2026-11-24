@@ -14,10 +14,12 @@ const date = (x: unknown) => {
 };
 const departure = (x: unknown): x is ChangedDeparture => record(x) && (x.direction === 'out' || x.direction === 'back') && text(x.route)
   && finite(x.departure) && (x.arrival === undefined || finite(x.arrival)) && typeof x.estimated === 'boolean' && texts(x.stops);
+const source = (x: unknown) => record(x) && text(x.source) && text(x.version) && text(x.builtAt);
 const notice = (x: unknown): x is CommuteChange => record(x) && ['id', 'favoriteId', 'favoriteKey', 'fromVersion', 'toVersion'].every(k => text(x[k]))
   && ['timetable', 'stops', 'selection', 'uncomparable'].includes(String(x.kind)) && (x.date === undefined || date(x.date))
   && Array.isArray(x.before) && x.before.every(departure) && Array.isArray(x.after) && x.after.every(departure)
-  && (x.kind !== 'timetable' || date(x.date));
+  && (x.kind !== 'timetable' || date(x.date))
+  && (x.sources === undefined || (record(x.sources) && source(x.sources.before) && source(x.sources.after)));
 
 /** Validate the saved boundary independently of the current network schedule. Never trust arbitrary cached JSON. */
 export function parseCommuteChangeState(raw: unknown): CommuteChangeState | undefined {

@@ -8,8 +8,8 @@ import { useDepartureDistances } from './useDepartureDistances';
 import { RouteDistance } from './RouteDistance';
 import type { ReportedRouteDistance } from '../domain/routeDistance';
 import { AppHeader } from './AppHeader';
-import { changeFavoriteStops, cityBoardingStops, cityStopGroups } from '../domain/cityStops';
-import { CommutePicker, type CommutePickEnd } from './CommutePicker';
+import { cityBoardingStops, cityStopGroups } from '../domain/cityStops';
+import { FavoriteCommutePicker, type CommutePickEnd } from './CommutePicker';
 import { SignText } from './SignText';
 import { useFitWords } from './useFitWords';
 import { DepartureTimes } from './DepartureTimes';
@@ -18,8 +18,8 @@ import { ArrivalResult } from './DestinationArrival';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { demoDataset, demoUsualGates } from '../data/demo';
 import { parseDataset } from '../domain/dataset';
-import { checkDirection, destinationsFrom, hasStopLocations, returnLeg, searchStops } from '../domain/direction';
-import { addFavorite, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
+import { checkDirection, destinationsFrom, hasStopLocations, searchStops } from '../domain/direction';
+import { addFavorite, favoriteLeg, isGeneratedFavoriteLabel, loadFavorites, moveFavorite, removeFavorite, renameFavorite, saveFavorites, setLeavePlan, type Favorite } from '../domain/favorites';
 import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earliestArrival, leaveAdvice, MAX_CUSHION_MIN, MAX_WALK_MIN, type LeaveOption, type LeavePlan } from '../domain/leaveBy';
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
@@ -126,7 +126,9 @@ const openingSloganIndex = openingSettings.rotateSlogans ? chooseOpeningSlogan(s
 /** `?now=2026-11-04T07:50` pins the clock (New York wall time) for demos and tests. */
 function useNow(tz: string, intervalMs = 30_000): number {
   const pinned = useMemo(() => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(new URLSearchParams(location.search).get('now') ?? '');
+    const value = new URLSearchParams(location.search).get('now') ?? '';
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))) return Date.parse(value);
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
     return m ? zonedWallTime(+m[1]!, +m[2]!, +m[3]!, +m[4]!, +m[5]!, tz) : undefined;
   }, [tz]);
   const [now, setNow] = useState(() => pinned ?? Date.now());
@@ -150,7 +152,7 @@ type DatasetState =
   | { status: 'loading' }
   | { status: 'error' }
   /** `fromCache` when the service worker answered from its saved copy; `savedAt` (ms) when it knows when that copy was saved. */
-  | { status: 'ready'; ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined };
+  | { status: 'ready'; ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; checkedAt?: number };
 
 /** The app gives up on a load after this long even without a service worker (first visit, slow tunnel). */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -268,7 +270,7 @@ function AppContent() {
   }, [guide, data.status]);
   if (data.status !== 'ready' || guide) return <LoadScreen status={data.status} onRetry={retry} guide={guide}
     journey={journey} onGuide={(value) => { if (value === 'penn') journey.selectMode('train'); setGuide(value); }} onBack={() => { returning.current = true; setGuide(undefined); }} />;
-  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} journey={journey} />;
+  return <Main ds={data.ds} fromCache={data.fromCache} savedAt={data.savedAt} checkedAt={data.checkedAt} journey={journey} />;
 }
 
 function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
@@ -322,7 +324,7 @@ function LoadScreen({ status, onRetry, guide, onGuide, onBack, journey }: {
   );
 }
 
-function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; journey: JourneyModel }) {
+function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fromCache?: boolean | undefined; savedAt?: number | undefined; checkedAt?: number; journey: JourneyModel }) {
   const tz = ds.meta.timezone;
   const [activeLock, setActiveLock] = useState<ActiveLock | undefined>();
   const [demoAdvanceMs, setDemoAdvanceMs] = useState(0);
@@ -500,8 +502,11 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
             onLocation={hasStopLocations(ds) ? () => setScreen({ name: 'search', nearMe: true }) : undefined}
             onRescue={(leg, label, usualRouteId) => setScreen({ name: 'rescue', fromStopId: leg.fromStopId, homeStopId: leg.toStopId, label, ...(usualRouteId ? { usualRouteId } : {}) })} />
         )}
+        {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz}
+          ds={ds} now={now} reversedIds={reversedIds} checkedAt={checkedAt} fromCache={fromCache} savedAt={savedAt}
+          onTimetable={selection => setScreen({ name: 'timetable', leg: selection, title: `${stopName(selection.fromStopId)} → ${stopName(selection.toStopId)}`, date: selection.date })}
+          onReselect={(favorite, reversed) => setScreen({ name: 'commute', favoriteId: favorite.id, reversed, end: 'from', level: 'stop' })} />}
         {screen.name === 'home' && favorites.length > 0 && toolbar}
-        {screen.name === 'home' && <CommuteChanges {...commuteChanges} favorites={favorites} t={t} lang={settings.lang} tz={tz} />}
         {screen.name === 'home' && lastArrival && <details className="card last-arrival">
           <summary>{t.arrival.last}</summary><ArrivalResult value={lastArrival} t={t} lang={settings.lang} tz={tz} />
           <button type="button" onClick={() => { saveLastArrival(store, undefined); setLastArrival(undefined); }}>{t.arrival.dismiss}</button>
@@ -522,14 +527,12 @@ function Main({ ds, fromCache, savedAt, journey }: { ds: Dataset; fromCache?: bo
           onTrain={() => { journey.selectMode('train'); setScreen({ name: 'penn', railOnly: true }); }} onFind={() => setScreen({ name: 'search' })} />}
         {screen.name === 'gates' && <GatesScreen ctx={ctx} favorites={favorites} count={settings.count} onGuide={() => setScreen({ name: 'guide' })} onDeparture={(dep, leg) => setScreen({ name: 'departure', dep, leg })} />}
         {screen.name === 'commute' && (() => {
-          const favorite = favorites.find(f => f.id === screen.favoriteId), leg = favorite && legFor(ds, favorite, screen.reversed);
-          return favorite && leg ? <CommutePicker ds={ds} t={t} lang={settings.lang} initialFrom={leg.fromStopId} initialTo={leg.toStopId} routeIds={favorite.routeIds} end={screen.end} level={screen.level} onCancel={back}
-            onSave={(from, to) => {
-              const updated = changeFavoriteStops(ds, favorite, from, to, screen.reversed);
-              if (!updated) return false;
+          const favorite = favorites.find(f => f.id === screen.favoriteId);
+          return favorite ? <FavoriteCommutePicker ds={ds} t={t} lang={settings.lang} favorite={favorite} reversed={screen.reversed} end={screen.end} level={screen.level} onCancel={back}
+            onSaved={(updated, reversed) => {
               setFavorites(list => list.map(f => f.id === favorite.id ? updated : f));
-              setReversedIds(ids => { const next = new Set(ids); next.delete(favorite.id); return next; });
-              setScreen({ name: 'home' }); return true;
+              setReversedIds(ids => { const next = new Set(ids); if (reversed) next.add(favorite.id); else next.delete(favorite.id); return next; });
+              setScreen({ name: 'home' });
             }} /> : <p className="warn">{t.noReturnStop}</p>;
         })()}
         {screen.name === 'timetable' && (
@@ -665,10 +668,7 @@ function arrivalAt(ds: Dataset, d: Departure, stopId: string): { at: number; est
 }
 
 function legFor(ds: Dataset, f: Favorite, reversedView: boolean): Leg | undefined {
-  if (!reversedView) return { fromStopId: f.fromStopId, toStopId: f.toStopId, routeIds: f.routeIds };
-  // Return trip: board where we got off, or across the street; get off at home or its twin.
-  const back = returnLeg(ds, f.fromStopId, f.toStopId, f.routeIds);
-  return back ? { ...back, routeIds: f.routeIds } : undefined;
+  return favoriteLeg(ds, f, reversedView);
 }
 
 function Home({ ctx, favorites, count, setFavorites, reversedIds, toggleReversed, onGuide, onChoose, onAllDay, onDeparture, onRescue, printedCommutes = [], onFind, onMoveDone, onLocation }: {
@@ -847,11 +847,13 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
   const fullLeg = title || `${stopName(fromId)} → ${stopName(rev ? fav.fromStopId : fav.toStopId)}`;
   // Saved from the real schedule but opened on the demo (or the schedule changed): say which, plainly.
   const missing = !ds.stops.some((s) => s.id === fav.fromStopId) || !ds.stops.some((s) => s.id === fav.toStopId);
+  // A saved return pair is kept even when the feed drops one of its stops; say so instead of "no more today".
+  const legGone = !!leg && (!ds.stops.some((s) => s.id === leg.fromStopId) || !ds.stops.some((s) => s.id === leg.toStopId));
   // The signs unmount while editing; re-fit the new ones after Done.
   useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`, !editing && !missing);
   if (missing && !editing) {
     return (
-      <article className="card fav fav-missing" aria-label={t.savedCommute}>
+      <article className="card fav fav-missing" data-favorite-id={fav.id} aria-label={t.savedCommute}>
         <h2>{fav.label}</h2>
         <p className="warn" role="note">{ds.meta.demo ? t.commuteNotInDemo : t.commuteNotInSchedule}</p>
         {ds.meta.demo && demoInAddress() && <a className="link" href={leaveDemoHref()}>{t.leaveDemo}</a>}
@@ -988,9 +990,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             <div><p className="dash-eyebrow">{d.atYourStop}</p><h2 className="dash-title" id={`${evidencePrefix}-arrivals`}>{d.nextArrivals}</h2></div>
             <StatusPill t={t} live={anyLive} />
           </div>
-          {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
+          {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : legGone ? <p className="warn" role="alert">{t.returnStopGone}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
             : <ul className="deps dep-boards">{rows.map(boardItem)}</ul>}
-          {leg && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
+          {leg && !legGone && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
           {/* "Get me home" right under the buses, not deep in Your trip where it went unnoticed (#32 step 3). */}
           {leg && to && <button type="button" className="dash-fullday dash-rescue rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>
             <RescueIcon /><span><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></span><ArrowRight /></button>}
@@ -1020,7 +1022,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
       ) : (
         <>
           {planBlock}
-          {!leg ? null : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : (
+          {!leg ? null : legGone ? <p className="warn" role="alert">{t.returnStopGone}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : (
             <ul className="deps">
               {rows.map(rowItem)}
             </ul>
@@ -1326,7 +1328,9 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
   // The chosen day lives in the screen's history entry, so Back from a trip returns to it.
   const date = chosen && chosen >= today ? chosen : today;
   const setDate = onDate;
-  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  const week = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  // A notice can open a first changed day past this week; show it as its own selected tab.
+  const days = week.includes(date) ? week : [...week, date];
   const list = departuresOn(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds, date });
   const rows = list.map((d) => ({ d, arr: arrivalAt(ds, d, leg.toStopId) }));
   const anyEstimated = rows.some((r) => r.d.estimated || r.arr?.estimated);

@@ -13,7 +13,7 @@ for (const lang of ['en', 'es'] as const) test(`compact next165T cue preserves t
   }, lang);
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto('/?printed=1&now=2026-11-04T07:00');
-  const card = page.getByRole('article'), cue = card.getByTestId('next-express');
+  const card = page.locator('article[data-favorite-id="express-preview"]'), cue = card.getByTestId('next-express');
   await expect(card.locator('.dep .route-badge')).toHaveText(['165', '165', '165']);
   await expect(cue).toContainText(lang === 'en' ? 'Next' : 'Próximo');
   await expect(cue).toContainText(strings[lang].gateTurnpikeExpress); await expect(cue).toContainText(lang === 'en' ? '7:40 AM' : '7:40 a.m.');

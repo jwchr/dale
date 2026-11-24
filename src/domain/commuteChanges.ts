@@ -1,6 +1,5 @@
-import { returnLeg } from './direction';
 import { boardIndex, dropIndex } from './place';
-import type { Favorite } from './favorites';
+import { favoriteLeg, type Favorite } from './favorites';
 import { departuresOn, tripArrivalAt } from './schedule';
 import { addDays, localYmd } from './time';
 import type { Dataset } from './types';
@@ -23,7 +22,11 @@ export interface CommuteChange {
   date?: string;
   before: ChangedDeparture[];
   after: ChangedDeparture[];
+  /** Clocks travel with each notice when a later baseline replaces its schedule. Legacy notices omit this. */
+  sources?: { before: ScheduleSource; after: ScheduleSource };
 }
+export interface ScheduleSource { source: string; version: string; builtAt: string }
+export const scheduleSource = (ds: Dataset): ScheduleSource => ({ source: ds.meta.source, version: ds.meta.feedVersion, builtAt: ds.meta.builtAt });
 export interface CommuteChangeState {
   version: 1;
   baseline: Dataset;
@@ -32,7 +35,8 @@ export interface CommuteChangeState {
 }
 
 export const officialSchedule = (ds: Dataset) => !ds.meta.demo && !ds.meta.transcribed && ds.meta.realtime?.provider === 'njt-bus-g2';
-export const favoriteKey = (f: Favorite) => JSON.stringify([f.id, f.fromStopId, f.toStopId, [...f.routeIds].sort()]);
+export const favoriteKey = (f: Favorite) => JSON.stringify([f.id, f.fromStopId, f.toStopId, [...f.routeIds].sort(),
+  ...(f.returnStops ? [[f.returnStops.fromStopId, f.returnStops.toStopId]] : [])]);
 
 function coverage(ds: Dataset) {
   const used = new Set(ds.trips.map(t => t.serviceId));
@@ -42,10 +46,10 @@ function coverage(ds: Dataset) {
 }
 
 /** Reuse the app's exact pickup/drop-off, return-side, after-midnight and DST rules. */
-function commuteDataset(ds: Dataset, f: Favorite) {
-  const back = returnLeg(ds, f.fromStopId, f.toStopId, f.routeIds);
+function commuteDataset(ds: Dataset, f: Favorite, withReturn = true) {
+  const back = withReturn ? favoriteLeg(ds, f, true) : undefined;
   const legs = [{ direction: 'out' as const, fromStopId: f.fromStopId, toStopId: f.toStopId },
-    ...(back ? [{ direction: 'back' as const, ...back }] : [])];
+    ...(back ? [{ direction: 'back' as const, fromStopId: back.fromStopId, toStopId: back.toStopId }] : [])];
   const patterns = ds.patterns.filter(p => (!f.routeIds.length || f.routeIds.includes(p.routeId)) && legs.some(leg => {
     const from = boardIndex(ds, p, leg.fromStopId), to = from < 0 ? -1 : dropIndex(ds, p, leg.toStopId, from + 1);
     return from >= 0 && to > from;
@@ -116,9 +120,13 @@ function removeUnchanged(a: ReturnType<typeof commuteDataset>, b: ReturnType<typ
 /** First provable changed day within both loaded schedules, not an extrapolation beyond their calendars. */
 export function compareCommute(old: Dataset, next: Dataset, favorite: Favorite, today: string): Omit<CommuteChange, 'id' | 'favoriteId' | 'favoriteKey' | 'fromVersion' | 'toVersion'> | undefined {
   if (!officialSchedule(old) || !officialSchedule(next) || old.meta.timezone !== next.meta.timezone || old.meta.feedVersion === next.meta.feedVersion) return undefined;
-  const stops = [favorite.fromStopId, favorite.toStopId];
-  if (stops.some(id => !old.stops.some(s => s.id === id))) return undefined; // No known old selection to compare.
-  if (stops.some(id => !next.stops.some(s => s.id === id)) || favorite.routeIds.some(id => old.routes.some(r => r.id === id) && !next.routes.some(r => r.id === id))) {
+  const known = (ds: Dataset, id: string) => ds.stops.some(s => s.id === id);
+  if (![favorite.fromStopId, favorite.toStopId].every(id => known(old, id))) return undefined; // No known old selection to compare.
+  // A saved return already missing from the old feed was reported then; keep checking the forward leg.
+  const returnIds = favorite.returnStops ? [favorite.returnStops.fromStopId, favorite.returnStops.toStopId] : [];
+  const withReturn = returnIds.every(id => known(old, id));
+  const stops = [favorite.fromStopId, favorite.toStopId, ...(withReturn ? returnIds : [])];
+  if (stops.some(id => !known(next, id)) || favorite.routeIds.some(id => old.routes.some(r => r.id === id) && !next.routes.some(r => r.id === id))) {
     return { kind: 'selection', before: [], after: [] };
   }
   const a = coverage(old), b = coverage(next);
@@ -128,7 +136,7 @@ export function compareCommute(old: Dataset, next: Dataset, favorite: Favorite, 
   if (!a.start || !b.start || !a.end || !b.end || !through || through < sharedStart || addDays(through, 1) < from) return { kind: 'uncomparable', before: [], after: [] };
   // GTFS service can depart on the preceding local evening at spring-forward, or after midnight on the last day.
   const lastDepartureDay = addDays(through, 1);
-  const [before, after] = removeUnchanged(commuteDataset(old, favorite), commuteDataset(next, favorite), sharedStart, through);
+  const [before, after] = removeUnchanged(commuteDataset(old, favorite, withReturn), commuteDataset(next, favorite, withReturn), sharedStart, through);
   // Same bounded year as the existing read-only schedule checker; weekly files normally cover much less.
   for (let date = from, days = 0; (before.ds.trips.length || after.ds.trips.length) && date <= lastDepartureDay && days <= 366; date = addDays(date, 1), days++) {
     const oldRows = dayRows(before, favorite, date, sharedStart, through), newRows = dayRows(after, favorite, date, sharedStart, through);
@@ -164,7 +172,8 @@ export function advanceCommuteChanges(previous: CommuteChangeState | undefined, 
       if (!change) continue;
       const id = JSON.stringify([previous.baseline.meta.feedVersion, ds.meta.feedVersion, key]);
       if (!notices.some(n => n.id === id)) notices.push({ ...change, id, favoriteId: f.id, favoriteKey: key,
-        fromVersion: previous.baseline.meta.feedVersion, toVersion: ds.meta.feedVersion });
+        fromVersion: previous.baseline.meta.feedVersion, toVersion: ds.meta.feedVersion,
+        sources: { before: scheduleSource(previous.baseline), after: scheduleSource(ds) } });
     }
   }
   return { version: 1, baseline: ds, favoriteKeys: keys, notices };

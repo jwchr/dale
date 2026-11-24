@@ -1,5 +1,5 @@
 import { checkDirection, destinationsFrom, reaches } from './direction';
-import { isGeneratedFavoriteLabel, type Favorite } from './favorites';
+import { favoriteLeg, isGeneratedFavoriteLabel, type Favorite } from './favorites';
 import type { Dataset, Stop } from './types';
 
 /** Only verified GIS cities, the authorized printed town prefix, or the confirmed PABT city. */
@@ -39,7 +39,14 @@ export function cityDestinationStops(ds: Dataset, from: string, routeIds: string
 export function changeFavoriteStops(ds: Dataset, favorite: Favorite, from: string, to: string, reversed: boolean): Favorite | undefined {
   const origin = ds.stops.find(stop => stop.id === from), destination = ds.stops.find(stop => stop.id === to);
   if (!origin || !destination || !reaches(ds, from, to, favorite.routeIds)) return undefined;
-  return { ...favorite, fromStopId: from, toStopId: to,
+  // Recover a missing return without replacing the forward trip or swapping its walking plans.
+  if (reversed && (favorite.returnStops || !favoriteLeg(ds, favorite, true))) {
+    return { ...favorite, returnStops: { fromStopId: from, toStopId: to } };
+  }
+  // A confirmed return belongs to the old commute pair; a new pair starts with its own inferred return.
+  const { returnStops, ...base } = favorite;
+  const samePair = from === favorite.fromStopId && to === favorite.toStopId;
+  return { ...base, ...(samePair && returnStops ? { returnStops } : {}), fromStopId: from, toStopId: to,
     label: isGeneratedFavoriteLabel(ds, favorite) ? `${origin.name} → ${destination.name}` : favorite.label,
     ...(reversed && favorite.leave ? { leave: { ...(favorite.leave.back ? { out: favorite.leave.back } : {}), ...(favorite.leave.out ? { back: favorite.leave.out } : {}) } } : {}),
   };

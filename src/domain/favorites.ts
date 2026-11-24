@@ -1,6 +1,7 @@
 // Favorites are an ordered list the rider controls. Order is never changed by proximity or time
 // of day (owner decision D26); suggestions may highlight but must not reorder or overwrite.
 import { cleanLeavePlan, type LeavePlan } from './leaveBy';
+import { returnLeg } from './direction';
 import type { Dataset } from './types';
 
 export interface Favorite {
@@ -12,8 +13,16 @@ export interface Favorite {
   toStopId: string;
   /** Empty = every route that serves the pair. */
   routeIds: string[];
+  /** Rider-confirmed return stops when the forward pair has no inferred way back. */
+  returnStops?: { fromStopId: string; toStopId: string };
   /** Walking time, spare minutes and arrive-by for each direction (issue #54); kept on this phone only. */
   leave?: { out?: LeavePlan; back?: LeavePlan };
+}
+
+/** Use the rider's explicit return choice consistently, including when today's feed loses those stops. */
+export function favoriteLeg(ds: Dataset, favorite: Favorite, reversed: boolean) {
+  const pair = reversed ? favorite.returnStops ?? returnLeg(ds, favorite.fromStopId, favorite.toStopId, favorite.routeIds) : favorite;
+  return pair ? { fromStopId: pair.fromStopId, toStopId: pair.toStopId, routeIds: favorite.routeIds } : undefined;
 }
 
 /** Recognize exact generated labels, including retained provider names after a spelling correction.
@@ -97,6 +106,11 @@ export function loadFavorites(storage: Pick<Storage, 'getItem'> | undefined): Fa
       seen.add(f.id);
       // Validate shape, not membership in today's dataset: demo and real commutes share this key.
       const favorite: Favorite = { id: f.id, label: f.label, fromStopId: f.fromStopId, toStopId: f.toStopId, routeIds: f.routeIds };
+      const pair = f.returnStops;
+      if (pair && typeof pair === 'object' && !Array.isArray(pair)) {
+        const stops = pair as Record<string, unknown>;
+        if (id(stops.fromStopId) && id(stops.toStopId)) favorite.returnStops = { fromStopId: stops.fromStopId, toStopId: stops.toStopId };
+      }
       // A damaged leave plan is dropped on its own; the commute itself is kept.
       const leave = f.leave && typeof f.leave === 'object' && !Array.isArray(f.leave) ? f.leave as Record<string, unknown> : {};
       const out = cleanLeavePlan(leave.out);

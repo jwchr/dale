@@ -1,5 +1,7 @@
+import { commuteBriefingStrings } from './commuteBriefingStrings';
 export const commuteChangeStrings = {
   en: {
+    briefing: commuteBriefingStrings.en,
     heading: 'Schedule changes',
     title: (name: string) => `Schedule update · ${name}`,
     timetable: 'NJ Transit changed buses on this saved trip.',
@@ -18,6 +20,7 @@ export const commuteChangeStrings = {
     storage: 'Dale cannot safely save schedule notices in this browser. Changes on this page will be lost when you close it.',
   },
   es: {
+    briefing: commuteBriefingStrings.es,
     heading: 'Cambios de horario',
     title: (name: string) => `Actualización de horario · ${name}`,
     timetable: 'NJ Transit cambió los autobuses de este viaje guardado.',
