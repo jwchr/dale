@@ -14,6 +14,8 @@ export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
   last: Partial<Record<RawFeed, string>>; lastAt: Partial<Record<RawFeed, number>>; ledgers: Record<string, Ledger>;
   pending: Pending[]; reason: string; failures: number; missing: number; blockedSecrets: number;
+  /** When a storage, operation or SQL guard last refused raw saving (absent in older checkpoints). */
+  budgetAt?: number;
 }
 export const newRawArchiveState = (): RawArchiveState => ({ v: 1, credit: { bytes: 0, a: 0, b: 0, writes: 0, day: '' },
   last: {}, lastAt: {}, ledgers: {}, pending: [], reason: 'waiting', failures: 0, missing: 0, blockedSecrets: 0 });
@@ -23,6 +25,11 @@ const digest = async (bytes: Uint8Array<ArrayBuffer>) => crypto.subtle.digest('S
 const hash = async (bytes: Uint8Array<ArrayBuffer>) => hex(await digest(bytes));
 const hour = (at: number) => new Date(at).toISOString().slice(0, 13);
 const totals = (): Counts => ({ count: 0, rawBytes: 0, gzipBytes: 0, identical: 0 });
+const BUDGET_REASONS = ['free-storage-budget', 'free-operation-budget', 'sql-write-budget'];
+/** A budget stop pauses statewide rail fetches for an hour, then lets one poll try again. The reason
+ *  alone stays set until a capture succeeds, which never happens if nothing else is saved (audit DL-006). */
+export const rawBudgetPausesRail = (state: RawArchiveState | undefined, now: number) =>
+  !!state && BUDGET_REASONS.includes(state.reason) && now - (state.budgetAt ?? 0) < 3_600_000;
 const ledgerKey = (ledger: Ledger) => `raw/v1/${ledger.hour.slice(0, 10)}/ledgers/${ledger.hour.slice(11)}.json`;
 
 async function bounded<T>(task: Promise<T>): Promise<T> {
@@ -37,10 +44,22 @@ function headerTimestamp(bytes: Uint8Array): number | null {
   } catch { return null; }
 }
 /** Exact known secrets are rejected, never redacted: redaction would alter the original evidence. */
+/** Searches the bytes directly: decoding a 32 MiB response into a string for each poll would
+ *  double its memory inside the Worker's 128 MB limit (audit DL-007). */
 function containsSecret(bytes: Uint8Array, secrets: string[]) {
-  const text = new TextDecoder().decode(bytes);
+  const encoder = new TextEncoder();
   return secrets.filter(Boolean).some(secret => [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]
-    .some(value => text.includes(value)));
+    .some(value => includesBytes(bytes, encoder.encode(value))));
+}
+function includesBytes(haystack: Uint8Array, needle: Uint8Array) {
+  if (!needle.length) return true;
+  const last = haystack.length - needle.length;
+  for (let at = haystack.indexOf(needle[0]!); at !== -1 && at <= last; at = haystack.indexOf(needle[0]!, at + 1)) {
+    let n = 1;
+    while (n < needle.length && haystack[at + n] === needle[n]) n++;
+    if (n === needle.length) return true;
+  }
+  return false;
 }
 
 /** Private immutable originals. Metadata-only intents are checkpointed together for the whole poll
@@ -69,7 +88,7 @@ export class RawArchive {
       if (reason === 'free-storage-budget' && addBytes > need - c.bytes) {
         addBytes = need - c.bytes; reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
       }
-      if (reason) { this.state.reason = reason; return false; }
+      if (reason) { this.state.reason = reason; this.state.budgetAt = now; return false; }
       c.bytes += addBytes; c.a += addA; c.b += addB; c.writes += addWrites;
     }
     c.bytes -= bytes; c.a -= a; c.b -= b; c.writes--;

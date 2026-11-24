@@ -11,7 +11,7 @@ import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
 import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistoryStorage } from './history-journal';
 import { HistoryArchive, type HistoryBucket } from './history-archive';
-import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from './raw-archive';
+import { RawArchive, newRawArchiveState, rawBudgetPausesRail, type RawArchiveState, type RawResponse } from './raw-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
 import { ArrivalConfidence } from './arrival-confidence';
@@ -269,8 +269,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const now = clock(); this.saved.pollAt = now;
       // Only a switched-on archive saves or counts new responses; a draining one just finishes old work.
       const saving = this.rawSaving ? this.rawArchive : undefined;
-      const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled'
-        && !['free-storage-budget', 'free-operation-budget', 'sql-write-budget'].includes(this.saved.rawArchive?.reason ?? '');
+      const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
         if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);

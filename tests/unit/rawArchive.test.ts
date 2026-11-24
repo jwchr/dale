@@ -285,6 +285,20 @@ describe('private as-received raw archives', () => {
     const health = JSON.stringify(h.raw.status());
     expect(health).not.toContain('sha256'); expect(health).not.toContain('synthetic'); expect(health).not.toContain('.pb');
   });
+  it('finds a secret by bytes, including after a near miss, URL-encoded or JSON-escaped (audit DL-007)', async () => {
+    const h = await harness(), secret = 'synthetic"pass word';
+    const bodies = [`synthetic"pass worX synthetic"pass word`, `a=${encodeURIComponent(secret)}`, JSON.stringify({ echo: secret }), 'synthetic"pass wor'];
+    await h.raw.capture(bodies.map((body, n) => ({ feed: 'rail-getTripUpdates', receivedAt: NOW + n, bytes: new TextEncoder().encode(body) })), NOW, [secret]);
+    expect(h.raw.status().blockedSecrets).toBe(3);
+    expect(h.raw.status().hoursUTC[0]!.feeds['rail-getTripUpdates']!.count).toBe(1);
+  });
+  it('checks a large response for secrets without decoding it into a string (audit DL-007)', async () => {
+    const h = await harness(), big = new Uint8Array(4 * 1024 * 1024);
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    await h.raw.capture([input(NOW, big)], NOW, ['synthetic-password']);
+    expect(decode.mock.calls.some(([bytes]) => ((bytes as ArrayBufferView | undefined)?.byteLength ?? 0) >= big.byteLength)).toBe(false);
+    expect(h.raw.status().blockedSecrets).toBe(0); expect(h.raw.status().reason).toBe('ready');
+  });
 });
 
 describe('raw collection through the bus Worker', () => {
@@ -334,6 +348,13 @@ describe('raw collection through the bus Worker', () => {
     for (const feed of ['getVehiclePositions', 'getTripUpdates', 'rail-getVehiclePositions', 'rail-getTripUpdates']) expect(feeds[feed].count).toBe(3);
     expect(JSON.stringify(await h.health())).not.toContain('synthetic');
     expect(h.urls.some(url => url.includes('/TrainData/'))).toBe(false);
+  });
+  it('tries statewide rail again an hour after a budget stop, even when nothing else clears it (audit DL-006)', async () => {
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
+    h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
   });
   it('keeps trip updates and rail when vehicle positions fail upstream', async () => {
     const h = await service(); h.failBus(); await h.poll();
