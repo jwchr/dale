@@ -22,4 +22,4 @@ Once the app runs on NJ Transit's data feed: schedule data was obtained from NJ 
 
 ## License
 
-Dale's own code is under the [MIT License](LICENSE) (copyright jwchr): anyone may reuse it if they keep the copyright line, with no warranty. The license covers only Dale's own work. NJ Transit schedule and live data stay under NJ Transit's developer terms, and fonts, map sprites, photos and other third-party assets stay under their own licenses and credits, as noted where each is used.
+Dale's own code is under the [MIT License](LICENSE) (copyright jwchr): anyone may reuse it if they keep the copyright notice and the license's permission notice (the full [LICENSE](LICENSE) text), with no warranty. The license covers only Dale's own work. NJ Transit schedule and live data stay under NJ Transit's developer terms, and fonts, map sprites, photos and other third-party assets stay under their own licenses and credits, as noted where each is used.
