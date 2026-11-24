@@ -26,7 +26,7 @@ Owner decisions D01-D29 live in master spec v1.3 (archive). Entries below are ne
 | D31 | 2026-10-31 | Household first (Jeff and one other household rider), designed to go public later after NJ Transit's written permission. | D16, D19 |
 | D32 | 2026-10-31 | Public GitHub repository `jwchr/arriba` (free Actions minutes; no secrets or recorded data committed). | D29 |
 | D33 | 2026-10-31 | Owner reports NJ Transit's OK for archiving; archive starts when credentials work and stays private. D77 replaces the original corridor-only scope with statewide storage (Jeff, Nov 21, 2026: "Let's store everything"; reason: build the data he wants). | D10, P0-03; scope amended by D77 |
-| D34 | 2026-10-31 | Web app (PWA) with server-sent Web Push for V1; native wrapper (Capacitor) decided at V1.5 from measured push latency. | D03 |
+| D34 | 2026-10-31 | Web app (PWA) with server-sent Web Push for V1; native wrapper (Capacitor) decided at V1.5 from measured push latency. If built, its Android project targets the newest stable Android from day one (Android 17, API 37 as of Nov 24, 2026), per Jeff's global rule in `~/.claude/CLAUDE.md` (Jeff, Nov 24, 2026: "Let's please use the latest unless there's a reason not to"; reason: Google Play blocks apps that target an old Android version). | D03 |
 | D35 | 2026-10-31 | Gate source is NJ Transit's API, not the Port Authority. Gate cards replace the indoor routing graph in V1; live indoor dot dropped unless the Port Authority deploys positioning. | D23, D24 |
 | D36 | 2026-10-31 | V1 skins: Clean, dark, Turnpike. Parkway, subway variants and atlas move to V2. | D17, D27 |
 | D37 | 2026-10-31 | Delay charts: default plain sentence plus strip; A/B/C behind a tap; add day-by-time heatmap. | D11, D18 |
