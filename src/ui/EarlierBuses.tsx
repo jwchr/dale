@@ -3,7 +3,7 @@ import { loadEarlierBuses } from '../data/earlierBuses';
 import { parseEarlierQuery, type EarlierAnswer, type EarlierBus, type EarlierTime } from '../domain/earlierBuses';
 import { formatTime12, localYmd } from '../domain/time';
 import { routeLabel } from '../domain/routeDisplay';
-import { samePlace } from '../domain/place';
+import { boardIndex, samePlace } from '../domain/place';
 import type { Dataset } from '../domain/types';
 import { strings, type Lang } from './i18n';
 
@@ -13,7 +13,7 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
   const queries = useMemo(() => {
     const routes = new Set(routeIds), seen = new Set<string>();
     return ds.patterns.flatMap(p => {
-      const index = p.stopIds.indexOf(stop);
+      const index = boardIndex(ds, p, stop);
       if ((routes.size > 0 && !routes.has(p.routeId)) || index < 0 || (direction !== undefined && p.directionId !== direction)
         || (toStop && !p.stopIds.some((id, i) => samePlace(ds, id, toStop) && i > index))) return [];
       const route = ds.routes.find(r => r.id === p.routeId)?.shortName;
@@ -28,13 +28,11 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
   const [view, setView] = useState<{ key: string; answers?: (EarlierAnswer | undefined)[] }>({ key: '' });
   useEffect(() => {
     let alive = true;
-    const load = async () => {
+    const end = pollWhileVisible(async isLatest => {
       const answers = api && !ds.meta.demo ? await Promise.all(queries.map(q => loadEarlierBuses(api, q, today))) : [];
-      if (alive) setView({ key, answers });
-    };
-    void load();
-    const timer = setInterval(() => { void load(); }, 60_000);
-    return () => { alive = false; clearInterval(timer); };
+      if (alive && isLatest()) setView({ key, answers });
+    }, typeof document === 'undefined' ? undefined : document, 60_000);
+    return () => { alive = false; end(); };
   }, [key, today, api, ds.meta.demo]);
   const loading = view.key !== key || !view.answers;
   const answers = view.key === key ? view.answers ?? [] : [];
@@ -89,4 +87,21 @@ export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds:
       </dd></div>)}</dl>
     <p className="small muted">{s.explain}</p>
   </details>;
+}
+
+type VisibilityDoc = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+/**
+ * Runs `load` now, every `everyMs` while the page is visible, and again when it becomes visible
+ * (audit, Nov 24, 2026): a hidden tab does not poll, and only the newest run may show its answer,
+ * so a slow older request can never replace a newer list.
+ */
+export function pollWhileVisible(load: (isLatest: () => boolean) => Promise<void> | void, doc: VisibilityDoc | undefined, everyMs: number): () => void {
+  let latest = 0;
+  const run = () => { const ticket = ++latest; void load(() => ticket === latest); };
+  const visible = () => doc?.visibilityState !== 'hidden';
+  run();
+  const timer = setInterval(() => { if (visible()) run(); }, everyMs);
+  const onChange = () => { if (visible()) run(); };
+  doc?.addEventListener('visibilitychange', onChange);
+  return () => { clearInterval(timer); doc?.removeEventListener('visibilitychange', onChange); };
 }

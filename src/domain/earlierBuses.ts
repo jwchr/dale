@@ -3,6 +3,7 @@ import { isServiceActive, tripArrivalAt, tripTimeAt } from './schedule';
 import { addDays, localYmd } from './time';
 import { validServiceDate, type LivePrediction } from './liveBus';
 import type { Dataset, Pattern, Trip } from './types';
+import { boardIndex, placeIndex } from './place';
 
 export interface EarlierQuery { route: string; stop: string; direction: 0 | 1 }
 export interface EarlierTime {
@@ -29,7 +30,7 @@ export function parseEarlierQuery(params: URLSearchParams, ds: Dataset): Earlier
   const route = params.get('route')!, stop = params.get('stop')!, direction = params.get('direction');
   if (!CONFIDENCE_ROUTES.includes(route) || !['0', '1'].includes(direction!)) return;
   const routes = new Set(ds.routes.filter(r => r.shortName === route).map(r => r.id));
-  if (!ds.patterns.some(p => routes.has(p.routeId) && p.directionId === Number(direction) && p.stopIds.includes(stop))) return;
+  if (!ds.patterns.some(p => routes.has(p.routeId) && p.directionId === Number(direction) && placeIndex(ds, p, stop) >= 0)) return;
   return { route, stop, direction: Number(direction) as 0 | 1 };
 }
 
@@ -95,7 +96,8 @@ export function createEarlierDomain(ds: Dataset) {
     const items: { scheduled: number; bus: EarlierBus }[] = [];
     for (const [id, row] of Object.entries(state.trips)) {
       const m = match(id); if (!m || m.route !== query.route || m.pattern.directionId !== query.direction) continue;
-      const index = m.pattern.stopIds.indexOf(query.stop);
+      // Any Port Authority stop ID is the rider's Port Authority (audit, Nov 24, 2026): late trips use other gates.
+      const index = boardIndex(ds, m.pattern, query.stop);
       if (index < 0 || !row.progress || row.progress[1] <= index) continue;
       const scheduled = tripTimeAt(ds, m.trip, m.date, index);
       if (localYmd(scheduled, ds.meta.timezone) !== today || scheduled > now) continue;
@@ -106,7 +108,9 @@ export function createEarlierDomain(ds: Dataset) {
           : p ? { at: p.at, sourceAt: p.observedAt, kind: 'prediction' as const } : null;
         return { scheduledAt, evidence: evidence && { ...evidence, minutesLate: scheduledAt === null ? null : Math.round((evidence.at - scheduledAt) / 60_000) } };
       }
-      const terminal = m.pattern.stopIds.findIndex((s, i) => i > index && pabt.has(s));
+      // The last Port Authority call: live arrival evidence is kept only for the final terminal call, never the drop-off before it.
+      let terminal = -1;
+      for (let i = m.pattern.stopIds.length - 1; i > index; i--) if (pabt.has(m.pattern.stopIds[i]!)) { terminal = i; break; }
       items.push({ scheduled, bus: { route: m.route, direction: query.direction, stop: time(index, false), portAuthority: terminal >= 0 ? time(terminal, true) : null } });
     }
     items.sort((a, b) => b.scheduled - a.scheduled);
