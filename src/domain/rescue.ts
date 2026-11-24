@@ -221,10 +221,11 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
 type StopRef = Pick<Stop, 'id' | 'terminal'>;
 
 /** Keep the first ordinary home/twin call; Port Authority uses its final allowed arrival call. */
-function homeDropIndex(ds: Dataset, pattern: Pattern, homes: StopRef[], from: number): number {
+// `allow` limits the calls that count, so an unusable later call never hides a usable earlier one.
+function homeDropIndex(ds: Dataset, pattern: Pattern, homes: StopRef[], from: number, allow?: (stopId: string) => boolean): number {
   let found = -1;
   for (let i = from; i < pattern.stopIds.length; i++) {
-    if (pattern.noDropOff?.includes(i) || !homes.some(h => samePlace(ds, h.id, pattern.stopIds[i]!))) continue;
+    if (pattern.noDropOff?.includes(i) || (allow && !allow(pattern.stopIds[i]!)) || !homes.some(h => samePlace(ds, h.id, pattern.stopIds[i]!))) continue;
     found = i;
     if (homes[0]?.terminal !== 'PABT') break;
   }
@@ -277,9 +278,10 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
       // Only the trips that go on from this stop to home: searching just those keeps this fast.
       const trips = [...changeStops.get(stopId) ?? []].flatMap((id) => tripsByPattern.get(id) ?? []);
       for (const next of departuresOn({ ...ds, trips }, { stopId, date })) {
-        const h = homeDropIndex(ds, next.pattern, homes, next.stopIndex + 1);
-        // samePlace admits every Port Authority stop ID; offer only a drop-off stop with a known location (CodeRabbit, #280).
-        if (h < 0 || !locatedIds.has(next.pattern.stopIds[h]!)) continue;
+        // samePlace admits every Port Authority stop ID; offer only a drop-off stop with a known location
+        // (CodeRabbit, #280), the last such one for Port Authority (Neon, #280).
+        const h = homeDropIndex(ds, next.pattern, homes, next.stopIndex + 1, (id) => locatedIds.has(id));
+        if (h < 0) continue;
         const end = timeAt(next, h);
         if (end) list.push({ next, h, end });
       }

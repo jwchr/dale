@@ -93,8 +93,8 @@ it('retains simultaneous GPS milestones', () => {
     for (const update of hooks.pending.splice(0)) update();
   };
   const expected: Milestone[] = [
-    { index: 1, at: now - 1000, source: 'bus_gps' },
     { index: 2, at: now, source: 'phone_gps' },
+    { index: 1, at: now - 1000, source: 'bus_gps' },
   ];
   render();
   expect(hooks.states[0]).toMatchObject({ milestones: expected, follow: true });
@@ -106,11 +106,36 @@ it('retains simultaneous GPS milestones', () => {
   render();
   expect(hooks.states[0]).toMatchObject({ milestones: expected });
 
-  // Both fixes at the same new stop produce one milestone in this effect run.
+  // Both fixes at the same new stop produce one milestone in this effect run: the rider's own phone mark.
   session.id = 'milestones-audit-same-stop';
   hooks.states = [{ milestones: [], follow: true }];
   render();
-  expect(hooks.states[0]).toMatchObject({ milestones: [expected[0]] });
+  expect(hooks.states[0]).toMatchObject({ milestones: [{ index: 1, at: now + 1, source: 'phone_gps' }] });
+});
+
+it('records only phone marks while the official feed is down, and ignores earlier bus marks (Neon, #280)', () => {
+  const ds = structuredClone(liveDataset);
+  ds.stops = ['A', 'B', 'C', 'D'].map((id, i) => ({ id, name: id, lat: 40.8 + i * .01, lon: -74 }));
+  ds.patterns = [{ ...ds.patterns[0]!, stopIds: ['A', 'B', 'C', 'D'] }];
+  ds.trips = [{ ...ds.trips[0]!, patternId: ds.patterns[0]!.id, times: [30000, 30600, 31200, 31800] }];
+  const dep = departuresOn(ds, { stopId: 'A', date: '20261104' })[0]!;
+  const now = dep.departs + 1200_000;
+  const session = createBusSession(dep, now, 'milestones-feed-down');
+  session.lock.status = 'tracked';
+  session.officialFeed = { state: 'missing', checkedAt: now };
+  session.lock.last = { tripInstanceId: dep.tripInstanceId, vehicleId: 'synthetic', observedAt: now, lat: ds.stops[2]!.lat!, lon: -74 };
+  hooks.phone = { lat: ds.stops[1]!.lat!, lon: -74, at: now, accuracyM: 10 };
+  // An earlier bus mark further along must not hide the phone's stop while the feed is down.
+  hooks.states[0] = { milestones: [{ index: 3, at: now - 60_000, source: 'bus_gps' }], follow: true };
+  hooks.stateIndex = 0;
+  StripMap({ ds, session, alightIndex: 3, now, t: strings.en, lang: 'en' });
+  for (const effect of hooks.effects.splice(0)) effect();
+  for (const update of hooks.pending.splice(0)) update();
+  expect(hooks.states[0]).toMatchObject({ milestones: [
+    { index: 3, at: now - 60_000, source: 'bus_gps' },
+    { index: 1, at: now, source: 'phone_gps' },
+  ] });
+  expect((hooks.states[0] as { milestones: Milestone[] }).milestones).toHaveLength(2);
 });
 
 it('keeps the phone mark when the bus fix is already further along', () => {
@@ -130,7 +155,7 @@ it('keeps the phone mark when the bus fix is already further along', () => {
   for (const effect of hooks.effects.splice(0)) effect();
   for (const update of hooks.pending.splice(0)) update();
   expect(hooks.states[0]).toMatchObject({ milestones: [
-    { index: 2, at: now, source: 'bus_gps' },
     { index: 1, at: now, source: 'phone_gps' },
+    { index: 2, at: now, source: 'bus_gps' },
   ] });
 });

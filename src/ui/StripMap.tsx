@@ -56,7 +56,9 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
 
   // A GPS fix at a stop counts as reaching it, once.
   useEffect(() => {
-    const fixes: [Fix | undefined, Milestone['source']][] = [[bus, 'bus_gps'], [phone, 'phone_gps']];
+    // Phone first: when both reach the same stop, the rider's own mark is kept, and it still counts
+    // if the official feed later drops (Neon, #280).
+    const fixes: [Fix | undefined, Milestone['source']][] = [[phone, 'phone_gps'], [bus, 'bus_gps']];
     setState(previous => {
       const milestones = [...previous.milestones];
       // Same milestones tripProgress counts: bus GPS ones only while the official feed is OK.

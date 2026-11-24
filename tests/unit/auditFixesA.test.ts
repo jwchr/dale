@@ -94,6 +94,22 @@ describe('audit A: terminal boardings and rescue', () => {
     for (const s of ds.stops) if (s.id === '31899' || s.id === '31858') { delete s.lat; delete s.lon; }
     expect(rescueOptions(ds, 'A', '26229-test', now).transfers).toEqual([]);
   });
+
+  it('offers the located Port Authority stop when the final one has no known location (Neon, #280)', () => {
+    const ds = terminalDataset();
+    ds.patterns = [
+      { id: 'first', routeId: 'R', directionId: 0, headsign: 'Change', stopIds: ['A', 'C'] },
+      { id: 'second', routeId: 'R', directionId: 0, headsign: 'Terminal', stopIds: ['C', '31899', '31858'] },
+    ];
+    ds.trips = [
+      { id: 'first', patternId: 'first', serviceId: 'S', times: [64800, 65400] },
+      { id: 'second', patternId: 'second', serviceId: 'S', times: [65700, 66600, 67200] },
+    ];
+    for (const s of ds.stops) if (s.id === '31858') { delete s.lat; delete s.lon; }
+    const transfers = rescueOptions(ds, 'A', '26229-test', now).transfers;
+    expect(transfers.map(x => x.second.alightStopId)).toEqual(['31899']);
+    expect(transfers[0]!.arrives).toBe(zonedWallTime(2026, 11, 24, 18, 30, 'America/New_York'));
+  });
 });
 
 describe('audit A: arrival-only boarding evidence', () => {
