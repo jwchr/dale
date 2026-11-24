@@ -356,6 +356,14 @@ describe('raw collection through the bus Worker', () => {
     h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
     h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
   });
+  it('waits another hour when the rail retry after a budget stop fails before saving anything (Neon Nov24 d, #278)', async () => {
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
+    h.failRail(); h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 90_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 30_000 + 7_200_000); await h.poll(); expect(h.railCalls).toBe(6);
+  });
   it('keeps trip updates and rail when vehicle positions fail upstream', async () => {
     const h = await service(); h.failBus(); await h.poll();
     const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;

@@ -30,6 +30,11 @@ const BUDGET_REASONS = ['free-storage-budget', 'free-operation-budget', 'sql-wri
  *  alone stays set until a capture succeeds, which never happens if nothing else is saved (audit DL-006). */
 export const rawBudgetPausesRail = (state: RawArchiveState | undefined, now: number) =>
   !!state && BUDGET_REASONS.includes(state.reason) && now - (state.budgetAt ?? 0) < 3_600_000;
+/** Starts the hourly rail retry during a budget stop: the next hour's pause begins now, so a retry that
+ *  fails upstream or saves nothing still waits an hour instead of trying every minute (Neon Nov24 d, #278). */
+export const startRailBudgetRetry = (state: RawArchiveState | undefined, now: number) => {
+  if (state && BUDGET_REASONS.includes(state.reason)) state.budgetAt = now;
+};
 const ledgerKey = (ledger: Ledger) => `raw/v1/${ledger.hour.slice(0, 10)}/ledgers/${ledger.hour.slice(11)}.json`;
 
 async function bounded<T>(task: Promise<T>): Promise<T> {
@@ -213,7 +218,10 @@ export class RawArchive {
       this.acknowledge(item);
     }));
     for (const result of results) if (result.status === 'rejected') this.state.failures++;
-    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets > blockedBefore ? 'secret-response-rejected' : 'ready';
+    // A capture that saved nothing new has not shown the budget is back: keep a budget stop, so rail still
+    // waits its hour instead of polling every minute while every fetch fails or repeats (Neon Nov24 d, #278).
+    const stillStopped = !prepared.length && BUDGET_REASONS.includes(this.state.reason);
+    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets > blockedBefore ? 'secret-response-rejected' : stillStopped ? this.state.reason : 'ready';
   }
   private async verifyObject(object: { size: number; arrayBuffer(): Promise<ArrayBuffer> }, size: number, sha256: string) {
     if (object.size !== size) throw new Error('raw-size');
