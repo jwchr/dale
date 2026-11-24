@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# The existing non-author operator classifies risk before requesting one provider.
-# Routine: request a full CodeRabbit review. High-risk: use REVIEW_POLICY.md.
+# Every Dale PR gets a full CodeRabbit review and Neon, and merges only after both.
+# High-risk PRs also follow REVIEW_POLICY.md. Rule home: ~/.claude/CLAUDE.md, Reviews.
 # No automatic duplicate reviews on opening/pushing a high-risk PR.
 reviews:
   auto_review:
