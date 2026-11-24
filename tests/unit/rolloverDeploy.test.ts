@@ -71,8 +71,9 @@ function deployment(scenario: string) {
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
         {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[]),
-        ...(scenario==='ride-secrets'?[{name:'VAPID_PRIVATE_KEY',type:'secret_text'},{name:'HOUSEHOLD_CODE_HASH',type:'secret_text'}]:[]),
+        ...(scenario==='ride-secrets'?[{name:'VAPID_PRIVATE_KEY',type:'secret_text'},{name:'HOUSEHOLD_CODE_HASH',type:'secret_text'},{name:'OWNER_HISTORY_SECRET',type:'secret_text'}]:[]),
         ...(scenario==='ride-secret-plain'?[{name:'HOUSEHOLD_CODE_HASH',type:'plain_text',text:'0'.repeat(64)}]:[]),
+        ...(scenario==='owner-secret-plain'?[{name:'OWNER_HISTORY_SECRET',type:'plain_text',text:'x'}]:[]),
         ...(scenario==='unknown-binding'?[{name:'OTHER_SECRET',type:'secret_text'}]:[])];
       let result;
       if(path==='/deployments')result={deployments:[{versions:[{version_id:id,percentage:100}]}]};
@@ -94,7 +95,7 @@ function deployment(scenario: string) {
     if(temporary)assert.equal(fs.existsSync(temporary),false);
     assert.ok(actorReads.every(at=>at>acknowledgedAt+300000),'READ_DURING_DEFERRAL');
     if(scenario==='admission-failed')assert.ok(clock<acknowledgedAt+330000,'NOT_FAIL_FAST');
-    assert.equal(uploaded,['served-not-old','local-equals-served','quota','receipt-other-context','ride-secret-plain','unknown-binding','raw-before-bad'].includes(scenario)?0:1);
+    assert.equal(uploaded,['served-not-old','local-equals-served','quota','receipt-other-context','ride-secret-plain','owner-secret-plain','unknown-binding','raw-before-bad'].includes(scenario)?0:1);
     assert.ok(!calls.some(p=>/authenticate|getGTFS|VehiclePositions|TripUpdates|v1\\/status|v1\\/live|health/.test(p)));
   `], { env: { NODE_NO_WARNINGS: '1', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'jwchr/dale', GITHUB_SHA: 'a'.repeat(40),
     HISTORY_COLLECTION_MODE: 'rollover-enabled', HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -115,7 +116,7 @@ it.each([
   ['admission-failed', 'rollover-context-admission-failed'], ['regression', 'enabled-continuity-unverified'],
   ['served-not-old', 'enabled-continuity-unverified'], ['local-equals-served', 'rollover-schedule-invalid'],
   ['quota', 'rollover-capacity-refused'], ['receipt-other-context', 'rollover-receipt-unverified'],
-  ['ride-secret-plain', 'worker-existing-configuration-mismatch'], ['unknown-binding', 'worker-existing-configuration-mismatch'],
+  ['ride-secret-plain', 'worker-existing-configuration-mismatch'], ['owner-secret-plain', 'worker-existing-configuration-mismatch'], ['unknown-binding', 'worker-existing-configuration-mismatch'],
   ['confidence-off', 'uploaded-arrival-confidence-invalid'],
   // D78: the raw switches must arrive exactly as declared, and a live switch other than 'enabled' stops the deploy.
   ['raw-off', 'uploaded-raw-switch-invalid'], ['raw-before-bad', 'worker-existing-configuration-mismatch'],

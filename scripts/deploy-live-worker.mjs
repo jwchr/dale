@@ -62,7 +62,7 @@ async function run() {
   // "How sure are we?" counts are public (owner decision D73, Nov 20, 2026): the only accepted value is 'public', as a plain variable.
   const arrivalConfidenceOk = bindings => bindings.filter(b => b.name === 'ARRIVAL_CONFIDENCE').every(b => b.type === 'plain_text' && b.text === 'public');
   // The owner-set locked-phone alert secrets (docs/LOCKED_STOP_ALERTS.md) are optional and must be secrets; deploys keep them.
-  const ownerSecrets = ['VAPID_PRIVATE_KEY', 'HOUSEHOLD_CODE_HASH'];
+  const ownerSecrets = ['VAPID_PRIVATE_KEY', 'HOUSEHOLD_CODE_HASH', 'OWNER_HISTORY_SECRET'];
   if (config.upload_source_maps !== false || config.name !== 'dale-live' || config.main !== 'index.ts' || config.vars?.HISTORY_COLLECTION !== 'disabled' || config.vars?.ARRIVAL_CONFIDENCE !== 'public'
     || Object.keys(config.vars ?? {}).some(name => !['HISTORY_COLLECTION', 'ARRIVAL_CONFIDENCE', ...RAW_SWITCHES].includes(name)) || !arrivalConfidenceOk(before.bindings)
     || !rawSwitchesOk(before.bindings) || !RAW_SWITCHES.every(name => config.vars?.[name] === undefined || config.vars[name] === 'enabled')
