@@ -734,3 +734,19 @@ main { flex: 1; padding-bottom: 24px; }
 .routes-lock { display: inline-flex; align-items: center; gap: 6px; min-block-size: 44px; padding: 6px 12px; font-size: .92rem; margin-inline-start: auto; border-radius: 10px; font-weight: 600; max-inline-size: 100%; min-inline-size: 0; text-align: start; overflow-wrap: anywhere; }
 .routes-stop .dash-fullday > span { flex: 1 1 auto; min-inline-size: 0; overflow-wrap: anywhere; }
 .routes-lock .icon-next { inline-size: 1em; block-size: 1em; }
+
+/* Earlier arrivals reuse Household panels and scale with text rather than fixed tracks. */
+.earlier-buses { min-inline-size: 0; container-type: inline-size; overflow-wrap: anywhere; }
+.earlier-list { list-style: none; padding: 0; margin: .5rem 0; }
+.earlier-list li { border-block-start: 1px solid var(--line); }
+.earlier-list summary { cursor: pointer; padding: .75rem 0; min-block-size: 2.75rem; overflow-wrap: anywhere; }
+.earlier-list summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.earlier-summary, .earlier-evidence { display: grid; gap: .2rem; margin-block: .4rem; }
+.earlier-place { min-inline-size: 0; }
+.earlier-source, .earlier-place > .small { display: block; }
+.earlier-details-label { text-decoration: underline; }
+.earlier-list dl { margin: .5rem 0; }
+.earlier-list dd { margin-inline-start: 0; margin-block-end: .75rem; }
+@container (min-width: 30rem) {
+  .earlier-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+}

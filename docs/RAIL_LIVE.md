@@ -17,7 +17,7 @@ Anderson Street (AS) and Essex Street (EX) with line PV, Secaucus Lower Level (T
 - A rate limit (HTTP 429 or NJ Transit's "Daily usage limit" message) pauses every station for 15 minutes, saved in storage so a restart keeps the pause. The token is kept, so the pause never spends the daily token allowance.
 - The per-station minute lives in the object's memory. A restart (for example a deployment) can allow one extra request per station; persisting every attempt would cost a storage write per station per minute on the Free plan, so it is not done.
 - Token requests: NJ Transit allows 10 a day and recommends one. The Worker reuses one token for up to 23 hours and requests at most 3 a day, at least an hour apart. Each request is counted in storage before it is sent. The manual rail check (`docs/RAIL_API_CHECK.md`) uses the same account, so it keeps room for its own.
-- Agency bodies, messages, headers and tokens never leave `rail.ts`; failures are reported by fixed codes only. An `Invalid token.` body counts as a refused token whatever its HTTP status.
+- Station-board bodies, messages, headers and tokens stay inside `rail.ts`; failures are reported by fixed codes only. D75 separately permits optional private statewide rail GTFS-RT originals, with their own token and no background RailData calls, as described in `docs/HISTORY_COLLECTION.md`; token and API-error bodies are excluded. An `Invalid token.` body counts as a refused token whatever its HTTP status.
 - Each answer is `state: "ok"` with `receivedAt` (Dale's receipt time), or `state: "unavailable"` with a fixed `reason` and `receivedAt: null`.
 
 ## What a rider sees

@@ -3,15 +3,21 @@ import { parseRescueSchedule, RESCUE_SCHEDULE_MAX_BYTES } from '../src/domain/re
 import type { Dataset } from '../src/domain/types';
 import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
-import { authenticate, njtRequest, NjtError, safeNjtFailure, type Credentials } from './njt-client';
+import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
+import { reserveRequests, type RequestBudget } from './request-budget';
+import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
 import { createNormalizer, type NormalizedFeed } from './normalize';
 import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
 import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistoryStorage } from './history-journal';
 import { HistoryArchive, type HistoryBucket } from './history-archive';
+import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from './raw-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
 import { ArrivalConfidence } from './arrival-confidence';
+import { EarlierBuses } from './earlier-buses';
+import { OwnerHistory, OWNER_HISTORY_PATH, ownerAuthorization, ownerQuery } from './owner-history';
+import { parseEarlierQuery } from '../src/domain/earlierBuses';
 import { ArrivalBackfill, type ArchiveReader } from './arrival-backfill';
 import { parseConfidenceQuery } from '../src/domain/arrivalConfidence';
 interface Storage extends Partial<HistoryStorage> {
@@ -19,9 +25,9 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
@@ -38,12 +44,14 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private env: Env;
     private journal?: HistoryJournal;
     private archive?: HistoryArchive;
+    private rawArchive?: RawArchive;
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
     private rail: RailBoards;
     /** "How sure are we?" aggregates (#91): derived counts only, folded from the private hot batches. */
     private confidence?: ArrivalConfidence;
+    private earlier?: EarlierBuses;
     private backfill?: ArrivalBackfill;
     /**
      * When history collection's own alarm is due: exactly the time the alarm would hold with no ride. Ride
@@ -75,7 +83,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           catch { this.rides = undefined; }
           try {
             const contextKey = await historyContextKey(ds);
-            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, contextKey);
+            this.journal = new HistoryJournal(ctx.storage as HistoryStorage, ds, contextKey, env.EARLIER_BUSES === 'public');
+            if (env.EARLIER_BUSES === 'public') {
+              try { this.earlier = new EarlierBuses(ctx.storage as HistoryStorage, ds, contextKey); } catch { /* unavailable */ }
+            }
             // Derived aggregates never stop collection: a failure here only leaves the endpoint unavailable.
             try {
               this.confidence = new ArrivalConfidence(ctx.storage as HistoryStorage, ds, contextKey);
@@ -88,7 +99,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             // A reset can happen before refresh persists its cache. The durable
             // attempt reservation remains the conservative shared pace anchor.
             this.saved.pollAt = Math.max(this.saved.pollAt, this.journal.status(clock()).lastAttemptAt ?? 0);
-            if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
+            if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') {
+              this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
+              this.saved.rawArchive ??= newRawArchiveState();
+              this.rawArchive = new RawArchive(this.saved.rawArchive, this.archive, env.HISTORY_ARCHIVE,
+                () => ctx.storage.put('state-v1', this.saved));
+            }
             if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() === null ? await ctx.storage.getAlarm() : this.saved.historyAt ?? null;
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
@@ -172,6 +188,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.journal?.pruneVerified(clock());
           // Derived work last, from spare write margin only; it never throws into collection.
           const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
+          try { this.earlier?.fold(clock(), spare); } catch { /* independent derived work */ }
           try { this.confidence?.fold(clock(), spare); } catch { /* counted inside */ }
           try { if (this.archive) await this.backfill?.step(clock(), spare); } catch { /* counted inside */ }
         }
@@ -240,12 +257,28 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     }
     private async refresh(): Promise<void> {
       const now = clock(); this.saved.pollAt = now;
+      const railDue = !!this.rawArchive && this.env.RAIL_GTFSRT_RAW === 'enabled'
+        && !['free-storage-budget', 'free-operation-budget', 'sql-write-budget'].includes(this.saved.rawArchive?.reason ?? '');
+      const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
+        if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
+        await this.ctx.storage.put('state-v1', this.saved);
+      }, fetchImpl, clock) : undefined;
+      const railPlan = rail?.prepare(now);
+      const railReason = this.saved.railGtfsrt?.reason;
+      if (rail && !railPlan && railReason && ['request-ceiling', 'token-limit', 'configuration-missing'].includes(railReason)) {
+        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, railReason, now);
+      }
+      const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
+      const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
+      const busAllowed = !authCooldown && reserveRequests(this.saved.busBudget ??= { hours: {} }, needsAuth ? 3 : 2, now);
       // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
       await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
+      const raw: RawResponse[] = [], rawSecrets = [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD];
       try {
+        if (authCooldown) throw new NjtError('authentication-cooldown');
+        if (!busAllowed) throw new NjtError('request-ceiling');
         if (!this.saved.token || this.saved.token.expiresAt <= now) {
-          if (now - this.saved.authAt < AUTH_RETRY_MS) throw new NjtError('authentication-cooldown');
           this.saved.authAt = now;
           await this.ctx.storage.put('state-v1', this.saved);
           this.saved.token = { value: await authenticate(this.env, fetchImpl), expiresAt: now + 20 * 3600_000 };
@@ -257,12 +290,18 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         // feed still works with it. A refusal with no working feed drops it, so login is retried
         // (within the existing one-hour cooldown) instead of reusing a dead token until it expires.
         let denials = 0, successes = 0;
+        rawSecrets.push(token);
         const fetchFeed = async (endpoint: 'getVehiclePositions' | 'getTripUpdates', kind: 'vehicles' | 'updates') => {
           // A cooldown is not a new endpoint attempt: retain the last failure until that feed retries.
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
-          try { const feed = normalize(await njtRequest(endpoint, { token }, 8 * 1024 * 1024, fetchImpl), kind, clock()); if (feed.feed.state !== 'invalid') successes++; return feed; }
+          try {
+            const bytes = await njtRequest(endpoint, { token }, this.rawArchive ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            if (this.rawArchive) raw.push({ feed: endpoint, bytes, receivedAt });
+            const feed = normalize(bytes, kind, receivedAt); if (feed.feed.state !== 'invalid') successes++; return feed;
+          }
           catch (error) {
+            this.rawArchive?.recordFailure(endpoint, safeNjtFailure(error), clock());
             this.saved.failures![kind] = { code: safeNjtFailure(error), at: now };
             if (error instanceof NjtError && error.code === 'access-denied') denials++;
             return unavailable();
@@ -272,14 +311,40 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (denials > 0 && successes === 0) this.saved.token = undefined;
         this.saved.vehicles = vehicles; this.saved.updates = updates;
       } catch (error) {
+        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
         this.saved.vehicles = unavailable(); this.saved.updates = unavailable();
       }
+      if (rail && railPlan) {
+        try {
+          const result = await rail.collect(railPlan);
+          raw.push(...result.responses); rawSecrets.push(...result.secrets);
+          for (const failure of result.failures) this.rawArchive?.recordFailure(failure.feed, failure.code, failure.at);
+        } catch { this.saved.rawArchive!.failures++; }
+      }
+      if (this.rawArchive) {
+        // Raw writes cannot interrupt live buses or normalized corridor evidence.
+        try { await this.rawArchive.capture(raw, clock(), rawSecrets); }
+        catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
+      }
       await this.ctx.storage.put('state-v1', this.saved);
     }
     async fetch(request: Request): Promise<Response> {
+      if (new URL(request.url).pathname === OWNER_HISTORY_PATH) {
+        const denied = await ownerAuthorization(request, this.env.OWNER_HISTORY_SECRET);
+        if (denied) return denied;
+        const headers = { 'cache-control': 'private, no-store', 'vary': 'Authorization' };
+        if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
+        const query = ownerQuery(new URL(request.url));
+        if (!query) return Response.json({ error: 'Invalid query' }, { status: 400, headers });
+        await this.ready;
+        if (!this.journal || !this.ctx.storage.sql || !this.ctx.storage.transactionSync) return Response.json({ error: 'history-unavailable' }, { status: 503, headers });
+        const bucket = this.env.HISTORY_ARCHIVE as unknown as Partial<ArchiveReader> | undefined;
+        return new OwnerHistory(this.ctx.storage as HistoryStorage, typeof bucket?.list === 'function' && typeof bucket.get === 'function' ? bucket as ArchiveReader : undefined)
+          .read(query, clock(), (units, at) => this.journal!.reserveReadWrites(units, at, 2500));
+      }
       await this.ready;
       const url = new URL(request.url);
       // Ride alert routes never trigger a demand refresh; the alarm polls for active rides.
@@ -291,9 +356,19 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive?.status(), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
+      }
+      if (url.pathname === '/v1/earlier-buses') {
+        if (this.env.EARLIER_BUSES !== 'public') return new Response('Not found', { status: 404 });
+        const query = parseEarlierQuery(url.searchParams, ds);
+        if (!query) return Response.json({ v: 1, error: 'invalid' }, { status: 400 });
+        try {
+          const answer = this.earlier?.answer(query, clock());
+          if (answer) return Response.json(answer, { headers: { 'cache-control': 'no-store' } });
+        } catch { /* unknown stays unknown */ }
+        return Response.json({ v: 1, state: 'unavailable' }, { status: 503 });
       }
       // Aggregates only, from SQLite. Never a demand refresh or an NJ Transit request.
       if (url.pathname === '/v1/arrival-confidence') {
@@ -321,7 +396,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive?.status(), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };
@@ -379,6 +454,19 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
       const origin = request.headers.get('origin'), url = new URL(request.url);
       const headers = new Headers({ 'access-control-allow-origin': 'https://jwchr.github.io', 'vary': 'Origin', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       const reply = (body: string | null, status = 200) => new Response(body, { status, headers });
+      if (url.pathname === OWNER_HISTORY_PATH) {
+        // Owner scripts only: no browser CORS grant, token URL, demand poll or public caching.
+        const denied = await ownerAuthorization(request, env.OWNER_HISTORY_SECRET);
+        if (denied) return denied;
+        const privateHeaders = { 'cache-control': 'private, no-store', 'vary': 'Authorization', 'x-content-type-options': 'nosniff' };
+        if (origin) return Response.json({ error: 'Origin not allowed' }, { status: 403, headers: privateHeaders });
+        if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: privateHeaders });
+        if (!ownerQuery(url)) return Response.json({ error: 'Invalid query' }, { status: 400, headers: privateHeaders });
+        try {
+          const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(new Request(request.url, { headers: { authorization: request.headers.get('authorization')! } }));
+          return new Response(response.body, { status: response.status, headers: { ...privateHeaders, 'content-type': 'application/json' } });
+        } catch { return Response.json({ error: 'History unavailable' }, { status: 503, headers: privateHeaders }); }
+      }
       if (origin && origin !== 'https://jwchr.github.io') return reply('Origin not allowed', 403);
       if (request.method === 'OPTIONS') {
         headers.set('access-control-allow-methods', 'GET, POST, DELETE'); headers.set('access-control-allow-headers', 'content-type'); headers.set('access-control-max-age', '600');
@@ -426,6 +514,15 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
         headers.set('content-type', 'application/json');
         headers.set('cache-control', 'public, max-age=300');
         return reply(geometry);
+      }
+      if (url.pathname === '/v1/earlier-buses') {
+        if (env.EARLIER_BUSES !== 'public') return reply('Not found', 404);
+        if (request.url.length > 512 || !parseEarlierQuery(url.searchParams, ds)) return reply('Invalid earlier buses query', 400);
+        try {
+          const response = await env.FEED.get(env.FEED.idFromName('corridor-v1')).fetch(request);
+          headers.set('content-type', 'application/json');
+          return reply(await response.text(), response.status);
+        } catch { return reply('Earlier buses unavailable', 503); }
       }
       if (url.pathname === '/v1/arrival-confidence') {
         // Read-only aggregates (docs/ARRIVAL_CONFIDENCE.md). Strict input; no upstream call is possible on this path.

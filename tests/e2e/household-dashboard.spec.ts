@@ -216,7 +216,7 @@ for (const lang of ['en', 'es'] as const) test(`PABT gates keep trips with diffe
   const trips = page.locator('.gate-trip');
   await expect(trips).toHaveCount(2);
   await expect(trips.nth(0).locator('h3')).toHaveText(/\(165\)$/);
-  await expect(trips.nth(1).locator('h3')).toHaveText(/\(165 · Turnpike Exp\)$/);
+  await expect(trips.nth(1).locator('h3')).toHaveText(new RegExp(`\\(165 · ${strings[lang].gateTurnpikeExpress}\\)$`));
   // After tonight's last bus, the next ones are tomorrow's, and each says so.
   const date = trips.nth(0).locator('.gate-row .dep-date').first();
   await expect(date).toBeVisible();
@@ -264,7 +264,7 @@ for (const lang of ['en', 'es'] as const) test(`Routes & stops: the saved stop, 
   await expect(page.getByRole('group', { name: t.dash.direction })).toBeVisible();
   // Every route the printed timetable runs from this stop to the saved one, counted, never guessed.
   const filter = card.getByRole('combobox', { name: r.filter });
-  await expect(filter.locator('option')).toHaveText([r.allRoutes(2), '165', '165 · Turnpike Exp']);
+  await expect(filter.locator('option')).toHaveText([r.allRoutes(2), '165', `165 · ${t.gateTurnpikeExpress}`]);
   const rows = card.locator('.routes-boards > li');
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toContainText(r.scheduled);

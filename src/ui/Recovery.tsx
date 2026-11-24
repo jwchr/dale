@@ -62,7 +62,7 @@ export function Recovery({ sessionId, ds, dep, alightIndex, now, t, lang, gateTe
         </div>
       </> : !at ? <>
         <h4 id={`recovery-step-${dep.tripInstanceId}`} tabIndex={-1} ref={step}>{r.where}</h4>
-        <p className="small">{kind === 'wrong_bus' ? r.whereWrong(routeLabel(dep.route.shortName)) : r.whereMissed}</p>
+        <p className="small">{kind === 'wrong_bus' ? r.whereWrong(routeLabel(dep.route.shortName, t.gateTurnpikeExpress)) : r.whereMissed}</p>
         {(() => {
           const stops = recoveryStops(ds, dep, alightIndex, kind);
           return stops.length ? <div className="choice-list">{stops.map((id) => <button key={id} className="chip" onClick={() => setAt(id)}>{name(id)}</button>)}</div>
@@ -70,7 +70,7 @@ export function Recovery({ sessionId, ds, dep, alightIndex, now, t, lang, gateTe
         })()}
         {kind === 'wrong_bus' && <>
           <button className="ghost" aria-expanded={!!notListed} onClick={() => update({ ...state, notListed: !notListed })}>{r.notListed}</button>
-          {notListed && <p className="small">{r.notListedHelp(routeLabel(dep.route.shortName))}</p>}
+          {notListed && <p className="small">{r.notListedHelp(routeLabel(dep.route.shortName, t.gateTurnpikeExpress))}</p>}
         </>}
       </> : result && <>
         <h4 id={`recovery-step-${dep.tripInstanceId}`} tabIndex={-1} ref={step}>{r.waysBack(name(dest))}</h4>
@@ -84,7 +84,7 @@ export function Recovery({ sessionId, ds, dep, alightIndex, now, t, lang, gateTe
                 <button className="dep" onClick={() => onOpen(o)}>
                   {badge(o.dep.route.id)}
                   <span className="dep-main">
-                    <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName)}</span>
+                    <span className="dep-sub">{routeHeadsign(o.dep.pattern.headsign, o.dep.route.shortName, t.gateTurnpikeExpress)}</span>
                     <span className="dep-time">{day(o.dep.departs)}{clock(o.dep.departs, o.dep.estimated)}</span>
                     <span className="dep-sub">{t.rescue.arrives(clock(o.arrives, o.arrivesEstimated), name(o.alightStopId))}</span>
                     {o.acrossFromBoard && <span className="dep-sub">{t.rescue.acrossBoard(name(o.boardStopId))}</span>}
@@ -97,7 +97,7 @@ export function Recovery({ sessionId, ds, dep, alightIndex, now, t, lang, gateTe
             );
           })}
         </ol>
-        <p className="muted small">{t.rescue.coverage(routeList(result.routesSearched))}</p>
+        <p className="muted small">{t.rescue.coverage(routeList(result.routesSearched, t.gateTurnpikeExpress))}</p>
         <p className="muted small">{t.rescue.noWalking}</p>
       </>}
       <p className="muted small">{r.keep}</p>
