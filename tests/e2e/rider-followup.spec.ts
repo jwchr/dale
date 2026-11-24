@@ -29,9 +29,10 @@ for (const lang of ['en', 'es'] as const) test(`compact home, legacy label and t
   // Exercise that available width too; the Spanish label used to wrap its whole control.
   for (const width of [320, 305]) {
     await page.setViewportSize({ width, height: 780 });
-    const nav = await page.locator('.home-toolbar .travel-mode').boundingBox();
     const find = await page.getByRole('button', { name: t.findStop, exact: true }).boundingBox();
-    expect(Math.abs(nav!.y - find!.y)).toBeLessThan(2);
+    // Measure both controls in one frame: content above the toolbar may still settle after the resize.
+    const [navY, findY] = await page.evaluate(() => ['.home-toolbar .travel-mode', '.home-toolbar .find-stop'].map(q => document.querySelector(q)!.getBoundingClientRect().top));
+    expect(Math.abs(navY - findY)).toBeLessThan(2);
     expect(find!.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
