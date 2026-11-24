@@ -14,6 +14,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { getScheduleProjection, type BusSession, type BusSessionEvent } from '../domain/busLock';
 import { timetablePosition } from '../domain/tripProgress';
 import { tripStopTimes } from '../domain/schedule';
+import { distanceM } from '../domain/direction';
 import { formatTime12 } from '../domain/time';
 import type { Dataset } from '../domain/types';
 import type { Lang, Strings } from './i18n';
@@ -104,7 +105,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
   }
 
   const nearestStop = last ? ds.stops.filter((s) => dep.pattern.stopIds.includes(s.id) && s.lat !== undefined && s.lon !== undefined)
-    .sort((a, z) => (a.lat! - last.lat) ** 2 + (a.lon! - last.lon) ** 2 - ((z.lat! - last.lat) ** 2 + (z.lon! - last.lon) ** 2))[0] : undefined;
+    .sort((a, z) => distanceM(last, { lat: a.lat!, lon: a.lon! }) - distanceM(last, { lat: z.lat!, lon: z.lon! }))[0] : undefined;
 
   return (
     <section className="card bus-lock" aria-labelledby="bus-lock-heading">

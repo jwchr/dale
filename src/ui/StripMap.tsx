@@ -56,13 +56,32 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
 
   // A GPS fix at a stop counts as reaching it, once.
   useEffect(() => {
-    const fixes: [Fix | undefined, Milestone['source']][] = [[bus, 'bus_gps'], [phone, 'phone_gps']];
-    for (const [fix, source] of fixes) {
-      if (!fix) continue;
-      const i = stopReached(stops, progress.reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
-      if (i !== undefined && i <= ids.length - 1) update({ ...state, milestones: [...state.milestones, { index: i, at: fix.at, source }] });
-    }
-  }, [phone?.at, bus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Phone first: when both reach the same stop, the rider's own mark is kept, and it still counts
+    // if the official feed later drops (Neon, #280).
+    const fixes: [Fix | undefined, Milestone['source']][] = [[phone, 'phone_gps'], [bus, 'bus_gps']];
+    setState(previous => {
+      const milestones = [...previous.milestones];
+      // Same milestones tripProgress counts: bus GPS ones only while the official feed is OK.
+      const feedOk = !session.officialFeed || session.officialFeed.state === 'ok';
+      // Both fixes are checked against the same starting boundary, so a bus fix ahead of the phone
+      // does not hide the phone's own stop (CodeRabbit, #280); tripProgress uses the furthest mark.
+      const reachedIndex = Math.max(dep.stopIndex, ...milestones.filter((m) => m.source !== 'bus_gps' || feedOk).map(m => m.index));
+      const added = new Set<number>();
+      for (const [fix, source] of fixes) {
+        // No new bus GPS marks while the official feed is not OK (Gemini Flash, #280).
+        if (!fix || (source === 'bus_gps' && !feedOk)) continue;
+        const i = stopReached(stops, reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
+        if (i !== undefined && i <= ids.length - 1 && !added.has(i)) {
+          milestones.push({ index: i, at: fix.at, source });
+          added.add(i);
+        }
+      }
+      if (milestones.length === previous.milestones.length) return previous;
+      const next = { ...previous, milestones };
+      kept.set(session.id, next);
+      return next;
+    });
+  }, [phone?.at, bus?.at, session.officialFeed?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function tap(i: number) {
     setUndo(state.milestones);
