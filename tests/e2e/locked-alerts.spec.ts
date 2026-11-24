@@ -399,7 +399,7 @@ test('an idle second tab told of the ride leaves it alone; unlocking in the ridi
 test('a delete that fails is retried a minute later by itself, with no other change or network event', async ({ page }) => {
   const s = strings.en.lockedAlerts;
   const server = await setup(page, { enabled: true, granted: true });
-  // Counts the one-minute timers still waiting (the app's only one is the pending-delete retry), so the test
+  // Counts the one-minute timers still waiting (the pending-delete retry, plus Earlier buses' poll), so the test
   // advances the clock only once the failed delete was handled and its retry timer installed.
   await page.addInitScript(() => {
     const w = window as unknown as { __minuteTimers: number };
@@ -415,13 +415,15 @@ test('a delete that fails is retried a minute later by itself, with no other cha
   });
   const ride = await board(page, 'en');
   await expect(ride.locator('.locked-status [role=status]')).toHaveText(s.on);
-  expect(await page.evaluate(() => (window as unknown as { __minuteTimers: number }).__minuteTimers)).toBe(0);
+  // Earlier buses polls once a minute too, so count from what is already waiting before the delete.
+  const before = await page.evaluate(() => (window as unknown as { __minuteTimers: number }).__minuteTimers);
+  expect(before).toBeLessThanOrEqual(1);
   let fail = true;
   server.remove = (route) => fail ? route.fulfill({ status: 503, headers: cors }) : route.fulfill({ status: 204, headers: cors });
   await ride.getByRole('button', { name: strings.en.ride.gotOff }).click();
   await expect.poll(() => server.deletes).toEqual([`/v1/ride-alerts/${RIDE}?reason=got_off`]);
   await expect.poll(async () => (await saved(page)).pending).toEqual([expect.objectContaining({ id: RIDE, reason: 'got_off' })]);
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __minuteTimers: number }).__minuteTimers)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __minuteTimers: number }).__minuteTimers)).toBe(before + 1);
   fail = false;
   await page.clock.fastForward(61_000);
   await expect.poll(() => server.deletes).toHaveLength(2);
