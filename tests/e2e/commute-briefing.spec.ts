@@ -31,7 +31,7 @@ async function setup(page: Page, dataset: Dataset, lang = 'en', pin = PIN, notic
     const url = new URL(route.request().url());
     if (url.origin === API) {
       if (url.pathname === '/v1/schedule') return route.fulfill({ json: dataset, headers: { 'access-control-allow-origin': '*' } });
-      if (!['/v1/departures','/v1/geometry','/v1/arrival-confidence'].includes(url.pathname)) unexpected.push(url.pathname);
+      if (!['/v1/departures','/v1/geometry','/v1/arrival-confidence','/v1/earlier-buses'].includes(url.pathname)) unexpected.push(url.pathname);
       return route.abort();
     }
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return route.continue();
@@ -98,6 +98,39 @@ for (const lang of ['en','es']) {
       await expect(page.locator('.commute-picker')).toBeVisible();
     });
   }
+  test(`${lang}: a saved return stop gone from the schedule says so and reselect opens the return picker`, async ({ page }) => {
+    const ds = replacement();
+    ds.stops = ds.stops.filter(s => s.id !== 'return-home');
+    ds.patterns = ds.patterns.filter(p => p.id !== 'back'); ds.trips = ds.trips.filter(t => t.id !== 'back');
+    const saved = { ...favorite, returnStops: { fromStopId: '3', toStopId: 'return-home' } };
+    await setup(page, ds, lang, PIN, true, false, saved);
+    await page.setViewportSize({ width: 320, height: 900 });
+    const notice = region(page).locator('.commute-change');
+    await expect(notice).toHaveCount(1);
+    await page.getByRole('button', { name: lang === 'en' ? 'Reverse' : 'Invertir', exact: true }).first().click();
+    const card = page.locator('.fav[data-favorite-id="briefing-fixture"]');
+    await expect(card).toContainText(lang === 'en' ? 'A stop on your saved return trip is no longer in this schedule' : 'Una parada de tu viaje de regreso guardado ya no está en este horario');
+    await expect(card).not.toContainText(lang === 'en' ? 'No more buses today' : 'No hay más autobuses hoy');
+    await notice.getByRole('button', { name: lang === 'en' ? 'Check saved stops and routes' : 'Revisar paradas y rutas guardadas' }).click();
+    const picker = page.locator('.commute-picker');
+    await expect(picker).toBeVisible();
+    // The return picker starts from the far end (New York); the forward one would start from the home stop.
+    expect((await picker.innerText()).split('\n')[1]).toBe(lang === 'en' ? 'New York' : 'Nueva York');
+  });
+  test(`${lang}: a notice whose first changed day is past this week opens that day in the timetable`, async ({ page }) => {
+    const ds = fixture(); ds.meta.feedVersion = 'fictional-v3'; ds.meta.builtAt = '2026-11-21T12:00:00Z';
+    const trip = ds.trips.find(t => t.id === 'T1')!, wk = ds.calendars[trip.serviceId]!;
+    ds.calendars.EARLY = { ...wk, end: '20261130' }; ds.calendars.LATE = { ...wk, start: '20261201' };
+    ds.trips.push({ ...trip, id: 'T1-late', serviceId: 'LATE', times: trip.times.map(t => t + 180), arrivals: trip.arrivals?.map(a => a === null ? null : a + 180) });
+    trip.serviceId = 'EARLY';
+    await setup(page, ds, lang, PIN, true);
+    const notice = region(page).locator('.commute-change');
+    await expect(notice).toHaveCount(1);
+    await notice.getByRole('button', { name: new RegExp(lang === 'en' ? 'Open full timetable' : 'Abrir horario completo') }).first().click();
+    const selected = page.locator('.choice-list [role="tab"][aria-selected="true"]');
+    await expect(selected).toHaveCount(1);
+    await expect(selected).toHaveText(lang === 'en' ? 'Tue, Dec 1' : 'mar, 1 de dic');
+  });
   for (const problem of ['selection', 'coverage'] as const) {
     test(`${lang}: printed holiday with unknown ${problem} preserves recovery at 320px/200%`, async ({ page }) => {
       const ds = fixture(); ds.meta.transcribed = { issued: '20260701', documentId: 'fictional-test' }; delete ds.meta.realtime;

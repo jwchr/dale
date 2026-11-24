@@ -8,6 +8,12 @@ import type { Dataset } from '../domain/types';
 import { briefingSelectionKnown, type BriefingSelection } from '../domain/commuteBriefing';
 import { briefingDate, CommuteBriefing, SourceClock } from './CommuteBriefing';
 
+/** True when the forward trip still matches the schedule but the return leg does not, so reselect opens the return picker. */
+function returnBroken(ds: Dataset, favorite: Favorite) {
+  const known = (reversed: boolean) => { const leg = favoriteLeg(ds, favorite, reversed); return !!leg && briefingSelectionKnown(ds, { ...leg, routeIds: favorite.routeIds }); };
+  return known(false) && !known(true);
+}
+
 export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, tz, ds, now, reversedIds, onTimetable, onReselect, checkedAt, fromCache, savedAt }: {
   notices: CommuteChange[]; favorites: Favorite[]; durable: boolean; dismiss: (id: string) => Promise<void>; t: Strings; lang: Lang; tz: string;
   ds: Dataset; now: number; reversedIds: Set<string>; onTimetable: (selection: BriefingSelection) => void; onReselect: (favorite: Favorite, reversed: boolean) => void;
@@ -74,7 +80,7 @@ export function CommuteChanges({ notices, favorites, durable, dismiss, t, lang, 
             {b.timetable} · {direction === 'out' ? messages.out : messages.back}
           </button>;
         })}
-        {favorite && (notice.kind === 'selection' || notice.kind === 'uncomparable') && <button type="button" onClick={() => onReselect(favorite, false)}>{b.reselect}</button>}
+        {favorite && (notice.kind === 'selection' || notice.kind === 'uncomparable') && <button type="button" onClick={() => onReselect(favorite, returnBroken(ds, favorite))}>{b.reselect}</button>}
         <button type="button" aria-label={messages.dismissNamed(name)} onClick={async event => {
           const button = event.currentTarget;
           button.disabled = true;

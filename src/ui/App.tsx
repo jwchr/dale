@@ -847,6 +847,8 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
   const fullLeg = title || `${stopName(fromId)} → ${stopName(rev ? fav.fromStopId : fav.toStopId)}`;
   // Saved from the real schedule but opened on the demo (or the schedule changed): say which, plainly.
   const missing = !ds.stops.some((s) => s.id === fav.fromStopId) || !ds.stops.some((s) => s.id === fav.toStopId);
+  // A saved return pair is kept even when the feed drops one of its stops; say so instead of "no more today".
+  const legGone = !!leg && (!ds.stops.some((s) => s.id === leg.fromStopId) || !ds.stops.some((s) => s.id === leg.toStopId));
   // The signs unmount while editing; re-fit the new ones after Done.
   useFitWords(places, `${origin.name}|${destination ? destination.name : ''}`, !editing && !missing);
   if (missing && !editing) {
@@ -988,9 +990,9 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
             <div><p className="dash-eyebrow">{d.atYourStop}</p><h2 className="dash-title" id={`${evidencePrefix}-arrivals`}>{d.nextArrivals}</h2></div>
             <StatusPill t={t} live={anyLive} />
           </div>
-          {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
+          {!leg ? <p className="warn" role="alert">{t.noReturnStop}</p> : legGone ? <p className="warn" role="alert">{t.returnStopGone}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p>
             : <ul className="deps dep-boards">{rows.map(boardItem)}</ul>}
-          {leg && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
+          {leg && !legGone && <button type="button" className="dash-fullday" onClick={() => onAllDay(leg, title)}><BusIcon /><span>{d.fullDay}</span><ArrowRight /></button>}
           {/* "Get me home" right under the buses, not deep in Your trip where it went unnoticed (#32 step 3). */}
           {leg && to && <button type="button" className="dash-fullday dash-rescue rescue-chip" onClick={() => onRescue(leg, to.terminal ? 'other' : 'home', leg.routeIds.length === 1 ? leg.routeIds[0] : undefined)}>
             <RescueIcon /><span><ButtonLabel translate={other => to.terminal ? other.rescue.otherWays : other.rescue.title}>{to.terminal ? t.rescue.otherWays : t.rescue.title}</ButtonLabel></span><ArrowRight /></button>}
@@ -1020,7 +1022,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
       ) : (
         <>
           {planBlock}
-          {!leg ? null : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : (
+          {!leg ? null : legGone ? <p className="warn" role="alert">{t.returnStopGone}</p> : deps.length === 0 ? <p className="muted">{t.noMoreToday}</p> : (
             <ul className="deps">
               {rows.map(rowItem)}
             </ul>
@@ -1326,7 +1328,9 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
   // The chosen day lives in the screen's history entry, so Back from a trip returns to it.
   const date = chosen && chosen >= today ? chosen : today;
   const setDate = onDate;
-  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  const week = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  // A notice can open a first changed day past this week; show it as its own selected tab.
+  const days = week.includes(date) ? week : [...week, date];
   const list = departuresOn(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds, date });
   const rows = list.map((d) => ({ d, arr: arrivalAt(ds, d, leg.toStopId) }));
   const anyEstimated = rows.some((r) => r.d.estimated || r.arr?.estimated);
