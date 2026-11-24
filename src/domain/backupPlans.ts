@@ -4,7 +4,7 @@
 
 export interface BackupPlan {
   id: string;
-  /** What to do, in the rider's words ("167 to Hackensack, then Diego picks me up"). */
+  /** What to do, in the rider's words ("167 to Hackensack, then Sam picks me up"). */
   plan: string;
   /** Where they can be dropped off or picked up. */
   place?: string;
