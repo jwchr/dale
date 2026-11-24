@@ -118,7 +118,14 @@ export function pollWhileVisible(load: (isLatest: () => boolean) => Promise<void
     void load(() => ticket === latest);
   };
   // Showing the tab polls only when the last answer is a full interval old, so quick tab switches send nothing.
-  const onChange = () => { if (visible() && clock() - lastRun >= everyMs) run(); };
+  // Otherwise a timer that lapsed while hidden is restarted for the rest of the interval, so a clock that
+  // stepped back or a timer that fired early can never leave a shown tab without polls (Neon Nov24 d).
+  const onChange = () => {
+    if (!visible()) return;
+    const since = clock() - lastRun;
+    if (since >= everyMs) run();
+    else if (timer === undefined) timer = setTimeout(tick, Math.min(everyMs, Math.max(0, everyMs - since)));
+  };
   if (visible()) run();
   doc?.addEventListener('visibilitychange', onChange);
   return () => { clearTimeout(timer); doc?.removeEventListener('visibilitychange', onChange); };

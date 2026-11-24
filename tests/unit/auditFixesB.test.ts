@@ -139,6 +139,22 @@ describe('pollWhileVisible', () => {
     expect(load).toHaveBeenCalledTimes(2);
     end();
   });
+  it('keeps polling a shown tab whose last answer looks less than a minute old after the clock steps back (Neon Nov24 d)', () => {
+    vi.useFakeTimers();
+    let skew = 0;
+    const doc = fakeDoc(), load = vi.fn();
+    const end = pollWhileVisible(load, doc as never, 60_000, () => Date.now() - skew);
+    doc.visibilityState = 'hidden'; doc.fire();
+    vi.advanceTimersByTime(60_000);
+    skew = 2_000;
+    doc.visibilityState = 'visible'; doc.fire();
+    expect(load).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2_000);
+    expect(load).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(60_000);
+    expect(load).toHaveBeenCalledTimes(3);
+    end();
+  });
   it('lets only the newest run show its answer when an older one finishes late', async () => {
     vi.useFakeTimers();
     const doc = fakeDoc(), shown: number[] = [], resolvers: (() => void)[] = [];
