@@ -1,9 +1,12 @@
 import { routeNumber, routeHeadsign } from './routeDisplay.ts';
 import type { Dataset, Stop } from './types';
+import { samePlace } from './place.ts';
 export const STOP_CITY_SOURCE = 'https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJ_Transit_Bus_Stops_by_Line/FeatureServer/11';
 /** Only patterns where the rider can actually board; direction0/1 has no universal compass meaning. */
 export function boardingInfo(ds: Dataset, stopId: string, expressLabel: string) {
-  const patterns = ds.patterns.filter(p => { const i = p.stopIds.indexOf(stopId); return i >= 0 && i < p.stopIds.length - 1 && !p.noPickup?.includes(i); });
+  // A Port Authority call followed only by more Port Authority calls is the inbound terminal, not a boarding (as in boardIndex).
+  const patterns = ds.patterns.filter(p => { const i = p.stopIds.indexOf(stopId);
+    return i >= 0 && !p.noPickup?.includes(i) && p.stopIds.slice(i + 1).some(id => !samePlace(ds, id, stopId)); });
   const routes = [...new Set(patterns.map(p => ds.routes.find(r => r.id === p.routeId)?.shortName).filter((s): s is string => !!s).map(routeNumber))];
   const destinations = [...new Set(patterns.map(p => {
     const index = p.stopIds.indexOf(stopId), later = p.stopIds.slice(index + 1);
