@@ -1,68 +1,75 @@
-# Chase the bus, step 1 (#252), November 24, 2026
+# Chase the bus (#252): full plan before building
 
-Owner request (Jeff, Nov 21, 2026, after chasing a 165 express by car): "If you
-miss the bus, and we get in the car, let's figure out a way to map it and chase
-it. And keep updating me." Step 1 is the "just left" row and following that bus.
-Rider GPS to the car, catch-up stop suggestions and car navigation (Tessie) are
-step 2, planned separately, because they add rider location and a secret.
+Nov 21, 2026, revised Nov 24, 2026. Owner direction (Jeff, Nov 24, 2026, after an earlier draft cut this to a "just left" row only: "let's use the features, please"): build the whole feature below, in the steps at the end. Docs only: nothing here is built, tested on the road or activated. Owner requests and reasons: [#252](https://github.com/jwchr/dale/issues/252) after missing the 9:51 express, [#250](https://github.com/jwchr/dale/issues/250) to understand earlier buses (built: the Earlier buses list), and [#105](https://github.com/jwchr/dale/issues/105) for separately consented onboard GPS. This plan keeps the complete requested outcome; small PRs are build steps, not permission to call a partial result delivered.
 
-## What the rider sees
+## Rules and existing boundaries
 
-- At a stop's departure list, under the buses still to come, a "Just left" row
-  lists up to 3 trips on the same route and direction whose scheduled time at
-  this stop was 1 to 30 minutes ago. English and Spanish, 12-hour times.
-- Each row shows the scheduled time at this stop and, only when NJ Transit
-  reports the trip, where it is now (next stop name) and the age of that fix.
-  A trip NJ Transit is not reporting shows "not reporting", never "left" or
-  "cancelled". A scheduled time in the past does not prove the bus left.
-- Tapping a row opens Follow Bus for that exact trip instance, the same screen
-  and lock as today. The map keeps the bus and its next stops in view, with the
-  NJ Transit predicted time at each remaining stop and its age. Arrival at the
-  last stop (Port Authority on inbound trips) is shown as NJ Transit reports it.
-- Large text, no typing needed. A one-line note says it is for passengers, not
-  for the driver.
+- `CLAUDE.md`, Product rules: source and age on every position/time/estimate; unknown stays unknown; missing GPS is "not reporting," never cancellation. Preserve exact-bus identity, English/Spanish and 12-hour Eastern clocks because riders must not chase a different bus or mistake a guess for evidence.
+- `CLAUDE.md`, Data and privacy; `AGENTS.md`: no secrets, recordings, vehicle IDs, rider positions or personal data in this public repo, logs or public responses. `docs/V1_CONTRACT.md` BUS-01/02 and `docs/DECISIONS.md` D44/D54 govern lock and arrival evidence; D60/D73 keep history private and public history output aggregate only.
+- `src/domain/lock.ts` already keys identity to trip plus service date, independent of boarding stop. Remove stop/past-departure restrictions in selection/UI, not the reducer's replacement confirmation. Keep boarding/catch-up/destination selections separate from identity; changing a catch-up stop cannot relock another bus.
+- `docs/ROUTE_DISTANCE.md` supplies qualified distance along the bus shape, not car road distance or travel time. Merged route-distance part 2 still needs deployed current-feed qualification; neither a frontend release nor old geometry proves availability.
+- `docs/RIDER_GPS.md` is a separate server-sharing design, not permission to upload the chasing car. Latest #105 comments supersede its older 3-minute expiry/Turnstile choices: about 2 minutes, no bot check for now, supplemental onboard reports also between official updates. Reconcile that document through its own reviewed work before consuming reports; do not silently inherit or implement its older rules here.
 
-## How it works (no new Worker endpoint, no new NJ Transit calls)
+## Rider flow and arrival evidence
 
-- Candidate trips come from the official schedule the app already has
-  (`/v1/schedule`): same route, direction and stop, scheduled 1 to 30 minutes
-  before now on the Eastern service date, including after-midnight trips.
-- Live position per candidate uses the existing `/v1/live?trip=&date=` answer,
-  at most 3 requests per refresh, refreshed with the same pacing as Follow Bus.
-  The Worker's NJ Transit budget is unchanged (it polls on its own schedule).
-- Locking uses the existing `createBusSession` with the rider's stop as the
-  selected stop (the builder checks which existing rider phase fits a bus
-  already past that stop, and adds none without saying so in the PR), so
-  `src/domain/lock.ts` rules hold:
-  exact trip only, never switches buses, every position carries its age,
-  "not reporting" after the existing stale and vanish timings.
-- Earlier buses (#250) stays a separate, read-only history list; its public
-  answer has no trip identifiers by design, so it is not used to lock.
-- Demo data shows the DEMO banner as everywhere else.
+1. Offer tappable "Just left" / "Acaba de salir" rows beside upcoming departures, with route, direction, exact trip and source age. Include all earlier buses in the selected service day's earlier-buses list (#250), not only a short recent window. Scheduled departure alone means "scheduled to have left," not observed departure.
+2. Route search and the running-bus list allow locking any available exact running trip from any location, after its boarding stop passed or after boarding. No saved/home stop or phone GPS is required merely to follow. Coverage remains the loaded feed, with QA routes 163/164/165/165T; do not promise systemwide tracking without data.
+3. Every departed row opens the same trip detail: scheduled versus supported actual at the selected stop; scheduled versus expected while running, or supported actual at the destination, including Port Authority. Without a selected stop, ask for one for the comparison only. Missing actual is unknown. Keep #250's earlier-bus comparisons distinct from this bus's prediction.
+4. Chase mode asks permission to use this phone as the car's location. Show car and bus separately, fix age/accuracy, road miles and estimated driving time to the bus's last reported point and each remaining eligible boarding stop. Refresh local calculations on new fixes, aiming every few seconds while foregrounded; preserve the bus's independent source clock, normally sampled by Dale about every 30 seconds. Never animate a bus guess as a fresh fix.
+5. Rank possible catch-up stops by earliest usable stop with sufficient margin; show each alternative, margin and unknowns. Mark the last qualifying boarding stop "Last chance to board" / "Última oportunidad para subir" only when the full remaining stop list is known. Otherwise say "Last known option" / "Última opción conocida." Never silently change the selected navigation destination.
+6. A passenger chooses a stop, then taps Tesla or Google/Apple Maps navigation. Large text, optional spoken updates and a passive tracking screen avoid repeated interaction; set up while parked or let a passenger operate it. No instructions to speed, stop illegally or intercept a bus between stops.
+7. After boarding, retain that exact lock to its final stop even if the original stop is behind it. Show/alert Port Authority arrival only for a trip actually ending there. Reuse foreground alerts; locked-phone alerts depend on the existing reviewed Web Push/native capability and never get promised by foreground GPS.
+8. An official exact-trip, exact-stop STOPPED_AT observation is an observed stop sample, not the precise door-opening instant. A qualified private arrival record may supply its documented interval; rider confirmation stays separately labeled. Proximity, schedule time, prediction, ending Chase or a shared phone point cannot prove arrival. Arrival alert fires once on supported evidence; signal loss leaves arrival unconfirmed.
 
-## Failure cases to test
+## Sources, car routing and catch-up math
 
-- No candidate trips (late night, last bus): row hidden, no empty box.
-- Candidate trip not reporting, stale fix, fix older than the vanish timing.
-- A trip that reports a stop before the rider's stop (late bus that has not
-  actually left): shown as "still coming", with its fix age, not as "left".
-- Overnight trips (scheduled 24:xx) and the service-date boundary in Eastern time.
-- `/v1/live` errors or times out: rows keep the scheduled time and say live
-  position is unavailable.
-- Narrow phone (360 px), large text, Spanish, keyboard focus order.
+- Reuse current GTFS calendar, ordered stop calls, pickup restrictions, route variant and version-matched geometry; only stops served by this exact trip and allowing boarding qualify. Repeated stops need stop-sequence anchors. Terminal drop-off-only stops remain follow destinations, never catch-up options.
+- Reuse the existing coalesced official GPS/prediction snapshot, with original observation/generated times and receipt time separate. No extra NJ Transit poller. Fresh official exact-trip predictions lead; schedules remain explicitly scheduled. Shared onboard positions, once independently released under #105, remain labeled supplemental rider evidence, never official arrival facts or automatic ETA replacements.
+- Phone GPS provides position, accuracy and time, not roads or traffic. Keep fixes in memory on this phone; reject future/out-of-order fixes and uncertain road matches. Permission denial still permits following the bus without car estimates.
+- **Required routing dependency:** prepare a bounded downloadable OpenStreetMap car-routing graph and licensed browser routing engine, evaluated locally first. MapLibre/PMTiles display tiles and GTFS shapes are not such a graph. Route entirely on the phone, respecting one-way streets, turn/access restrictions and car-legal stop approaches; retain graph date, license/attribution and travel-time model version.
+- Prove graph coverage, download size, phone memory/CPU and a free static-hosting budget before choosing that engine/data package. Road access, safe drop-off/walking approaches and traffic quality need verification; no live traffic source is established. No new paid service, key or external routing request follows from this plan. If local routing cannot meet these needs, report the blocker and propose a privacy-reviewed alternative to Jeff; sending coordinates to a routing vendor is not an automatic fallback.
+- For a qualified phone fix at time `t`, routing gives `Dcar(s)` road miles and `Tcar(s)` modeled driving duration to stop `s`. Compute `carReady(s) = t + Tcar(s) + approach/parking/walking allowance + boarding buffer`; show the allowance and its source or rider-entered value. Do not invent an unknown allowance, traffic delay or statistical confidence interval.
+- Compare with a fresh exact-stop official bus prediction `busETA(s)`: `margin(s) = busETA(s) - carReady(s)`. Positive margin is an estimated opportunity, never a guarantee. If a supported bus arrival range exists, compare to its earliest bound; without one explicitly say prediction uncertainty is unknown. Scheduled-only comparison stays provisional and cannot earn a confident last-chance claim.
+- For the bus itself, route to its last qualified point and label "to last bus position," with timestamp and model age. This is not a rendezvous time with a moving bus. No legal car route to bus-only roads/terminal areas means unavailable; do not silently snap to another road or substitute straight-line miles.
+- Passed/skipped stops, off-route or ambiguous bus progress, stale GPS/predictions, missing pickup rules, inaccessible approaches or absent routing coverage prevent a supported recommendation. Unknown time at one stop does not erase known alternatives; incomplete coverage prevents a claim that no further catch is possible. Recompute on new evidence without changing lock identity.
+- Private #250 arrival evidence is a dependency, not public raw history permission. Its Nov 21 owner-only read door needs its own reviewed, secret-gated, read-only corridor route; no rider data. Owner access does not authorize publishing per-trip archive records or turning prior buses' delays into this bus's live ETA.
 
-## Acceptance
+## Privacy and Tessie secret boundary
 
-- Unit tests in `tests/unit/` for candidate selection (window edges at 1 and
-  30 minutes, overnight, direction, max 3) and for the "still coming" versus
-  "past this stop" decision from the reported stop index.
-- E2E in `tests/e2e/` on Pixel 7 with pinned `?now=`: the row appears, a tap
-  opens Follow Bus locked to that trip, "not reporting" shows for a silent trip,
-  English and Spanish.
-- `npm run verify` passes. Screens checked at 360 px in English and Spanish.
+- Chase opt-in is separate from "share my bus position." Car fixes, accuracy, paths and chosen personal locations stay in phone memory, out of storage, URLs, analytics, crash reports, caches, Worker and history. Stop geolocation on exit, permission revocation or suspension; resume only in the active consented session and mark missing updates honestly. A locked browser cannot guarantee seconds-level updates.
+- A navigation tap discloses the selected public stop destination to Tessie/Tesla or the chosen map app; explain the recipient before the tap. Send no phone origin, car trail or bus coordinates. Maps links specify destination only; the external app's own location permission is separate. No automatic navigation command on GPS refresh or stop reranking.
+- Jeff alone creates/sets the Tessie token directly in Cloudflare dashboard, existing Dale Worker, Settings → Variables and Secrets, type **Secret**, proposed name `TESSIE_API_KEY`. The selected Tesla identifier belongs in a private binding such as `TESSIE_VEHICLE_ID`, never source or client output. No token in chat, git, Wrangler plaintext vars, frontend build, browser storage or test fixtures. A repository secret would require a reviewed server-side deploy binding; static Pages cannot use it safely.
+- The Worker reads `env.TESSIE_API_KEY` only for an authenticated explicit navigation POST, resolves an allowlisted public stop ID to a destination, and sends that destination to the configured car using a fixed Tessie host and bearer header. Never accept a caller-supplied VIN, URL or arbitrary command; refuse redirects. Token/vehicle identity never return to the phone. [Cloudflare secret bindings](https://developers.cloudflare.com/workers/configuration/secrets/), [Tessie authentication](https://developer.tessie.com/reference/authentication).
+- Verify Tessie's documented [Share command](https://developer.tessie.com/reference/share), current entitlement, limits, permissions and destination format before implementation. Request one attempt rather than its default retries; a successful command acknowledgment means "sent," not proof navigation appeared or the rider arrived. No purchases, account setup, token discovery or real vehicle commands in this docs task.
+- Gate the route with server-verified owner authorization, reusing the existing household mechanism only after proving it cannot let another visitor control Jeff's Tesla. Scope any short-lived navigation capability to that car/action, cap requests, reject expired/replayed requests and cross-site requests. CORS/origin alone is not authentication. Missing verified owner gating keeps Tessie disabled.
+- Give each tap an operation ID with bounded durable duplicate suppression before dispatch, independent of the history journal. Crash/timeout after dispatch means "delivery unconfirmed" with no automatic resend; a new explicit tap is needed. Never claim exactly-once delivery across Tessie and the Worker. Avoid destination/location storage even in the deduplication record; count its writes against free limits.
+- Missing secret/setup, rejected authorization, sleeping/unreachable car, provider refusal, rate limit or timeout shows a translated failure/unconfirmed state and destination-only Maps fallback. No key echo or raw provider error. No background car telemetry polling or automatic wake loop. Disable the integration without deleting existing history.
+- Request/response bodies, authorization headers, vehicle paths and destination choices must be excluded from Worker/provider-facing diagnostics and traces; validate logging configuration before release. Responses use `no-store`; health exposes totals only. Tessie/Tesla process a chosen destination under their own policies, not Dale's memory-only retention promise.
 
-## Not in step 1
+## Limits and failure behavior
 
-Rider GPS, distance from the car, catch-up stop suggestions, last-chance alert,
-Tessie or map navigation hand-off, locking a bus from anywhere off the stop
-list. Each needs its own plan; Tessie needs a secret Jeff sets himself.
+- `docs/LIVE_BUS_PILOT.md` and `docs/HISTORY_COLLECTION.md` own feed/storage limits. Preserve one global 30-second poll owner, at most 5,760 feed calls/day plus bounded authentication within NJ Transit's 40,000/day per API, including other consumers. Local seconds-level calculations add zero NJT calls; browser reads stay on existing cadence.
+- Before any Worker release, account for shared Workers/DO request and CPU limits, SQL writes/reads/bytes and R2 operation/storage reservations, including Tessie authorization/deduplication. Retain existing persistent guards and free headroom; refuse new work at limits rather than upgrade or delete evidence. No collector, archive, cadence or migration change is needed for Chase.
+- Preserve immutable archives and verified archive-before-prune; crashes/retries cannot lose or double count history. Owner-only history reads are bounded and read-only; public history remains totals only. No new public endpoint exposes rider locations or raw history.
+- Offline/expired schedule, failed geometry, stale/missing GPS, denied permission, tunnel loss, bad accuracy, routing failure and suspended tab each show the specific unavailable state and age. Keep the last fix visibly old, suppress unsupported catch claims, and retain schedule/lock. Only explicit official cancellation cancels; vehicle/trip reassignment requires confirmation as today.
+- Use Eastern service dates, GTFS times past 24:00, both DST transitions and schedule-version rollover. Do not relabel an overnight trip as today's new trip at midnight or project old geometry onto a new feed. All labels, warnings, consent, speech, accessible names and failures need reviewed EN/ES and 12-hour clocks.
+
+## Small PR build order and review gates
+
+1. **This docs-only plan.** Review against the named product/privacy rules before building. Coordinate #250 and #105 owners; their issue comments remain the source for later decision-log updates, not duplicated rules here.
+2. **Trip selection and follow-through.** Just-left/earlier tappable rows, anywhere lock, final-stop/Port Authority detail and arrival state using existing evidence; preserve source-age and missing-data behavior. Keep #250 private history work separate until its access design is reviewed. Details for this step: candidate trips come from the schedule the app already has (`/v1/schedule`); live position uses the existing `/v1/live?trip=&date=` answer, a few requests per refresh at Follow Bus pacing; locking uses the existing `createBusSession` (the builder names in the PR which rider phase fits a bus already past the stop and adds none silently). No new Worker endpoint and no new NJ Transit calls. The public Earlier buses answer has no trip identifiers by design, so its rows link to a lockable trip only through the schedule, never through history. A trip reporting a stop before the rider's stop shows "still coming", not "left".
+3. **Local routing feasibility, then pure catch model.** Synthetic graph/fixes and all catch/unknown math; document measured device/asset budgets and unresolved traffic/access limits. No location transmission or new service. A failed feasibility step blocks car distance/time delivery, not the existing bus-follow flow.
+4. **Phone GPS and Chase UI.** Wire local routing, opt-in, advancing ages, ranked stops, last chance, destination-only Maps handoff and passive EN/ES phone layouts. **Risky: location**, owner Neon review before release because a car location can expose a routine even without persistence.
+5. **Tessie adapter and protected Worker route, off by default.** Synthetic provider, authorization, replay/deduplication, redaction and quota tests first. **Risky: secrets, vehicle control and Worker**, owner Neon review before any secret setup/deploy; the author cannot supply that independent review. Keep activation distinct from merge/rollover.
+6. **Approved release and household evidence.** Complete local checks, independent Flash plus lead review, and owner Neon for risky Codex-authored changes under the supplied standing rules. Jeff sets secrets himself only after review; ask before a live Worker/Pages activation. Preserve enabled collection through the documented workflow and freshly qualify deployment pins after secret changes. Verify the actual public build in both languages, then a parked Tesla handoff and passenger-operated road test. No claim of live/road success from mocks or a merge.
+
+## Acceptance tests for the implementation
+
+1. Unit: lock from an unsaved location, passed stop and onboard trip; pending replacement, cancellation, not reporting and terminal completion; recommendation changes never switch trip/vehicle or navigation destination.
+2. Unit: exact date/variant/pickup/stop-sequence matching, loops, express skips, drop-off-only terminal, missing approach/traffic/ETA, zero/negative/positive margin, incomplete alternatives and last-known versus last-chance. Bus-point routing never pretends to intercept a moving bus.
+3. Unit: road restrictions, bus-only roads, out-of-region graph, graph/model ages, duplicate/future/stale fixes, poor accuracy, off-route/ambiguous progress, independent car/bus clocks; no straight-line substitute or invented actual arrival.
+4. Unit: Eastern midnight, 24:xx trips, spring gap/fall overlap, holidays and schedule rollover with reused trip IDs; old geometry and wrong-date observations never attach. #250 actual/expected/scheduled states stay distinct.
+5. Worker: unauthorized/cross-site/replay/over-limit requests make zero provider calls; only allowlisted destinations and configured car; absent secret, rejected token, redirect, timeout, crash before/after dispatch and duplicate tap show honest results without retry storms. Serialization/log scans contain no secret, vehicle identity, GPS, chosen destination or raw provider body.
+6. Worker/history regression: bounded authorization/dedup writes, free-limit refusal, coalesced feed cadence, crash/retry journal idempotency, no archive overwrite/delete and public counts only; Chase never writes phone fixes or feeds rider claims to arrival history.
+7. E2E with synthetic APIs and pinned Eastern clocks: tappable departed buses, anywhere lock, both comparison clocks, local GPS updates, permission refusal/revocation, suspension/resume, offline/failing routes, safe navigation tap and one arrival alert. Network assertions prove phone GPS never leaves Dale and no navigation call occurs without a tap.
+8. EN/ES at narrow phone widths and enlarged text: readable ages/uncertainty, keyboard/touch access, large passive tracking view, translated speech/consent/errors and destination handoffs. Run `npm run verify` locally and applicable final-head CI; record road, background-alert and real Tesla acceptance separately because repository tests cannot establish them.
