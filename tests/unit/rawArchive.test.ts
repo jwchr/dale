@@ -194,6 +194,14 @@ describe('private as-received raw archives', () => {
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : guard === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
     expect(h.journal.status(NOW).enabled).toBe(true);
   });
+  it.each(['bytes', 'classA', 'classB'])('stops raw storage at the corridor reserve (%s)', async guard => {
+    const h = await harness(), day = new Date(NOW).toISOString().slice(0, 10);
+    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 6_999_999_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 350_000 : 0, guard === 'classB' ? 1_850_000 : 0);
+    await h.raw.capture([input()], NOW, []);
+    expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : 'free-operation-budget');
+    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 7_000_000_000, rawClassALimit32Days: 350_000, rawClassBLimit32Days: 1_850_000 });
+  });
   it.each(['getVehiclePositions', 'rail-getVehiclePositions'] as const)('does not let failing %s archive writes block the other feeds on either poll', async failed => {
     const h = await harness(); h.fail(`/${failed}/`);
     const batch = (at: number): RawResponse[] => (['getVehiclePositions', 'getTripUpdates', 'rail-getVehiclePositions', 'rail-getTripUpdates'] as const)
@@ -220,7 +228,7 @@ describe('private as-received raw archives', () => {
 });
 
 describe('raw collection through the bus Worker', () => {
-  async function service(enabled = true, railEnabled = true) {
+  async function service(enabled = true, railEnabled = true, rawEnabled = true) {
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '';
     const urls: string[] = [];
@@ -246,7 +254,7 @@ describe('raw collection through the bus Worker', () => {
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
     const Feed = createFeedClass(ds, fetchImpl, () => now), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
-    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
+    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
@@ -326,6 +334,15 @@ describe('raw collection through the bus Worker', () => {
     const ledger = (await h.health()).rawArchive.hoursUTC[0];
     for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates']) expect(ledger.events[feed]).toEqual({ [code]: 1 });
     expect(ledger.feeds.getVehiclePositions.count).toBe(2);
+  });
+  it('saves no bus or rail original while RAW_ARCHIVE is absent, and keeps corridor history and live buses', async () => {
+    const h = await service(true, true, false); await h.poll();
+    expect(h.railCalls).toBe(0); expect(h.urls.some(url => url.includes('/GTFSRT/'))).toBe(false);
+    expect([...h.objects.keys()].some(key => key.startsWith('raw/'))).toBe(false);
+    const health = await h.health();
+    expect(health.rawArchive).toBeUndefined();
+    expect(health.enabled).toBe(true);
+    expect(h.urls.filter(url => url.endsWith('/getVehiclePositions'))).toHaveLength(1);
   });
   it('leaves rail off when the flag is absent and continues bus raw saving', async () => {
     const h = await service(true, false); await h.poll();

@@ -7,6 +7,11 @@ export interface HistoryBucket {
 }
 const BYTE_LIMIT = 9_000_000_000;
 export const A_LIMIT = 500_000, B_LIMIT = 2_000_000;
+// Corridor history feeds Dale's predictions, so statewide raw saving stops early and leaves it room
+// (Jeff, Nov 24, 2026, D78): 2 GB of storage and 150,000 of each operation class per guard window.
+// Corridor history used about 256 MB and 92,000 Class A operations in its first 16 days.
+export const CORRIDOR_RESERVE = { bytes: 2_000_000_000, a: 150_000, b: 150_000 };
+const RAW_BYTE_LIMIT = BYTE_LIMIT - CORRIDOR_RESERVE.bytes, RAW_A_LIMIT = A_LIMIT - CORRIDOR_RESERVE.a, RAW_B_LIMIT = B_LIMIT - CORRIDOR_RESERVE.b;
 const DAY = 86400_000;
 interface ArchiveState { v: 1; reservedBytes: number; verifiedObjects: number; failures: number; reason: string; lastAttemptAt?: number; lastSuccessAt?: number; nextAt?: number }
 const initial = (): ArchiveState => ({ v: 1, reservedBytes: 0, verifiedObjects: 0, failures: 0, reason: 'waiting' });
@@ -85,13 +90,13 @@ export class HistoryArchive {
    * Spare-write accounting preserves the corridor collector's remaining normal day. */
   reserveRaw(bytes: number, a: number, b: number, writes: number, now: number): string | undefined {
     const before = this.read(), usage = this.totals(now);
-    if (before.reservedBytes + bytes >= BYTE_LIMIT) return 'free-storage-budget';
-    if (usage.a + a > A_LIMIT || usage.b + b > B_LIMIT) return 'free-operation-budget';
+    if (before.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
+    if (usage.a + a > RAW_A_LIMIT || usage.b + b > RAW_B_LIMIT) return 'free-operation-budget';
     if (!this.journal.reserveSpareWrites(writes + 4, now)) return 'sql-write-budget';
     return this.storage.transactionSync(() => {
       const state = this.read(), totals = this.totals(now);
-      if (state.reservedBytes + bytes >= BYTE_LIMIT) return 'free-storage-budget';
-      if (totals.a + a > A_LIMIT || totals.b + b > B_LIMIT) return 'free-operation-budget';
+      if (state.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
+      if (totals.a + a > RAW_A_LIMIT || totals.b + b > RAW_B_LIMIT) return 'free-operation-budget';
       state.reservedBytes += bytes;
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', date(now), a, b);
       this.write(state);
@@ -160,6 +165,6 @@ export class HistoryArchive {
     return { configured: true, ...state, ...(sqlWriteBudgetRemaining < 8 ? { reason: 'sql-write-budget' } : {}), sqlWriteBudgetRemaining,
       classAReserved32Days: totals.a, classBReserved32Days: totals.b,
       oldestUnarchivedAt, backlogAgeMs: oldestUnarchivedAt === null ? 0 : Math.max(0, now - oldestUnarchivedAt),
-      byteLimit: BYTE_LIMIT, classALimit32Days: A_LIMIT, classBLimit32Days: B_LIMIT };
+      byteLimit: BYTE_LIMIT, classALimit32Days: A_LIMIT, classBLimit32Days: B_LIMIT, rawByteLimit: RAW_BYTE_LIMIT, rawClassALimit32Days: RAW_A_LIMIT, rawClassBLimit32Days: RAW_B_LIMIT };
   }
 }
