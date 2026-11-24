@@ -51,12 +51,15 @@ export class RawArchive {
   constructor(private state: RawArchiveState, private archive: Pick<HistoryArchive, 'reserveRaw'>,
     private bucket: HistoryBucket, private checkpoint: () => Promise<void>) {}
 
-  private credit(bytes: number, a: number, b: number, now: number): boolean {
+  /** `keepBytes` must remain after this use: storage held back so each open hourly ledger can
+   *  always be closed, even once the raw byte stop refuses new originals (Neon, #278). */
+  private credit(bytes: number, a: number, b: number, now: number, keepBytes = 0): boolean {
     const c = this.state.credit, day = new Date(now).toISOString().slice(0, 10);
     // SQL grants are daily. Operation grants expire after the UTC day they were bought in:
     // their durable rolling-day reservation must never be reused after it ages out.
     if (c.day !== day) { c.writes = 0; c.a = 0; c.b = 0; c.day = day; }
-    const addBytes = c.bytes < bytes ? Math.ceil((bytes - c.bytes) / 8_388_608) * 8_388_608 : 0;
+    const need = bytes + keepBytes;
+    const addBytes = c.bytes < need ? Math.ceil((need - c.bytes) / 8_388_608) * 8_388_608 : 0;
     const addA = c.a < a ? Math.max(64, a - c.a) : 0, addB = c.b < b ? Math.max(64, b - c.b) : 0;
     const addWrites = c.writes < 1 ? 128 : 0;
     if (addBytes || addA || addB || addWrites) {
@@ -139,31 +142,46 @@ export class RawArchive {
         } catch { this.state.failures++; }
       }
     }
-    const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now) && !this.state.pending.some(p => hour(p.manifest.receivedAt) === h)));
+    // An hour closes only when nothing from it is pending, including originals received in it this
+    // poll before the clock crossed the hour (Neon, #278).
+    const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now)
+      && !this.state.pending.some(p => hour(p.manifest.receivedAt) === h)
+      && !prepared.some(p => hour(p.item.manifest.receivedAt) === h)));
     if (!prepared.length && !closingHours.size) {
       // Save recovered acknowledgments even when nothing new is due.
       if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
       return;
     }
-    // Reserve for new originals/manifests, readbacks and any closed hourly ledger.
-    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0) + closingHours.size * 4096;
-    const objects = 2 * prepared.length + closingHours.size;
-    if (!this.credit(bytes, objects, objects, now)) {
+    // Finished hours close on their own reservation, so new originals waiting for budget never hold
+    // them open. Their bytes were kept back when their originals were reserved (keepBytes below).
+    const closing = closingHours.size > 0 && this.credit(closingHours.size * 4096, closingHours.size, closingHours.size, now);
+    // New originals/manifests and readbacks, keeping 4096 bytes for every ledger still open afterwards.
+    const stillOpen = new Set([...Object.keys(this.state.ledgers).filter(h => !(closing && closingHours.has(h))),
+      ...prepared.map(p => hour(p.item.manifest.receivedAt))]);
+    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0);
+    const admitted = prepared.length > 0 && this.credit(bytes, 2 * prepared.length, 2 * prepared.length, now, stillOpen.size * 4096);
+    if (!closing && !admitted) {
       // New originals wait for budget; recovered acknowledgments still need saving.
       if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
       return;
     }
-    this.state.last = last; this.state.lastAt = lastAt;
-    this.state.pending.push(...prepared.map(p => p.item));
+    if (admitted) {
+      this.state.last = last; this.state.lastAt = lastAt;
+      this.state.pending.push(...prepared.map(p => p.item));
+    }
     await this.checkpoint();
     // Pending originals from an older hour must be reconciled before closing it. Ledgers
     // remain in the checkpoint until readback, so a crash retries the exact same body.
-    for (const ledger of Object.values(this.state.ledgers).filter(l => l.hour < hour(now)
-      && !this.state.pending.some(p => hour(p.manifest.receivedAt) === l.hour))) {
+    if (closing) for (const h of closingHours) {
+      const ledger = this.state.ledgers[h]!;
       try {
         await this.put(ledgerKey(ledger), encode(JSON.stringify(ledger)), 'application/json');
-        delete this.state.ledgers[ledger.hour];
+        delete this.state.ledgers[h];
       } catch { this.state.failures++; }
+    }
+    if (prepared.length && !admitted) {
+      this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.reason;
+      return;
     }
     const results = await Promise.allSettled(prepared.map(async ({ item, gzip }) => {
       await this.put(item.key, gzip, 'application/gzip');

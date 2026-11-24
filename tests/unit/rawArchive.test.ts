@@ -196,6 +196,42 @@ describe('private as-received raw archives', () => {
     expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
     h.restart(); expect(h.state.pending).toHaveLength(0);
   });
+  it('closes a finished hourly ledger at the raw byte stop while new originals wait (Neon, #278)', async () => {
+    const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
+    // Only the 4096 bytes kept back for the open ledger remain, and no new 8 MB block can be bought.
+    h.state.credit.bytes = 4096;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 3600_000)], NOW + 3600_000, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
+    expect(h.raw.status().hoursUTC).toHaveLength(0); expect(h.state.pending).toHaveLength(0);
+    expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
+  });
+  it('takes a new original only when its hourly ledger can still be closed afterwards (Neon, #278)', async () => {
+    const probe = await harness(); await probe.raw.capture([input()], NOW, []);
+    const gzipBytes = probe.objects.get([...probe.objects.keys()].find(k => k.endsWith('.pb.gz'))!)!.byteLength;
+    const h = await harness(); expect(h.archive.reserveRaw(0, 64, 64, 128, NOW)).toBeUndefined();
+    // Enough for the original and its manifest, but not the 4096 bytes its ledger will need.
+    h.state.credit = { ...h.state.credit, bytes: gzipBytes + 4096 };
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input()], NOW, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget'); expect(h.objects.size).toBe(0);
+    expect(h.raw.status().hoursUTC).toHaveLength(0);
+  });
+  it('does not close an hour whose original arrived just before the hour turned (Neon, #278)', async () => {
+    const h = await harness(), hourStart = Date.parse('2026-11-05T13:00:00Z');
+    await h.raw.capture([input(hourStart - 60_000)], hourStart - 60_000, []); h.finish();
+    h.ambiguous(); // the original is stored but its write reports failure, so it stays pending
+    await h.raw.capture([input(hourStart - 100, new Uint8Array([255, 0, 64, 201, 17]))], hourStart + 200, []);
+    expect(h.state.pending).toHaveLength(1);
+    expect([...h.objects.keys()].some(k => k.includes('/ledgers/'))).toBe(false);
+    await h.raw.capture([], hourStart + 30_000, []);
+    const ledgers = [...h.objects.keys()].filter(k => k.includes('/ledgers/'));
+    expect(ledgers).toHaveLength(1);
+    expect(JSON.parse(new TextDecoder().decode(h.objects.get(ledgers[0]!))).feeds.getVehiclePositions.count).toBe(2);
+  });
   it.each(['bytes', 'classA', 'classB', 'sql'])('stops raw storage at the shared %s guard without bucket calls', async guard => {
     const h = await harness();
     if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));

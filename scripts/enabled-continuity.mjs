@@ -72,10 +72,10 @@ export function preservesEnabled(before, after, progressSince) {
  * A schedule rollover changes the version; these rules still hold across it. */
 // The archive byte ceiling may rise only to exactly the owner-approved 39 GB guard (D79, Jeff, Nov 24, 2026: "Yes, up to 40 GB"), never fall or stop in between.
 export const APPROVED_ARCHIVE_BYTE_LIMIT = 39_000_000_000;
-const archiveByteLimitOk = (before, after) => after === before || after === APPROVED_ARCHIVE_BYTE_LIMIT;
+const archiveByteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_BYTE_LIMIT);
 // D80: the shared Class A guard may rise only to this fixed value, inside R2's free 1,000,000 a month.
 export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 950_000;
-const archiveClassALimitOk = (before, after) => after === before || after === APPROVED_ARCHIVE_CLASS_A_LIMIT;
+const archiveClassALimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_A_LIMIT);
 // D80: the one approved set of raw limits a live Worker may move to.
 export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 };
 // Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave

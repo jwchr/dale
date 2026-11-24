@@ -86,6 +86,10 @@ describe('enabled collector preservation without migration or mutation', () => {
     expect(preservesEnabled(live, after, NOW)).toBe(true);
     expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, classALimit32Days: 500_000, rawClassALimit32Days: 350_000 } })).toThrow();
     expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, rawClassALimit32Days: 700_000 } })).toThrow();
+    // A guard already above the approved value (a later owner decision) never falls back to it (Neon, #278).
+    const higher = { ...live, archive: { ...live.archive, byteLimit: 40_000_000_000, classALimit32Days: 990_000 } };
+    expect(() => preservesEnabled(higher, after, NOW)).toThrow();
+    expect(() => preservesEnabled(higher, { ...after, archive: { ...after.archive, classALimit32Days: 990_000 } }, NOW)).toThrow();
     // The approved values match what the Worker reports, and 950,000 per 34 days stays under R2's free 1,000,000 a month.
     expect(APPROVED_ARCHIVE_CLASS_A_LIMIT).toBe(A_LIMIT);
     expect(APPROVED_RAW_LIMITS.rawClassALimit32Days).toBe(A_LIMIT - CORRIDOR_RESERVE.a);
