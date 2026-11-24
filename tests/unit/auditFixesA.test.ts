@@ -80,6 +80,20 @@ describe('audit A: terminal boardings and rescue', () => {
     ds.patterns[1]!.noDropOff = [1, 2];
     expect(rescueOptions(ds, 'A', '26229-test', now).transfers).toEqual([]);
   });
+
+  it('offers no transfer to a Port Authority stop without a known location', () => {
+    const ds = terminalDataset();
+    ds.patterns = [
+      { id: 'first', routeId: 'R', directionId: 0, headsign: 'Change', stopIds: ['A', 'C'] },
+      { id: 'second', routeId: 'R', directionId: 0, headsign: 'Terminal', stopIds: ['C', '31899', '31858'] },
+    ];
+    ds.trips = [
+      { id: 'first', patternId: 'first', serviceId: 'S', times: [64800, 65400] },
+      { id: 'second', patternId: 'second', serviceId: 'S', times: [65700, 66600, 67200] },
+    ];
+    for (const s of ds.stops) if (s.id === '31899' || s.id === '31858') { delete s.lat; delete s.lon; }
+    expect(rescueOptions(ds, 'A', '26229-test', now).transfers).toEqual([]);
+  });
 });
 
 describe('audit A: arrival-only boarding evidence', () => {

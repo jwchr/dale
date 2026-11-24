@@ -61,14 +61,17 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
       const milestones = [...previous.milestones];
       // Same milestones tripProgress counts: bus GPS ones only while the official feed is OK.
       const feedOk = !session.officialFeed || session.officialFeed.state === 'ok';
-      let reachedIndex = Math.max(dep.stopIndex, ...milestones.filter((m) => m.source !== 'bus_gps' || feedOk).map(m => m.index));
+      // Both fixes are checked against the same starting boundary, so a bus fix ahead of the phone
+      // does not hide the phone's own stop (CodeRabbit, #280); tripProgress uses the furthest mark.
+      const reachedIndex = Math.max(dep.stopIndex, ...milestones.filter((m) => m.source !== 'bus_gps' || feedOk).map(m => m.index));
+      const added = new Set<number>();
       for (const [fix, source] of fixes) {
         // No new bus GPS marks while the official feed is not OK (Gemini Flash, #280).
         if (!fix || (source === 'bus_gps' && !feedOk)) continue;
         const i = stopReached(stops, reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
-        if (i !== undefined && i <= ids.length - 1) {
+        if (i !== undefined && i <= ids.length - 1 && !added.has(i)) {
           milestones.push({ index: i, at: fix.at, source });
-          reachedIndex = i;
+          added.add(i);
         }
       }
       if (milestones.length === previous.milestones.length) return previous;

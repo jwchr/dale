@@ -278,7 +278,8 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
       const trips = [...changeStops.get(stopId) ?? []].flatMap((id) => tripsByPattern.get(id) ?? []);
       for (const next of departuresOn({ ...ds, trips }, { stopId, date })) {
         const h = homeDropIndex(ds, next.pattern, homes, next.stopIndex + 1);
-        if (h < 0) continue;
+        // samePlace admits every Port Authority stop ID; offer only a drop-off stop with a known location (CodeRabbit, #280).
+        if (h < 0 || !locatedIds.has(next.pattern.stopIds[h]!)) continue;
         const end = timeAt(next, h);
         if (end) list.push({ next, h, end });
       }
