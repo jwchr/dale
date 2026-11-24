@@ -2,6 +2,14 @@ import { readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity, workerContentIdentity, workerProofError, workerContentComparison } from './worker-content-identity.mjs';
+// Statewide raw saving switches (D78; Jeff, Nov 24, 2026: "turn it on"). Each is either absent or the plain variable 'enabled';
+// the uploaded Worker must carry exactly what worker/wrangler.jsonc declares, so a deploy can turn one on or off but never change it silently.
+export const RAW_SWITCHES = ['RAW_ARCHIVE', 'RAIL_GTFSRT_RAW'];
+export const rawSwitchesOk = (bindings, vars) => RAW_SWITCHES.every(name => {
+  const found = bindings.filter(b => b.name === name);
+  if (vars === undefined) return found.every(b => b.type === 'plain_text' && b.text === 'enabled') && found.length <= 1;
+  return vars[name] === undefined ? found.length === 0 : vars[name] === 'enabled' && found.length === 1 && found[0].type === 'plain_text' && found[0].text === 'enabled';
+});
 export async function verifyUploadedWorker(env, directory, before, options) {
   // Current reviewed bundle has one ESM file; its source map and pinned Wrangler README are not uploaded.
   // Any new auxiliary module requires explicit reviewed manifest support.
@@ -17,8 +25,8 @@ export async function verifyUploadedWorker(env, directory, before, options) {
   const response = new Response(form); response.headers.set('cf-entrypoint', 'index.js');
   const expected = await workerContentIdentity(response);
   const current = await readActiveWorkerIdentity(env, options);
-  // The two declared mode variables are checked by name and value by the caller; every other binding must be unchanged.
-  const others = bindings => bindings.filter(b => b.name !== 'HISTORY_COLLECTION' && b.name !== 'ARRIVAL_CONFIDENCE');
+  // The declared mode variables and raw switches are checked by name and value by the caller; every other binding must be unchanged.
+  const others = bindings => bindings.filter(b => b.name !== 'HISTORY_COLLECTION' && b.name !== 'ARRIVAL_CONFIDENCE' && !RAW_SWITCHES.includes(b.name));
   if (!isDeepStrictEqual(expected, current.content)) {
     console.error(`Upload module comparison: ${JSON.stringify(workerContentComparison(expected, current.content))}`);
     throw workerProofError('worker-upload-content-mismatch');

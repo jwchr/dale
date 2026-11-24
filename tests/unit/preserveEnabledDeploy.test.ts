@@ -58,7 +58,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:uploaded&&scenario==='namespace-change'?'changed':'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[])];
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[])];
       let result;
       if(path==='/deployments')result={deployments:[{versions:[{version_id:id,percentage:100}]}]};
       else if(path==='/versions')result={items:[{id}]};

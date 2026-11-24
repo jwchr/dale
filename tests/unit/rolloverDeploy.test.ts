@@ -70,7 +70,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[]),
         ...(scenario==='ride-secrets'?[{name:'VAPID_PRIVATE_KEY',type:'secret_text'},{name:'HOUSEHOLD_CODE_HASH',type:'secret_text'}]:[]),
         ...(scenario==='ride-secret-plain'?[{name:'HOUSEHOLD_CODE_HASH',type:'plain_text',text:'0'.repeat(64)}]:[]),
         ...(scenario==='unknown-binding'?[{name:'OTHER_SECRET',type:'secret_text'}]:[])];
@@ -94,14 +94,14 @@ function deployment(scenario: string) {
     if(temporary)assert.equal(fs.existsSync(temporary),false);
     assert.ok(actorReads.every(at=>at>acknowledgedAt+300000),'READ_DURING_DEFERRAL');
     if(scenario==='admission-failed')assert.ok(clock<acknowledgedAt+330000,'NOT_FAIL_FAST');
-    assert.equal(uploaded,['served-not-old','local-equals-served','quota','receipt-other-context','ride-secret-plain','unknown-binding'].includes(scenario)?0:1);
+    assert.equal(uploaded,['served-not-old','local-equals-served','quota','receipt-other-context','ride-secret-plain','unknown-binding','raw-before-bad'].includes(scenario)?0:1);
     assert.ok(!calls.some(p=>/authenticate|getGTFS|VehiclePositions|TripUpdates|v1\\/status|v1\\/live|health/.test(p)));
   `], { env: { NODE_NO_WARNINGS: '1', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'jwchr/dale', GITHUB_SHA: 'a'.repeat(40),
     HISTORY_COLLECTION_MODE: 'rollover-enabled', HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     CLOUDFLARE_API_TOKEN: 'PRIVATE_SENTINEL_TOKEN', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' }, encoding: 'utf8', timeout: 15000 });
 }
 const LEAK = /PRIVATE_SENTINEL|FORBIDDEN|AssertionError|https:/;
-it.each(['ok', 'propagation', 'transient-read', 'ride-secrets'])('rolls the enabled collector onto the new schedule and prints the next pins: %s', scenario => {
+it.each(['ok', 'propagation', 'transient-read', 'ride-secrets', 'raw-already-on'])('rolls the enabled collector onto the new schedule and prints the next pins: %s', scenario => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status, r.stderr).toBe(0);
   const proofLine = r.stdout.split('\n').find(line => line.startsWith('Post-deferral proof:'))!;
   const proof = Object.fromEntries([...proofLine.matchAll(/(\w+)=(\d+)/g)].map(m => [m[1]!, Number(m[2])]));
@@ -117,6 +117,8 @@ it.each([
   ['quota', 'rollover-capacity-refused'], ['receipt-other-context', 'rollover-receipt-unverified'],
   ['ride-secret-plain', 'worker-existing-configuration-mismatch'], ['unknown-binding', 'worker-existing-configuration-mismatch'],
   ['confidence-off', 'uploaded-arrival-confidence-invalid'],
+  // D78: the raw switches must arrive exactly as declared, and a live switch other than 'enabled' stops the deploy.
+  ['raw-off', 'uploaded-raw-switch-invalid'], ['raw-before-bad', 'worker-existing-configuration-mismatch'],
 ])('refuses %s with %s, no automatic rollback or stop, and names the recovery', (scenario, reason) => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   const lines = r.stderr.trim().split('\n');
