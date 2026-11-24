@@ -202,7 +202,7 @@ describe('private as-received raw archives', () => {
     else if (guard === 'sql') {
       const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 75_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
-    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 500_000 : 0, guard === 'classB' ? 2_000_000 : 0);
+    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 950_000 : 0, guard === 'classB' ? 2_000_000 : 0);
     await h.raw.capture([input()], NOW, []);
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : guard === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
     expect(h.journal.status(NOW).enabled).toBe(true);
@@ -210,10 +210,10 @@ describe('private as-received raw archives', () => {
   it.each(['bytes', 'classA', 'classB'])('stops raw storage at the corridor reserve (%s)', async guard => {
     const h = await harness(), day = new Date(NOW).toISOString().slice(0, 10);
     if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 36_999_999_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
-    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 350_000 : 0, guard === 'classB' ? 1_850_000 : 0);
+    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 800_000 : 0, guard === 'classB' ? 1_850_000 : 0);
     await h.raw.capture([input()], NOW, []);
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : 'free-operation-budget');
-    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 37_000_000_000, rawClassALimit32Days: 350_000, rawClassBLimit32Days: 1_850_000 });
+    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 });
   });
   it.each(['getVehiclePositions', 'rail-getVehiclePositions'] as const)('does not let failing %s archive writes block the other feeds on either poll', async failed => {
     const h = await harness(); h.fail(`/${failed}/`);

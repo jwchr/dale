@@ -99,20 +99,20 @@ describe('verified permanent private archive', () => {
     else if (budget === 'sql') {
       const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 75_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
-    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', budget === 'classA' ? 500_000 : 0, budget === 'classB' ? 2_000_000 : 0);
+    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', budget === 'classA' ? 950_000 : 0, budget === 'classB' ? 2_000_000 : 0);
     await h.archive.flush(NOW); expect(h.calls).toEqual([]); expect(h.journal.nextUnarchived()).toBeDefined();
     expect(h.archive.status(NOW).reason).toBe(budget === 'bytes' ? 'free-storage-budget' : budget === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
   });
   it('keeps archiving corridor history inside the reserve that statewide raw saving cannot use', async () => {
     const h = await harness();
     h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
-    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 400_000, 1_900_000);
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 850_000, 1_900_000);
     expect(h.archive.reserveRaw(1, 2, 2, 0, NOW)).toBe('free-storage-budget');
     await h.archive.flush(NOW);
     expect(h.archive.status(NOW).verifiedObjects).toBe(2); expect(h.calls.length).toBeGreaterThan(0);
   });
   it('does not reset operation allowance across a calendar-month boundary', async () => {
-    const h = await harness(); h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 500_000, 0);
+    const h = await harness(); h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 950_000, 0);
     await h.archive.flush(NOW); expect(h.calls).toEqual([]);
     await h.archive.flush(NOW + 35 * 86400_000); expect(h.archive.status(NOW + 35 * 86400_000).verifiedObjects).toBe(2);
   });

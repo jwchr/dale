@@ -8,7 +8,8 @@ export interface HistoryBucket {
 // Owner-approved fixed ceiling (Jeff, Nov 24, 2026: "Yes, up to 40 GB", at most about 45 cents a month above R2's free 10 GB),
 // so Thanksgiving week is saved in full. 1 GB stays below 40 GB for in-flight reservations, as 9 GB did below the free 10 GB.
 const BYTE_LIMIT = 39_000_000_000;
-export const A_LIMIT = 500_000, B_LIMIT = 2_000_000;
+// Class A: 950,000 per 34 UTC days keeps any month under R2's free 1,000,000 (D80, Jeff, Nov 24, 2026).
+export const A_LIMIT = 950_000, B_LIMIT = 2_000_000;
 // Corridor history feeds Dale's predictions, so statewide raw saving stops early and leaves it room
 // (Jeff, Nov 24, 2026, D78): 2 GB of storage and 150,000 of each operation class per guard window.
 // Corridor history used about 256 MB and 92,000 Class A operations in its first 16 days.

@@ -73,10 +73,15 @@ export function preservesEnabled(before, after, progressSince) {
 // The archive byte ceiling may rise only to exactly the owner-approved 39 GB guard (D79, Jeff, Nov 24, 2026: "Yes, up to 40 GB"), never fall or stop in between.
 export const APPROVED_ARCHIVE_BYTE_LIMIT = 39_000_000_000;
 const archiveByteLimitOk = (before, after) => after === before || after === APPROVED_ARCHIVE_BYTE_LIMIT;
-// Statewide raw saving's own limits (D78): once live they never change, and they always leave
+// D80: the shared Class A guard may rise only to this fixed value, inside R2's free 1,000,000 a month.
+export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 950_000;
+const archiveClassALimitOk = (before, after) => after === before || after === APPROVED_ARCHIVE_CLASS_A_LIMIT;
+// D80: the one approved set of raw limits a live Worker may move to.
+export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 };
+// Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave
 // corridor history its 2 GB and 150,000-operation reserve under the shared guard.
 export const CORRIDOR_RESERVE = { bytes: 2_000_000_000, a: 150_000, b: 150_000 };
-const rawLimitsOk = (before, after) => (RAW_LIMITS.every(k => before[k] === undefined) || RAW_LIMITS.every(k => after[k] === before[k]))
+const rawLimitsOk = (before, after) => (RAW_LIMITS.every(k => before[k] === undefined) || RAW_LIMITS.every(k => after[k] === before[k]) || RAW_LIMITS.every(k => after[k] === APPROVED_RAW_LIMITS[k]))
   && (RAW_LIMITS.every(k => after[k] === undefined) || (after.rawByteLimit <= after.byteLimit - CORRIDOR_RESERVE.bytes
     && after.rawClassALimit32Days <= after.classALimit32Days - CORRIDOR_RESERVE.a && after.rawClassBLimit32Days <= after.classBLimit32Days - CORRIDOR_RESERVE.b));
 export function continuesEnabled(before, after, progressSince) {
@@ -88,7 +93,8 @@ export function continuesEnabled(before, after, progressSince) {
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
     || !archiveByteLimitOk(before.archive.byteLimit, after.archive.byteLimit)
     || !rawLimitsOk(before.archive, after.archive)
-    || !['classALimit32Days', 'classBLimit32Days'].every(k => after.archive[k] === before.archive[k])) fail();
+    || !archiveClassALimitOk(before.archive.classALimit32Days, after.archive.classALimit32Days)
+    || after.archive.classBLimit32Days !== before.archive.classBLimit32Days) fail();
   // Hot bytes may decrease through the unchanged archive-before-prune path. Cumulative
   // evidence and verified archive reservations must never reset; do not turn unknown into0.
   return progressSince === undefined || (after.completedAttempt > before.completedAttempt && after.completedAttempt > progressSince && after.lastSuccessAt > progressSince

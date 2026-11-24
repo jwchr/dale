@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { historyContextKey } from '../../worker/history-journal';
-import { CORRIDOR_RESERVE } from '../../worker/history-archive';
+import { A_LIMIT, CORRIDOR_RESERVE } from '../../worker/history-archive';
 // @ts-expect-error native deployment helper
-import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
+import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, APPROVED_ARCHIVE_CLASS_A_LIMIT, APPROVED_RAW_LIMITS, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const ds = structuredClone(liveDataset); ds.meta.feedVersion = 'abcdef123456'; ds.meta.source = 'NJ Transit GTFS BUS G2';
 const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
 const env = { HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' };
@@ -69,6 +69,27 @@ describe('enabled collector preservation without migration or mutation', () => {
     expect(() => preservesEnabled(live, { ...after, archive: big })).toThrow();
     // A rollback keeps the 39 GB guard: lowering it is refused (turn RAW_ARCHIVE off instead).
     expect(() => preservesEnabled(live, { ...after, archive: { ...raw78, byteLimit: 9_000_000_000 } })).toThrow();
+  });
+  it('lets the Class A guard rise only to the approved 950,000 and raw limits move only to the approved set (D80)', () => {
+    const c = collection(); c.archive.classALimit32Days = 500_000;
+    const before = enabledCheckpoint(c, ds.meta.feedVersion, NOW);
+    const raw = collection(); raw.bytes = 500; raw.completedAttempt = NOW + 20000; raw.lastAttemptAt = NOW + 20000; raw.lastSuccessAt = NOW + 20000;
+    raw.observations++; raw.batches++; raw.reservedWrites += 12; raw.alarmAt = NOW + 50000;
+    raw.archive.verifiedObjects++; raw.archive.reservedBytes += 500; raw.archive.lastSuccessAt = NOW + 21000;
+    Object.assign(raw.archive, { byteLimit: 39_000_000_000, classALimit32Days: 950_000, ...APPROVED_RAW_LIMITS });
+    const after = enabledCheckpoint(raw, ds.meta.feedVersion, NOW + 22000);
+    expect(preservesEnabled(before, after, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 960_000 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 900_000 } })).toThrow();
+    // Once at 950,000 it never falls back.
+    const live = { ...before, archive: { ...before.archive, byteLimit: 39_000_000_000, classALimit32Days: 950_000, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 350_000, rawClassBLimit32Days: 1_850_000 } };
+    expect(preservesEnabled(live, after, NOW)).toBe(true);
+    expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, classALimit32Days: 500_000, rawClassALimit32Days: 350_000 } })).toThrow();
+    expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, rawClassALimit32Days: 700_000 } })).toThrow();
+    // The approved values match what the Worker reports, and 950,000 per 34 days stays under R2's free 1,000,000 a month.
+    expect(APPROVED_ARCHIVE_CLASS_A_LIMIT).toBe(A_LIMIT);
+    expect(APPROVED_RAW_LIMITS.rawClassALimit32Days).toBe(A_LIMIT - CORRIDOR_RESERVE.a);
+    expect(A_LIMIT).toBeLessThan(1_000_000);
   });
   it('keeps the deploy proof corridor reserve equal to the Worker reserve', () => {
     expect(SCRIPT_RESERVE).toEqual(CORRIDOR_RESERVE);
