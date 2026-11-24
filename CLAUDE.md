@@ -4,7 +4,7 @@
 Read `docs/V1_CONTRACT.md` (what V1 is) and `docs/HANDOFF.md` (where things stand) at the start of every session and after compaction, then check the real state on GitHub. The 805-line master spec v1.3 is an archive; do not load it unless an issue links to a section of it.
 
 ## Product rules (owner decisions; see docs/DECISIONS.md)
-- Household tool first (Jeff and Diego), built so it could go public later. No accounts in V1.
+- Household tool first (Jeff and one other household rider), built so it could go public later. No accounts in V1.
 - Never invent live data. Every live bus, gate, zone or estimate carries its source and age; unknown is a valid answer. A bus that stops reporting is "not reporting", never "cancelled", unless NJ Transit says so.
 - Exact-bus lock never switches buses silently (`src/domain/lock.ts`). Favorites keep the rider's order. A gate is never inferred from a route number.
 - English and Spanish for every string (`src/ui/i18n.ts`); 12-hour times in both.

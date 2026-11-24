@@ -4,7 +4,7 @@ import { strings } from '../../src/ui/i18n';
 
 describe('saved backup plans (issue #62)', () => {
   it('trims, limits and requires the plan text', () => {
-    expect(cleanBackupPlan({ id: 'a', plan: '  167 to Hackensack ', place: ' ', note: 'Call Diego' })).toEqual({ id: 'a', plan: '167 to Hackensack', note: 'Call Diego' });
+    expect(cleanBackupPlan({ id: 'a', plan: '  167 to Hackensack ', place: ' ', note: 'Call Sam' })).toEqual({ id: 'a', plan: '167 to Hackensack', note: 'Call Sam' });
     expect(cleanBackupPlan({ id: 'a', plan: '   ' })).toBeUndefined();
     expect(cleanBackupPlan({ plan: 'no id' })).toBeUndefined();
     expect(cleanBackupPlan({ id: 'a', plan: 'x', note: 'n'.repeat(MAX_NOTE + 50) })!.note).toHaveLength(MAX_NOTE);

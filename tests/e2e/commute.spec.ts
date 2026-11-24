@@ -661,7 +661,7 @@ test.describe('saved backup plans (issue #62)', () => {
     await expect(box.getByRole('alert')).toHaveText('Write the plan first.');
     await box.getByLabel('Plan', { exact: true }).fill('  Take the 167 to Hackensack  ');
     await box.getByLabel('Drop-off or pickup place (optional)').fill('Hackensack Bus Terminal');
-    await box.getByLabel('Notes (optional)').fill('Text Diego first.\nWait inside.');
+    await box.getByLabel('Notes (optional)').fill('Text Sam first.\nWait inside.');
     await box.getByRole('button', { name: 'Save' }).click();
     await expect(box.locator('.backup-plan')).toHaveText('Take the 167 to Hackensack');
     await expect(box).toContainText('Drop-off or pickup: Hackensack Bus Terminal');
@@ -677,11 +677,11 @@ test.describe('saved backup plans (issue #62)', () => {
     await page.getByRole('button', { name: 'Get me the fuck home' }).click();
     await expect(box.locator('.backup-plan')).toHaveText('Take the 167 to Hackensack');
     await box.getByRole('button', { name: 'Edit' }).click();
-    await box.getByLabel('Plan', { exact: true }).fill('Take the 167 to Hackensack, Diego picks me up');
+    await box.getByLabel('Plan', { exact: true }).fill('Take the 167 to Hackensack, Sam picks me up');
     await box.getByRole('button', { name: 'Save' }).click();
-    await expect(box.locator('.backup-plan')).toHaveText('Take the 167 to Hackensack, Diego picks me up');
+    await expect(box.locator('.backup-plan')).toHaveText('Take the 167 to Hackensack, Sam picks me up');
     await expect(box.getByRole('button', { name: 'Edit' })).toBeFocused();
-    await expect(box.locator('.backup-note')).toHaveText('Text Diego first.\nWait inside.');
+    await expect(box.locator('.backup-note')).toHaveText('Text Sam first.\nWait inside.');
 
     // Removing asks first.
     await box.getByRole('button', { name: 'Remove' }).click();

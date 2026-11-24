@@ -1,5 +1,5 @@
 // Port Authority is one place to a rider, but NJ Transit's schedule gives it several stop IDs (one per
-// platform), and late-night trips leave from different ones than daytime trips (Diego, Nov 20, 2026:
+// platform), and late-night trips leave from different ones than daytime trips (household rider report, Nov 20, 2026:
 // the 11:20 PM 163 was missing because it uses another Port Authority stop ID). Every lookup of a
 // rider's stop on a trip goes through here, so any Port Authority stop matches any other.
 // It never names or guesses a gate: the trip's own stop ID stays on the departure.

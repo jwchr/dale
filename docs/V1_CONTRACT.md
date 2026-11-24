@@ -3,7 +3,7 @@
 The canonical, short definition of V1. Source: master spec v1.3 (archive) as amended by the independent review of 2026-10-31 and the owner's approvals the same day (`docs/DECISIONS.md`). Each issue links to the requirement ID it serves.
 
 ## Who and where
-Household tool for Jeff and Diego. Bergen County corridor to and from Port Authority Bus Terminal. QA routes 163, 164, 165, 165T, both directions. Other NJ Transit bus data may load but is not QA'd.
+Household tool for Jeff and one other household rider. Bergen County corridor to and from Port Authority Bus Terminal. QA routes 163, 164, 165, 165T, both directions. Other NJ Transit bus data may load but is not QA'd.
 
 ## V1 must do
 | ID | Capability | Milestone |

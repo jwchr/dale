@@ -8,7 +8,7 @@ import { departuresOn } from '../../src/domain/schedule';
 import type { Dataset } from '../../src/domain/types';
 
 // Synthetic: Port Authority has a daytime stop (P-DAY) and a late-night stop (P-NIGHT), as in NJ Transit's
-// schedule, where the late 163s leave from another Port Authority stop ID (Diego, Nov 20, 2026).
+// schedule, where the late 163s leave from another Port Authority stop ID (household rider report, Nov 20, 2026).
 const all = [true, true, true, true, true, true, true];
 const ds: Dataset = {
   meta: { demo: false, source: 'synthetic', feedVersion: 'x', builtAt: '2026-11-20T00:00:00Z', timezone: 'America/New_York' },
