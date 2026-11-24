@@ -14,6 +14,8 @@ export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
   last: Partial<Record<RawFeed, string>>; lastAt: Partial<Record<RawFeed, number>>; ledgers: Record<string, Ledger>;
   pending: Pending[]; reason: string; failures: number; missing: number; blockedSecrets: number;
+  /** When a storage, operation or SQL guard last refused raw saving (absent in older checkpoints). */
+  budgetAt?: number;
 }
 export const newRawArchiveState = (): RawArchiveState => ({ v: 1, credit: { bytes: 0, a: 0, b: 0, writes: 0, day: '' },
   last: {}, lastAt: {}, ledgers: {}, pending: [], reason: 'waiting', failures: 0, missing: 0, blockedSecrets: 0 });
@@ -23,6 +25,16 @@ const digest = async (bytes: Uint8Array<ArrayBuffer>) => crypto.subtle.digest('S
 const hash = async (bytes: Uint8Array<ArrayBuffer>) => hex(await digest(bytes));
 const hour = (at: number) => new Date(at).toISOString().slice(0, 13);
 const totals = (): Counts => ({ count: 0, rawBytes: 0, gzipBytes: 0, identical: 0 });
+const BUDGET_REASONS = ['free-storage-budget', 'free-operation-budget', 'sql-write-budget'];
+/** A budget stop pauses statewide rail fetches for an hour, then lets one poll try again. The reason
+ *  alone stays set until a capture succeeds, which never happens if nothing else is saved (audit DL-006). */
+export const rawBudgetPausesRail = (state: RawArchiveState | undefined, now: number) =>
+  !!state && BUDGET_REASONS.includes(state.reason) && now - (state.budgetAt ?? 0) < 3_600_000;
+/** Starts the hourly rail retry during a budget stop: the next hour's pause begins now, so a retry that
+ *  fails upstream or saves nothing still waits an hour instead of trying every minute (Neon Nov24 d, #278). */
+export const startRailBudgetRetry = (state: RawArchiveState | undefined, now: number) => {
+  if (state && BUDGET_REASONS.includes(state.reason)) state.budgetAt = now;
+};
 const ledgerKey = (ledger: Ledger) => `raw/v1/${ledger.hour.slice(0, 10)}/ledgers/${ledger.hour.slice(11)}.json`;
 
 async function bounded<T>(task: Promise<T>): Promise<T> {
@@ -37,10 +49,22 @@ function headerTimestamp(bytes: Uint8Array): number | null {
   } catch { return null; }
 }
 /** Exact known secrets are rejected, never redacted: redaction would alter the original evidence. */
+/** Searches the bytes directly: decoding a 32 MiB response into a string for each poll would
+ *  double its memory inside the Worker's 128 MB limit (audit DL-007). */
 function containsSecret(bytes: Uint8Array, secrets: string[]) {
-  const text = new TextDecoder().decode(bytes);
+  const encoder = new TextEncoder();
   return secrets.filter(Boolean).some(secret => [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]
-    .some(value => text.includes(value)));
+    .some(value => includesBytes(bytes, encoder.encode(value))));
+}
+function includesBytes(haystack: Uint8Array, needle: Uint8Array) {
+  if (!needle.length) return true;
+  const last = haystack.length - needle.length;
+  for (let at = haystack.indexOf(needle[0]!); at !== -1 && at <= last; at = haystack.indexOf(needle[0]!, at + 1)) {
+    let n = 1;
+    while (n < needle.length && haystack[at + n] === needle[n]) n++;
+    if (n === needle.length) return true;
+  }
+  return false;
 }
 
 /** Private immutable originals. Metadata-only intents are checkpointed together for the whole poll
@@ -51,17 +75,30 @@ export class RawArchive {
   constructor(private state: RawArchiveState, private archive: Pick<HistoryArchive, 'reserveRaw'>,
     private bucket: HistoryBucket, private checkpoint: () => Promise<void>) {}
 
-  private credit(bytes: number, a: number, b: number, now: number): boolean {
+  /** `keepBytes` must remain after this use: storage held back so each open hourly ledger can
+   *  always be closed, even once the raw byte stop refuses new originals (Neon, #278). */
+  private credit(bytes: number, a: number, b: number, now: number, keepBytes = 0): boolean {
     const c = this.state.credit, day = new Date(now).toISOString().slice(0, 10);
     // SQL grants are daily. Operation grants expire after the UTC day they were bought in:
     // their durable rolling-day reservation must never be reused after it ages out.
     if (c.day !== day) { c.writes = 0; c.a = 0; c.b = 0; c.day = day; }
-    const addBytes = c.bytes < bytes ? Math.ceil((bytes - c.bytes) / 8_388_608) * 8_388_608 : 0;
+    const need = bytes + keepBytes;
+    let addBytes = c.bytes < need ? Math.ceil((need - c.bytes) / 8_388_608) * 8_388_608 : 0;
     const addA = c.a < a ? Math.max(64, a - c.a) : 0, addB = c.b < b ? Math.max(64, b - c.b) : 0;
     const addWrites = c.writes < 1 ? 128 : 0;
     if (addBytes || addA || addB || addWrites) {
-      const reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
-      if (reason) { this.state.reason = reason; return false; }
+      let reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
+      // At the byte stop a whole 8 MB block may no longer fit; buy only what this step needs, so a ledger
+      // whose first close failed can still close (Neon Nov24 c, #278). The byte check fails before any write.
+      if (reason === 'free-storage-budget' && addBytes > need - c.bytes) {
+        addBytes = need - c.bytes; reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
+      }
+      if (reason) {
+        // A refusal during a budget stop keeps the stop's start, so bus refusals every poll never push back
+        // statewide rail's hourly retry (CodeRabbit, #278). startRailBudgetRetry re-arms it at each retry.
+        if (!BUDGET_REASONS.includes(this.state.reason) || this.state.budgetAt === undefined) this.state.budgetAt = now;
+        this.state.reason = reason; return false;
+      }
       c.bytes += addBytes; c.a += addA; c.b += addB; c.writes += addWrites;
     }
     c.bytes -= bytes; c.a -= a; c.b -= b; c.writes--;
@@ -123,14 +160,11 @@ export class RawArchive {
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.pb.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
+    // Recovery runs first and buys no new bytes: each original's manifest was reserved when it
+    // was prepared, so a full raw byte budget can never strand a receipt without its manifest.
     const recovering = this.state.pending.slice();
-    const closingHours = new Set([...Object.keys(this.state.ledgers), ...recovering.map(p => hour(p.manifest.receivedAt))].filter(h => h < hour(now)));
-    if (!prepared.length && !recovering.length && !closingHours.size) return;
-    // Reserve for both originals/manifests, readbacks and any closed hourly ledger.
-    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0) + closingHours.size * 4096;
-    const objects = 2 * (prepared.length + recovering.length) + closingHours.size;
-    if (!this.credit(bytes, objects, objects, now)) return;
     if (recovering.length) {
+      if (!this.credit(0, 2 * recovering.length, 2 * recovering.length, now)) return;
       await this.checkpoint();
       for (const item of recovering) {
         try {
@@ -141,20 +175,47 @@ export class RawArchive {
           this.acknowledge(item);
         } catch { this.state.failures++; }
       }
-      // Recovery consumed a checkpoint; debit another before committing the new intent.
-      if (!this.credit(0, 0, 0, now)) return;
     }
-    this.state.last = last; this.state.lastAt = lastAt;
-    this.state.pending.push(...prepared.map(p => p.item));
+    // An hour closes only when nothing from it is pending, including originals received in it this
+    // poll before the clock crossed the hour (Neon, #278).
+    const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now)
+      && !this.state.pending.some(p => hour(p.manifest.receivedAt) === h)
+      && !prepared.some(p => hour(p.item.manifest.receivedAt) === h)));
+    if (!prepared.length && !closingHours.size) {
+      // Save recovered acknowledgments even when nothing new is due.
+      if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
+      return;
+    }
+    // Finished hours close on their own reservation, so new originals waiting for budget never hold
+    // them open. Their bytes were kept back when their originals were reserved (keepBytes below).
+    const closing = closingHours.size > 0 && this.credit(closingHours.size * 4096, closingHours.size, closingHours.size, now);
+    // New originals/manifests and readbacks, keeping 4096 bytes for every ledger still open afterwards.
+    const stillOpen = new Set([...Object.keys(this.state.ledgers).filter(h => !(closing && closingHours.has(h))),
+      ...prepared.map(p => hour(p.item.manifest.receivedAt))]);
+    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0);
+    const admitted = prepared.length > 0 && this.credit(bytes, 2 * prepared.length, 2 * prepared.length, now, stillOpen.size * 4096);
+    if (!closing && !admitted) {
+      // New originals wait for budget; recovered acknowledgments still need saving.
+      if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
+      return;
+    }
+    if (admitted) {
+      this.state.last = last; this.state.lastAt = lastAt;
+      this.state.pending.push(...prepared.map(p => p.item));
+    }
     await this.checkpoint();
     // Pending originals from an older hour must be reconciled before closing it. Ledgers
     // remain in the checkpoint until readback, so a crash retries the exact same body.
-    for (const ledger of Object.values(this.state.ledgers).filter(l => l.hour < hour(now)
-      && !this.state.pending.some(p => hour(p.manifest.receivedAt) === l.hour))) {
+    if (closing) for (const h of closingHours) {
+      const ledger = this.state.ledgers[h]!;
       try {
         await this.put(ledgerKey(ledger), encode(JSON.stringify(ledger)), 'application/json');
-        delete this.state.ledgers[ledger.hour];
+        delete this.state.ledgers[h];
       } catch { this.state.failures++; }
+    }
+    if (prepared.length && !admitted) {
+      this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.reason;
+      return;
     }
     const results = await Promise.allSettled(prepared.map(async ({ item, gzip }) => {
       await this.put(item.key, gzip, 'application/gzip');
@@ -162,7 +223,10 @@ export class RawArchive {
       this.acknowledge(item);
     }));
     for (const result of results) if (result.status === 'rejected') this.state.failures++;
-    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets > blockedBefore ? 'secret-response-rejected' : 'ready';
+    // A capture that saved nothing new has not shown the budget is back: keep a budget stop, so rail still
+    // waits its hour instead of polling every minute while every fetch fails or repeats (Neon Nov24 d, #278).
+    const stillStopped = !prepared.length && BUDGET_REASONS.includes(this.state.reason);
+    this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.blockedSecrets > blockedBefore ? 'secret-response-rejected' : stillStopped ? this.state.reason : 'ready';
   }
   private async verifyObject(object: { size: number; arrayBuffer(): Promise<ArrayBuffer> }, size: number, sha256: string) {
     if (object.size !== size) throw new Error('raw-size');

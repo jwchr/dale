@@ -11,7 +11,7 @@ import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
 import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistoryStorage } from './history-journal';
 import { HistoryArchive, type HistoryBucket } from './history-archive';
-import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from './raw-archive';
+import { RawArchive, newRawArchiveState, rawBudgetPausesRail, startRailBudgetRetry, type RawArchiveState, type RawResponse } from './raw-archive';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
 import { ArrivalConfidence } from './arrival-confidence';
@@ -25,7 +25,7 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -45,6 +45,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private journal?: HistoryJournal;
     private archive?: HistoryArchive;
     private rawArchive?: RawArchive;
+    private rawSaving = false;
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
@@ -101,6 +102,15 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             this.saved.pollAt = Math.max(this.saved.pollAt, this.journal.status(clock()).lastAttemptAt ?? 0);
             if (env.HISTORY_ARCHIVE && env.HISTORY_COLLECTION === 'enabled') {
               this.archive = new HistoryArchive(ctx.storage as HistoryStorage, this.journal, env.HISTORY_ARCHIVE);
+            }
+            // Statewide raw saving shares the 39 GB archive guard (D79) with corridor history, behind a
+            // corridor reserve (D78), so it is opt-in (Jeff, Nov 24, 2026): until RAW_ARCHIVE is 'enabled',
+            // no bus or rail original is saved. Turned off, it still drains: interrupted saves get their
+            // manifests and open hourly ledgers close, without saving anything new.
+            const rawState = this.saved.rawArchive;
+            this.rawSaving = env.RAW_ARCHIVE === 'enabled';
+            const draining = !this.rawSaving && !!rawState && (rawState.pending.length > 0 || Object.keys(rawState.ledgers).length > 0);
+            if (this.archive && env.HISTORY_ARCHIVE && (this.rawSaving || draining)) {
               this.saved.rawArchive ??= newRawArchiveState();
               this.rawArchive = new RawArchive(this.saved.rawArchive, this.archive, env.HISTORY_ARCHIVE,
                 () => ctx.storage.put('state-v1', this.saved));
@@ -257,8 +267,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     }
     private async refresh(): Promise<void> {
       const now = clock(); this.saved.pollAt = now;
-      const railDue = !!this.rawArchive && this.env.RAIL_GTFSRT_RAW === 'enabled'
-        && !['free-storage-budget', 'free-operation-budget', 'sql-write-budget'].includes(this.saved.rawArchive?.reason ?? '');
+      // Only a switched-on archive saves or counts new responses; a draining one just finishes old work.
+      const saving = this.rawSaving ? this.rawArchive : undefined;
+      const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      if (railDue) startRailBudgetRetry(this.saved.rawArchive, now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
         if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
@@ -266,7 +278,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const railPlan = rail?.prepare(now);
       const railReason = this.saved.railGtfsrt?.reason;
       if (rail && !railPlan && railReason && ['request-ceiling', 'token-limit', 'configuration-missing'].includes(railReason)) {
-        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, railReason, now);
+        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) saving?.recordFailure(feed, railReason, now);
       }
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
       const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
@@ -296,12 +308,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try {
-            const bytes = await njtRequest(endpoint, { token }, this.rawArchive ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
-            if (this.rawArchive) raw.push({ feed: endpoint, bytes, receivedAt });
+            const bytes = await njtRequest(endpoint, { token }, saving ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            if (saving) raw.push({ feed: endpoint, bytes, receivedAt });
             const feed = normalize(bytes, kind, receivedAt); if (feed.feed.state !== 'invalid') successes++; return feed;
           }
           catch (error) {
-            this.rawArchive?.recordFailure(endpoint, safeNjtFailure(error), clock());
+            saving?.recordFailure(endpoint, safeNjtFailure(error), clock());
             this.saved.failures![kind] = { code: safeNjtFailure(error), at: now };
             if (error instanceof NjtError && error.code === 'access-denied') denials++;
             return unavailable();
@@ -311,7 +323,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (denials > 0 && successes === 0) this.saved.token = undefined;
         this.saved.vehicles = vehicles; this.saved.updates = updates;
       } catch (error) {
-        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) this.rawArchive?.recordFailure(feed, safeNjtFailure(error), now);
+        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
@@ -321,7 +333,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         try {
           const result = await rail.collect(railPlan);
           raw.push(...result.responses); rawSecrets.push(...result.secrets);
-          for (const failure of result.failures) this.rawArchive?.recordFailure(failure.feed, failure.code, failure.at);
+          for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
         } catch { this.saved.rawArchive!.failures++; }
       }
       if (this.rawArchive) {
@@ -356,7 +368,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive?.status(), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
@@ -396,7 +408,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive?.status(), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };

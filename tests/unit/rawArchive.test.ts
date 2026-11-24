@@ -183,16 +183,102 @@ describe('private as-received raw archives', () => {
     h.restart(); await h.raw.capture([], NOW + 60_000, []);
     expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
   });
+  it('acknowledges an interrupted receipt even when the raw byte budget refuses new originals', async () => {
+    const h = await harness(); h.ambiguous(); await h.raw.capture([input()], NOW, []);
+    expect(h.state.pending).toHaveLength(1); h.restart();
+    // The budget is nearly used up: a new original needs a fresh 8 MB block, which is refused.
+    h.state.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect(h.state.pending).toHaveLength(0); expect(h.objects.size).toBe(2);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
+    h.restart(); expect(h.state.pending).toHaveLength(0);
+  });
+  it('acknowledges an interrupted receipt after corridor history pushed the shared total past the raw byte stop (CodeRabbit, #278)', async () => {
+    const h = await harness(); h.ambiguous(); await h.raw.capture([input()], NOW, []);
+    expect(h.state.pending).toHaveLength(1); h.restart();
+    // Corridor history keeps its own reserve, so the shared total can pass the raw limit. No cached
+    // grant is left, so recovery must buy operations (no bytes) from the archive.
+    Object.assign(h.state.credit, { bytes: 0, a: 0, b: 0, writes: 0 });
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
+    expect(h.state.pending).toHaveLength(0);
+    expect([...h.objects.keys()].filter(k => k.endsWith('.manifest.json'))).toHaveLength(1);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
+    // New originals still wait: no new bytes are bought past the stop.
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
+    const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    expect(after.reservedBytes).toBe(37_500_000_000);
+  });
+  it('closes a finished hourly ledger at the raw byte stop while new originals wait (Neon, #278)', async () => {
+    const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
+    // Only the 4096 bytes kept back for the open ledger remain, and no new 8 MB block can be bought.
+    h.state.credit.bytes = 4096;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 3600_000)], NOW + 3600_000, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
+    expect(h.raw.status().hoursUTC).toHaveLength(0); expect(h.state.pending).toHaveLength(0);
+    expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
+  });
+  it('closes a ledger whose first close failed at the byte stop, buying only the bytes it needs (Neon Nov24 c, #278)', async () => {
+    const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
+    // The ledger's 4096 bytes were spent on a failed put; 10,000 bytes remain, less than one 8 MB block.
+    h.state.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_990_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([], NOW + 3600_000, []);
+    expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
+    const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    expect(after.reservedBytes).toBeLessThan(37_000_000_000);
+  });
+  it('takes a new original only when its hourly ledger can still be closed afterwards (Neon, #278)', async () => {
+    const probe = await harness(); await probe.raw.capture([input()], NOW, []);
+    const gzipBytes = probe.objects.get([...probe.objects.keys()].find(k => k.endsWith('.pb.gz'))!)!.byteLength;
+    const h = await harness(); expect(h.archive.reserveRaw(0, 64, 64, 128, NOW)).toBeUndefined();
+    // Enough for the original and its manifest, but not the 4096 bytes its ledger will need.
+    h.state.credit = { ...h.state.credit, bytes: gzipBytes + 4096 };
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input()], NOW, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget'); expect(h.objects.size).toBe(0);
+    expect(h.raw.status().hoursUTC).toHaveLength(0);
+  });
+  it('does not close an hour whose original arrived just before the hour turned (Neon, #278)', async () => {
+    const h = await harness(), hourStart = Date.parse('2026-11-05T13:00:00Z');
+    await h.raw.capture([input(hourStart - 60_000)], hourStart - 60_000, []); h.finish();
+    h.ambiguous(); // the original is stored but its write reports failure, so it stays pending
+    await h.raw.capture([input(hourStart - 100, new Uint8Array([255, 0, 64, 201, 17]))], hourStart + 200, []);
+    expect(h.state.pending).toHaveLength(1);
+    expect([...h.objects.keys()].some(k => k.includes('/ledgers/'))).toBe(false);
+    await h.raw.capture([], hourStart + 30_000, []);
+    const ledgers = [...h.objects.keys()].filter(k => k.includes('/ledgers/'));
+    expect(ledgers).toHaveLength(1);
+    expect(JSON.parse(new TextDecoder().decode(h.objects.get(ledgers[0]!))).feeds.getVehiclePositions.count).toBe(2);
+  });
   it.each(['bytes', 'classA', 'classB', 'sql'])('stops raw storage at the shared %s guard without bucket calls', async guard => {
     const h = await harness();
-    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 8_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
     else if (guard === 'sql') {
       const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 75_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
-    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 500_000 : 0, guard === 'classB' ? 2_000_000 : 0);
+    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 950_000 : 0, guard === 'classB' ? 2_000_000 : 0);
     await h.raw.capture([input()], NOW, []);
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : guard === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
     expect(h.journal.status(NOW).enabled).toBe(true);
+  });
+  it.each(['bytes', 'classA', 'classB'])('stops raw storage at the corridor reserve (%s)', async guard => {
+    const h = await harness(), day = new Date(NOW).toISOString().slice(0, 10);
+    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 36_999_999_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 800_000 : 0, guard === 'classB' ? 1_850_000 : 0);
+    await h.raw.capture([input()], NOW, []);
+    expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : 'free-operation-budget');
+    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 });
   });
   it.each(['getVehiclePositions', 'rail-getVehiclePositions'] as const)('does not let failing %s archive writes block the other feeds on either poll', async failed => {
     const h = await harness(); h.fail(`/${failed}/`);
@@ -217,10 +303,24 @@ describe('private as-received raw archives', () => {
     const health = JSON.stringify(h.raw.status());
     expect(health).not.toContain('sha256'); expect(health).not.toContain('synthetic'); expect(health).not.toContain('.pb');
   });
+  it('finds a secret by bytes, including after a near miss, URL-encoded or JSON-escaped (audit DL-007)', async () => {
+    const h = await harness(), secret = 'synthetic"pass word';
+    const bodies = [`synthetic"pass worX synthetic"pass word`, `a=${encodeURIComponent(secret)}`, JSON.stringify({ echo: secret }), 'synthetic"pass wor'];
+    await h.raw.capture(bodies.map((body, n) => ({ feed: 'rail-getTripUpdates', receivedAt: NOW + n, bytes: new TextEncoder().encode(body) })), NOW, [secret]);
+    expect(h.raw.status().blockedSecrets).toBe(3);
+    expect(h.raw.status().hoursUTC[0]!.feeds['rail-getTripUpdates']!.count).toBe(1);
+  });
+  it('checks a large response for secrets without decoding it into a string (audit DL-007)', async () => {
+    const h = await harness(), big = new Uint8Array(4 * 1024 * 1024);
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    await h.raw.capture([input(NOW, big)], NOW, ['synthetic-password']);
+    expect(decode.mock.calls.some(([bytes]) => ((bytes as ArrayBufferView | undefined)?.byteLength ?? 0) >= big.byteLength)).toBe(false);
+    expect(h.raw.status().blockedSecrets).toBe(0); expect(h.raw.status().reason).toBe('ready');
+  });
 });
 
 describe('raw collection through the bus Worker', () => {
-  async function service(enabled = true, railEnabled = true) {
+  async function service(enabled = true, railEnabled = true, rawEnabled = true) {
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '';
     const urls: string[] = [];
@@ -246,7 +346,7 @@ describe('raw collection through the bus Worker', () => {
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
     const Feed = createFeedClass(ds, fetchImpl, () => now), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
-    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
+    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
@@ -266,6 +366,35 @@ describe('raw collection through the bus Worker', () => {
     for (const feed of ['getVehiclePositions', 'getTripUpdates', 'rail-getVehiclePositions', 'rail-getTripUpdates']) expect(feeds[feed].count).toBe(3);
     expect(JSON.stringify(await h.health())).not.toContain('synthetic');
     expect(h.urls.some(url => url.includes('/TrainData/'))).toBe(false);
+  });
+  it('tries statewide rail again an hour after a budget stop, even when nothing else clears it (audit DL-006)', async () => {
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
+    h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+  });
+  it('waits another hour when the rail retry after a budget stop fails before saving anything (Neon Nov24 d, #278)', async () => {
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
+    h.failRail(); h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 90_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 30_000 + 7_200_000); await h.poll(); expect(h.railCalls).toBe(6);
+  });
+  it('bus refusals during a budget stop do not push back the hourly rail retry (CodeRabbit, #278)', async () => {
+    const h = await service(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000; state.rawArchive.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    // Each poll's new bus originals are refused at the byte stop; rail stays paused.
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
+    h.time(NOW + 1_800_000); await h.poll(); expect(h.railCalls).toBe(2);
+    expect((await h.health()).rawArchive.reason).toBe('free-storage-budget');
+    // One hour after the stop began, rail tries once, then waits another hour.
+    h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 60_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
   });
   it('keeps trip updates and rail when vehicle positions fail upstream', async () => {
     const h = await service(); h.failBus(); await h.poll();
@@ -326,6 +455,28 @@ describe('raw collection through the bus Worker', () => {
     const ledger = (await h.health()).rawArchive.hoursUTC[0];
     for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates']) expect(ledger.events[feed]).toEqual({ [code]: 1 });
     expect(ledger.feeds.getVehiclePositions.count).toBe(2);
+  });
+  it('saves no bus or rail original while RAW_ARCHIVE is absent, and keeps corridor history and live buses', async () => {
+    const h = await service(true, true, false); await h.poll();
+    expect(h.railCalls).toBe(0); expect(h.urls.some(url => url.includes('/GTFSRT/'))).toBe(false);
+    expect([...h.objects.keys()].some(key => key.startsWith('raw/'))).toBe(false);
+    const health = await h.health();
+    expect(health.rawArchive).toBeUndefined();
+    expect(health.enabled).toBe(true);
+    expect(h.urls.filter(url => url.endsWith('/getVehiclePositions'))).toHaveLength(1);
+  });
+  it('turned off, finishes its open hourly ledger without saving or fetching anything new', async () => {
+    const h = await service(); await h.poll();
+    const rawKeys = () => [...h.objects.keys()].filter(key => key.startsWith('raw/') && key.endsWith('.pb.gz')).length;
+    const saved = rawKeys(), railCalls = h.railCalls;
+    expect((await h.health()).rawArchive.hoursUTC).toHaveLength(1);
+    (h.env as { RAW_ARCHIVE?: string }).RAW_ARCHIVE = undefined; h.restart();
+    h.time(NOW + 3600_000); await h.poll();
+    expect(rawKeys()).toBe(saved); expect(h.railCalls).toBe(railCalls);
+    expect([...h.objects.keys()].filter(key => key.startsWith('raw/') && key.includes('ledger'))).toHaveLength(1);
+    expect((await h.health()).rawArchive).toMatchObject({ saving: false, pending: 0, hoursUTC: [] });
+    h.restart(); h.time(NOW + 3630_000); await h.poll();
+    expect((await h.health()).rawArchive).toBeUndefined(); expect(rawKeys()).toBe(saved);
   });
   it('leaves rail off when the flag is absent and continues bus raw saving', async () => {
     const h = await service(true, false); await h.poll();
