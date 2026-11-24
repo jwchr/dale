@@ -8,10 +8,11 @@
 // with one change of bus is offered only at the same stop (no walk between stops), with time to make it.
 import { distanceM, twinOf } from './direction';
 import { isNjtHoliday } from './holidays';
+import { samePlace } from './place';
 import { departuresOn, tripStopTimes, tripTimeAt } from './schedule';
 import { addDays, localYmd, parseYmd, zonedWallTime } from './time';
 import { withRescueSchedule, type RescueSchedule } from './rescueSchedule';
-import type { Dataset, Departure } from './types';
+import type { Dataset, Departure, Pattern, Stop } from './types';
 
 export interface RescueOption {
   dep: Departure;
@@ -119,7 +120,7 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   const nearStops = new Map<string, number>();
   if (walkable) {
     for (const s of ds.stops) {
-      if (homes.some((h) => h.id === s.id) || !located(s)) continue;
+      if (homes.some((h) => samePlace(ds, h.id, s.id)) || !located(s)) continue;
       const m = Math.round(distanceM(home, s));
       if (m <= NEAR_HOME_M) nearStops.set(s.id, m);
     }
@@ -134,7 +135,7 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
       for (const dep of departuresOn(ds, { stopId: board.id, date })) {
         const ids = dep.pattern.stopIds;
         // A stop the pattern does not let riders off at (GTFS drop_off_type) is never a way home.
-        const alightIndex = ids.findIndex((id, i) => i > dep.stopIndex && !dep.pattern.noDropOff?.includes(i) && homes.some((h) => h.id === id));
+        const alightIndex = homeDropIndex(ds, dep.pattern, homes, dep.stopIndex + 1);
         if (alightIndex < 0) {
           if (!nearStops.size || dep.departs < now - 60_000 || dep.departs > until) continue;
           // No stop at home: the stop nearest home (straight line) that lets riders off, if any.
@@ -158,7 +159,7 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
         if (!at) continue;
         const option: RescueOption = {
           dep, boardStopId: board.id, acrossFromBoard: board.id !== from.id,
-          alightStopId: ids[alightIndex]!, acrossFromHome: ids[alightIndex] !== home.id,
+          alightStopId: ids[alightIndex]!, acrossFromHome: !samePlace(ds, ids[alightIndex]!, home.id),
           arrives: at.at, arrivesEstimated: at.estimated,
           sameLine: dep.route.id === usualRouteId, lastOnLine: false,
           ...(widerRouteIds.has(dep.route.id) ? { wider: true } : {}),
@@ -217,14 +218,26 @@ export function rescueOptions(corridor: Dataset, fromStopId: string, homeStopId:
   return { ...base, options, nearHome, transfers };
 }
 
-type StopRef = { id: string };
+type StopRef = Pick<Stop, 'id' | 'terminal'>;
+
+/** Keep the first ordinary home/twin call; Port Authority uses its final allowed arrival call. */
+// `allow` limits the calls that count, so an unusable later call never hides a usable earlier one.
+function homeDropIndex(ds: Dataset, pattern: Pattern, homes: StopRef[], from: number, allow?: (stopId: string) => boolean): number {
+  let found = -1;
+  for (let i = from; i < pattern.stopIds.length; i++) {
+    if (pattern.noDropOff?.includes(i) || (allow && !allow(pattern.stopIds[i]!)) || !homes.some(h => samePlace(ds, h.id, pattern.stopIds[i]!))) continue;
+    found = i;
+    if (homes[0]?.terminal !== 'PABT') break;
+  }
+  return found;
+}
 
 /** Trips home with one change of bus at the same stop, soonest arrival first, one per second bus. */
 // `beat` is the first direct arrival: a change that gets home at or after it is not worth offering.
 function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: string, homeId: string, now: number, until: number, beat: number,
   usualRouteId: string | undefined, widerRouteIds: Set<string>, locatedIds: Set<string>): RescueTransfer[] {
   const tz = ds.meta.timezone;
-  const homeIds = new Set(homes.map((h) => h.id));
+  const atHome = (id: string) => homes.some(h => samePlace(ds, h.id, id));
   const boardIds = new Set(boards.map((b) => b.id));
   // Stops where a bus that lets riders off at home can be boarded: the only useful places to change.
   const changeStops = new Map<string, Set<string>>(); // change stop -> patterns that go on from it to home
@@ -232,11 +245,11 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
   for (const p of ds.patterns) {
     // The last stop at home that lets riders off, so a pattern through both twin home stops still counts.
     let h = -1;
-    p.stopIds.forEach((id, i) => { if (homeIds.has(id) && !p.noDropOff?.includes(i)) h = i; });
+    p.stopIds.forEach((id, i) => { if (atHome(id) && !p.noDropOff?.includes(i)) h = i; });
     if (h > 0) homePatterns.add(p.id);
     for (let i = 0; i < h; i++) {
       const id = p.stopIds[i]!;
-      if (!p.noPickup?.includes(i) && !homeIds.has(id) && !boardIds.has(id) && locatedIds.has(id)) {
+      if (!p.noPickup?.includes(i) && !atHome(id) && !boardIds.has(id) && locatedIds.has(id)) {
         changeStops.set(id, (changeStops.get(id) ?? new Set()).add(p.id));
       }
     }
@@ -265,8 +278,9 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
       // Only the trips that go on from this stop to home: searching just those keeps this fast.
       const trips = [...changeStops.get(stopId) ?? []].flatMap((id) => tripsByPattern.get(id) ?? []);
       for (const next of departuresOn({ ...ds, trips }, { stopId, date })) {
-        const nIds = next.pattern.stopIds;
-        const h = nIds.findIndex((id, k) => k > next.stopIndex && homeIds.has(id) && !next.pattern.noDropOff?.includes(k));
+        // samePlace admits every Port Authority stop ID; offer only a drop-off stop with a known location
+        // (CodeRabbit, #280), the last such one for Port Authority (Neon, #280).
+        const h = homeDropIndex(ds, next.pattern, homes, next.stopIndex + 1, (id) => locatedIds.has(id));
         if (h < 0) continue;
         const end = timeAt(next, h);
         if (end) list.push({ next, h, end });
@@ -287,7 +301,7 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
         const ids = dep.pattern.stopIds;
         // A bus that also reaches home can still be the first half of a change to a faster bus, changing
         // before home; the caller keeps a change only if it beats every direct bus.
-        const homeAt = ids.findIndex((id, i) => i > dep.stopIndex && homeIds.has(id) && !dep.pattern.noDropOff?.includes(i));
+        const homeAt = homeDropIndex(ds, dep.pattern, homes, dep.stopIndex + 1);
         ids.forEach((changeId, i) => {
           if (i <= dep.stopIndex || (homeAt >= 0 && i >= homeAt) || !changeStops.has(changeId) || dep.pattern.noDropOff?.includes(i)) return;
           const at = timeAt(dep, i);
@@ -306,7 +320,7 @@ function oneChange(ds: Dataset, boards: StopRef[], homes: StopRef[], fromId: str
               const nIds = next.pattern.stopIds;
               const x: RescueTransfer = {
                 first: { dep, boardStopId: board.id, acrossFromBoard: board.id !== fromId, alightStopId: changeId, acrossFromHome: false, arrives: at.at, arrivesEstimated: at.estimated, ...tag(dep) },
-                second: { dep: next, boardStopId: changeId, acrossFromBoard: false, alightStopId: nIds[h]!, acrossFromHome: nIds[h] !== homeId, arrives: end.at, arrivesEstimated: end.estimated, ...tag(next) },
+                second: { dep: next, boardStopId: changeId, acrossFromBoard: false, alightStopId: nIds[h]!, acrossFromHome: !samePlace(ds, nIds[h]!, homeId), arrives: end.at, arrivesEstimated: end.estimated, ...tag(next) },
                 changeStopId: changeId, waitMs: wait, arrives: end.at,
               };
               // One row per second bus: prefer boarding at the rider's own stop, then the shorter wait.
