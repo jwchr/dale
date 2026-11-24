@@ -1,5 +1,6 @@
 import { checkDirection, destinationsFrom, reaches } from './direction';
 import { favoriteLeg, isGeneratedFavoriteLabel, type Favorite } from './favorites';
+import { samePlace } from './place';
 import type { Dataset, Stop } from './types';
 
 /** Only verified GIS cities, the authorized printed town prefix, or the confirmed PABT city. */
@@ -24,7 +25,8 @@ export function cityBoardingStops(ds: Dataset, routeIds: string[]): Stop[] {
   for (const pattern of ds.patterns) {
     if (routeIds.length && !routeIds.includes(pattern.routeId)) continue;
     pattern.stopIds.forEach((id, index) => {
-      if (index < pattern.stopIds.length - 1 && pattern.stopIds.indexOf(id) === index && !pattern.noPickup?.includes(index)) ids.add(id);
+      if (pattern.stopIds.indexOf(id) === index && !pattern.noPickup?.includes(index)
+        && pattern.stopIds.slice(index + 1).some(later => !samePlace(ds, later, id))) ids.add(id);
     });
   }
   return ds.stops.filter(stop => ids.has(stop.id));
