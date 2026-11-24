@@ -93,7 +93,12 @@ export class RawArchive {
       if (reason === 'free-storage-budget' && addBytes > need - c.bytes) {
         addBytes = need - c.bytes; reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
       }
-      if (reason) { this.state.reason = reason; this.state.budgetAt = now; return false; }
+      if (reason) {
+        // A refusal during a budget stop keeps the stop's start, so bus refusals every poll never push back
+        // statewide rail's hourly retry (CodeRabbit, #278). startRailBudgetRetry re-arms it at each retry.
+        if (!BUDGET_REASONS.includes(this.state.reason) || this.state.budgetAt === undefined) this.state.budgetAt = now;
+        this.state.reason = reason; return false;
+      }
       c.bytes += addBytes; c.a += addA; c.b += addB; c.writes += addWrites;
     }
     c.bytes -= bytes; c.a -= a; c.b -= b; c.writes--;

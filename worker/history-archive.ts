@@ -93,12 +93,15 @@ export class HistoryArchive {
    * Spare-write accounting preserves the corridor collector's remaining normal day. */
   reserveRaw(bytes: number, a: number, b: number, writes: number, now: number): string | undefined {
     const before = this.read(), usage = this.totals(now);
-    if (before.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
+    // A grant for no new bytes (recovery, ledger closes from kept bytes) never meets the byte stop: corridor
+    // history may push the shared total past the raw limit, and receipts already in R2 must still be
+    // acknowledged (CodeRabbit, #278). Operation and SQL write limits still apply.
+    if (bytes > 0 && before.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
     if (usage.a + a > RAW_A_LIMIT || usage.b + b > RAW_B_LIMIT) return 'free-operation-budget';
     if (!this.journal.reserveSpareWrites(writes + 4, now)) return 'sql-write-budget';
     return this.storage.transactionSync(() => {
       const state = this.read(), totals = this.totals(now);
-      if (state.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
+      if (bytes > 0 && state.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
       if (totals.a + a > RAW_A_LIMIT || totals.b + b > RAW_B_LIMIT) return 'free-operation-budget';
       state.reservedBytes += bytes;
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', date(now), a, b);

@@ -196,6 +196,24 @@ describe('private as-received raw archives', () => {
     expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
     h.restart(); expect(h.state.pending).toHaveLength(0);
   });
+  it('acknowledges an interrupted receipt after corridor history pushed the shared total past the raw byte stop (CodeRabbit, #278)', async () => {
+    const h = await harness(); h.ambiguous(); await h.raw.capture([input()], NOW, []);
+    expect(h.state.pending).toHaveLength(1); h.restart();
+    // Corridor history keeps its own reserve, so the shared total can pass the raw limit. No cached
+    // grant is left, so recovery must buy operations (no bytes) from the archive.
+    Object.assign(h.state.credit, { bytes: 0, a: 0, b: 0, writes: 0 });
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
+    expect(h.state.pending).toHaveLength(0);
+    expect([...h.objects.keys()].filter(k => k.endsWith('.manifest.json'))).toHaveLength(1);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
+    // New originals still wait: no new bytes are bought past the stop.
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
+    const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    expect(after.reservedBytes).toBe(37_500_000_000);
+  });
   it('closes a finished hourly ledger at the raw byte stop while new originals wait (Neon, #278)', async () => {
     const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
     // Only the 4096 bytes kept back for the open ledger remain, and no new 8 MB block can be bought.
@@ -363,6 +381,20 @@ describe('raw collection through the bus Worker', () => {
     h.failRail(); h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
     h.time(NOW + 90_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
     h.time(NOW + 30_000 + 7_200_000); await h.poll(); expect(h.railCalls).toBe(6);
+  });
+  it('bus refusals during a budget stop do not push back the hourly rail retry (CodeRabbit, #278)', async () => {
+    const h = await service(); await h.poll(); expect(h.railCalls).toBe(2);
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000; state.rawArchive.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    // Each poll's new bus originals are refused at the byte stop; rail stays paused.
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
+    h.time(NOW + 1_800_000); await h.poll(); expect(h.railCalls).toBe(2);
+    expect((await h.health()).rawArchive.reason).toBe('free-storage-budget');
+    // One hour after the stop began, rail tries once, then waits another hour.
+    h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 60_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
   });
   it('keeps trip updates and rail when vehicle positions fail upstream', async () => {
     const h = await service(); h.failBus(); await h.poll();
