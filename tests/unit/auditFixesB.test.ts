@@ -59,6 +59,33 @@ describe('Earlier buses at Port Authority', () => {
   });
 });
 
+describe('Earlier buses, Neon BONUS Nov24 fixes', () => {
+  it('lists a bus that already left early, before its scheduled time', () => {
+    const ds = dataset(), d = createEarlierDomain(ds), state = fresh(), early = at('07:09');
+    d.fold(state, { records: [seen(ds, 'OUT1', 0, '07:05'), seen(ds, 'OUT1', 1, '07:08')] }, early);
+    expect(d.answer(state, { route: '165', stop: '6', direction: 1 }, early).items).toHaveLength(1);
+  });
+  it('ignores a malformed stop call with no stop ID and an impossible index', () => {
+    const ds = dataset(), d = createEarlierDomain(ds), state = fresh();
+    d.fold(state, { records: [{ observation: { tripInstanceId: 'OUT1@20261104', observedAt: at('07:12'), stopCall: { status: 'stopped_at', stopIndex: 999, stopId: undefined as never } } }] }, now);
+    expect(d.answer(state, { route: '165', stop: '6', direction: 1 }, now).items).toEqual([]);
+  });
+  it('never revives predictions from an update with the same time as a cancellation', () => {
+    const ds = dataset(), d = createEarlierDomain(ds), state = fresh(), t = at('07:20');
+    d.fold(state, { records: [seen(ds, 'OUT1', 1, '07:31')], tripChanges: [
+      { tripInstanceId: 'OUT1@20261104', observedAt: t, cancelled: true },
+      { tripInstanceId: 'OUT1@20261104', observedAt: t, predictions: [{ stopIndex: 0, kind: 'departure', at: at('07:15'), observedAt: t }] }] }, now);
+    expect(d.answer(state, { route: '165', stop: '6', direction: 1 }, now).items[0]!.stop.evidence).toBeNull();
+  });
+  it('reads Port Authority arrival at the last call that lets riders off', () => {
+    const ds = dataset(); ds.patterns.find(p => p.id === 'IN')!.noDropOff = [3];
+    const d = createEarlierDomain(ds), state = fresh();
+    d.fold(state, { records: [seen(ds, 'IN1', 1, '07:22')] }, now);
+    const bus = d.answer(state, { route: '165', stop: '1', direction: 0 }, now).items[0]!;
+    expect(bus.portAuthority!.scheduledAt).toBeLessThan(at('07:40'));
+  });
+});
+
 describe('pollWhileVisible', () => {
   afterEach(() => vi.useRealTimers());
   const fakeDoc = () => {
@@ -89,6 +116,29 @@ describe('pollWhileVisible', () => {
     expect(load).toHaveBeenCalledTimes(3);
   });
 
+  it('does not poll a tab opened hidden until it is shown', () => {
+    vi.useFakeTimers();
+    const doc = fakeDoc(), load = vi.fn(); doc.visibilityState = 'hidden';
+    const end = pollWhileVisible(load, doc as never, 60_000);
+    vi.advanceTimersByTime(120_000);
+    expect(load).not.toHaveBeenCalled();
+    doc.visibilityState = 'visible'; doc.fire();
+    expect(load).toHaveBeenCalledTimes(1);
+    end();
+  });
+  it('sends one poll, not two, when the tab returns just before the next one is due', () => {
+    vi.useFakeTimers();
+    const doc = fakeDoc(), load = vi.fn();
+    const end = pollWhileVisible(load, doc as never, 60_000);
+    doc.visibilityState = 'hidden'; doc.fire();
+    vi.advanceTimersByTime(59_900);
+    doc.visibilityState = 'visible'; doc.fire();
+    vi.advanceTimersByTime(100);
+    expect(load).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(59_000);
+    expect(load).toHaveBeenCalledTimes(2);
+    end();
+  });
   it('lets only the newest run show its answer when an older one finishes late', async () => {
     vi.useFakeTimers();
     const doc = fakeDoc(), shown: number[] = [], resolvers: (() => void)[] = [];

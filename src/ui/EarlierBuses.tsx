@@ -27,9 +27,11 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
   const today = localYmd(now, ds.meta.timezone), key = `${today}|${JSON.stringify(queries)}`;
   const [view, setView] = useState<{ key: string; answers?: (EarlierAnswer | undefined)[] }>({ key: '' });
   useEffect(() => {
+    // Nothing to ask the server: answer at once, with no timer or visibility listener (Neon BONUS Nov24).
+    if (!api || ds.meta.demo || !queries.length) { setView({ key, answers: [] }); return; }
     let alive = true;
     const end = pollWhileVisible(async isLatest => {
-      const answers = api && !ds.meta.demo ? await Promise.all(queries.map(q => loadEarlierBuses(api, q, today))) : [];
+      const answers = await Promise.all(queries.map(q => loadEarlierBuses(api, q, today)));
       if (alive && isLatest()) setView({ key, answers });
     }, typeof document === 'undefined' ? undefined : document, 60_000);
     return () => { alive = false; end(); };
@@ -49,7 +51,7 @@ export function EarlierBuses({ ds, stop, routeIds, direction, toStop, lang, now,
         return <div key={routeKey}>
         <p className="small muted">{routeLabel(a.query.route, strings[lang].gateTurnpikeExpress)} · {s.coverage} {coverageClock(a.coverageStart)} · {s.through} {coverageClock(a.through)}</p>
         {a.gap && <p className="small warn">{s.gap}</p>}
-        {!a.items.length ? <p className="muted">{s.empty}</p> : <ul className="earlier-list">{a.items.map((bus, i) => <li key={`${bus.stop.scheduledAt}-${i}`}>
+        {!a.items.length ? <p className="muted">{s.empty}</p> : <ul className="earlier-list">{earlierKeys(a.items).map(([bus, itemKey]) => <li key={itemKey}>
           <EarlierBusDetails bus={bus} ds={ds} lang={lang} now={now} />
         </li>)}</ul>}
       </div>; })}</div>
@@ -75,7 +77,7 @@ export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds:
       : <span className="muted">{s.unknown}</span>;
   }
   return <details>
-    <summary><span>{bus.route} · {s.scheduled} {bus.stop.scheduledAt === null ? s.unknown : clock(bus.stop.scheduledAt)}</span>
+    <summary><span>{routeLabel(bus.route, strings[lang].gateTurnpikeExpress)} · {s.scheduled} {bus.stop.scheduledAt === null ? s.unknown : clock(bus.stop.scheduledAt)}</span>
       <span className="earlier-summary"><span className="earlier-place">{s.atStop}: {evidence(bus.stop)}</span>{bus.portAuthority !== null && <span className="earlier-place">{s.terminal}: {evidence(bus.portAuthority)}</span>}</span>
       <span className="small earlier-details-label">{s.details}</span>
     </summary>
@@ -89,19 +91,35 @@ export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds:
   </details>;
 }
 
+/** Stable list keys, so a newly listed bus does not close an open row (Neon BONUS Nov24). */
+function earlierKeys(items: EarlierBus[]): [EarlierBus, string][] {
+  const seen = new Map<string, number>();
+  return items.map(bus => {
+    const base = `${bus.route}|${bus.stop.scheduledAt ?? `e${bus.stop.evidence?.at ?? ''}`}`, n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return [bus, n ? `${base}|${n}` : base];
+  });
+}
+
 type VisibilityDoc = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
 /**
  * Runs `load` now, every `everyMs` while the page is visible, and again when it becomes visible
  * (audit, Nov 24, 2026): a hidden tab does not poll, and only the newest run may show its answer,
  * so a slow older request can never replace a newer list.
  */
-export function pollWhileVisible(load: (isLatest: () => boolean) => Promise<void> | void, doc: VisibilityDoc | undefined, everyMs: number): () => void {
-  let latest = 0;
-  const run = () => { const ticket = ++latest; void load(() => ticket === latest); };
+export function pollWhileVisible(load: (isLatest: () => boolean) => Promise<void> | void, doc: VisibilityDoc | undefined, everyMs: number, clock: () => number = Date.now): () => void {
+  let latest = 0, lastRun = -Infinity, timer: ReturnType<typeof setTimeout> | undefined;
   const visible = () => doc?.visibilityState !== 'hidden';
-  run();
-  const timer = setInterval(() => { if (visible()) run(); }, everyMs);
-  const onChange = () => { if (visible()) run(); };
+  // Each run restarts the cadence; a hidden tab lets the timer lapse until it is shown again (Neon BONUS Nov24).
+  const tick = () => { timer = undefined; if (visible()) run(); };
+  const run = () => {
+    const ticket = ++latest; lastRun = clock();
+    clearTimeout(timer); timer = setTimeout(tick, everyMs);
+    void load(() => ticket === latest);
+  };
+  // Showing the tab polls only when the last answer is a full interval old, so quick tab switches send nothing.
+  const onChange = () => { if (visible() && clock() - lastRun >= everyMs) run(); };
+  if (visible()) run();
   doc?.addEventListener('visibilitychange', onChange);
-  return () => { clearInterval(timer); doc?.removeEventListener('visibilitychange', onChange); };
+  return () => { clearTimeout(timer); doc?.removeEventListener('visibilitychange', onChange); };
 }

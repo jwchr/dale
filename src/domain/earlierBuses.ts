@@ -17,6 +17,8 @@ export interface EarlierAnswer {
 /** Private projection. No vehicle IDs or coordinates, even here. Never serialize it into a public answer. */
 export interface EarlierTrip {
   progress?: [number, number];
+  /** observedAt of the newest cancellation: a prediction from that same update never revives the trip. */
+  cancelledAt?: number;
   gps: Record<string, number>;
   predictions: Record<string, LivePrediction>;
   updatedAt?: number;
@@ -67,7 +69,8 @@ export function createEarlierDomain(ds: Dataset) {
       const o = r.observation, call = o?.stopCall;
       if (!o || typeof o.tripInstanceId !== 'string' || !validAt(o.observedAt) || !call || call.status !== 'stopped_at') continue;
       const m = keep(o.tripInstanceId);
-      if (!m || m.pattern.stopIds[call.stopIndex] !== call.stopId) continue;
+      // A malformed call (missing stop ID, impossible index) never moves progress (Neon BONUS Nov24).
+      if (!m || !Number.isSafeInteger(call.stopIndex) || typeof call.stopId !== 'string' || m.pattern.stopIds[call.stopIndex] !== call.stopId) continue;
       const row = state.trips[o.tripInstanceId] ??= { gps: {}, predictions: {} };
       row.gps[call.stopIndex] = Math.min(row.gps[call.stopIndex] ?? Infinity, o.observedAt);
       if (!row.progress || call.stopIndex > row.progress[1] || (call.stopIndex === row.progress[1] && o.observedAt > row.progress[0]))
@@ -80,7 +83,8 @@ export function createEarlierDomain(ds: Dataset) {
       if (u.observedAt < (row.updatedAt ?? 0)) continue;
       row.updatedAt = u.observedAt;
       // Cancellation/skips invalidate predictions, never observations. Missing reports do neither.
-      if (u.cancelled) { row.predictions = {}; continue; }
+      if (u.cancelled) { row.predictions = {}; row.cancelledAt = u.observedAt; continue; }
+      if (u.observedAt === row.cancelledAt) continue;
       for (const index of u.skippedStops ?? []) { delete row.predictions[`${index}:arrival`]; delete row.predictions[`${index}:departure`]; }
       for (const p of u.predictions ?? []) {
         if (!Number.isSafeInteger(p.stopIndex) || !m.pattern.stopIds[p.stopIndex] || !['arrival', 'departure'].includes(p.kind)
@@ -100,7 +104,9 @@ export function createEarlierDomain(ds: Dataset) {
       const index = boardIndex(ds, m.pattern, query.stop);
       if (index < 0 || !row.progress || row.progress[1] <= index) continue;
       const scheduled = tripTimeAt(ds, m.trip, m.date, index);
-      if (localYmd(scheduled, ds.meta.timezone) !== today || scheduled > now) continue;
+      // Live progress already shows the bus left; a bus that left early is listed before its scheduled time,
+      // and one that left just before midnight counts for today (Neon BONUS Nov24).
+      if (localYmd(scheduled, ds.meta.timezone) !== today && localYmd(row.progress[0], ds.meta.timezone) !== today) continue;
       function time(i: number, arrival: boolean): EarlierTime {
         const scheduledAt = m!.trip.estimated?.includes(i) ? null : arrival ? tripArrivalAt(ds, m!.trip, m!.date, i) ?? null : tripTimeAt(ds, m!.trip, m!.date, i);
         const gps = row.gps[i], p = row.predictions[`${i}:${arrival ? 'arrival' : 'departure'}`];
@@ -110,7 +116,7 @@ export function createEarlierDomain(ds: Dataset) {
       }
       // The last Port Authority call: live arrival evidence is kept only for the final terminal call, never the drop-off before it.
       let terminal = -1;
-      for (let i = m.pattern.stopIds.length - 1; i > index; i--) if (pabt.has(m.pattern.stopIds[i]!)) { terminal = i; break; }
+      for (let i = m.pattern.stopIds.length - 1; i > index; i--) if (pabt.has(m.pattern.stopIds[i]!) && !m.pattern.noDropOff?.includes(i)) { terminal = i; break; }
       items.push({ scheduled, bus: { route: m.route, direction: query.direction, stop: time(index, false), portAuthority: terminal >= 0 ? time(terminal, true) : null } });
     }
     items.sort((a, b) => b.scheduled - a.scheduled);
