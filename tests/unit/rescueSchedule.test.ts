@@ -118,7 +118,8 @@ describe('size: the phone first load stays the corridor schedule', () => {
     const r = buildRescueSchedule(many, corridorOf(many), { builtAt: '2026-11-19T10:00:00Z' });
     expect(r.schedule).toBeNull();
     expect(r.report.state).toBe('too_large');
-  });
+    // It builds a 7,000-trip feed on purpose; 30 seconds keeps a busy Mac from failing it (timed out twice Nov 24, 2026).
+  }, 30_000);
 });
 
 describe('Worker serving', () => {
