@@ -18,7 +18,7 @@ const roundTo10 = (m: number) => Math.max(10, Math.round(m / 10) * 10);
 type State =
   | { status: 'idle' }
   | { status: 'asking'; fallback: boolean }
-  | { status: 'done'; results: { stop: Stop; distanceM: number }[]; accuracyM: number }
+  | { status: 'done'; results: ReturnType<typeof nearbyStops>; accuracyM: number }
   | { status: 'denied' | 'failed' | 'timeout' | 'unsupported' };
 
 /** `autoAsk`: the rider already tapped "Use my location" on home, so ask once on opening instead of a second tap. */
@@ -133,8 +133,8 @@ export function NearMe({ ds, t, onPick, autoAsk, visible }: { ds: Dataset; t: St
       {['denied', 'failed', 'timeout'].includes(state.status) && <details className="small"><summary>{n.help}</summary><p>{n.helpText}</p></details>}
       {state.status === 'done' && state.results.length > 0 && (
         <ul className="results">
-          {state.results.map(({ stop, distanceM }) => (
-            <li key={stop.id}><StopChoice ds={ds} stop={stop} t={t} onPick={onPick} distance={n.distance(distanceM)} /></li>
+          {state.results.map(({ stop, distanceM, stopIds }) => (
+            <li key={stop.id}><StopChoice ds={ds} stop={stop} stopIds={stopIds} t={t} onPick={onPick} distance={n.distance(distanceM)} /></li>
           ))}
         </ul>
       )}

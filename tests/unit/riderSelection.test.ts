@@ -37,6 +37,15 @@ describe('verified stop information and city labels', () => {
     expect(boardingInfo(input, '2', strings.en.gateTurnpikeExpress).destinations).toEqual([]);
     expect(pattern.directionId).toBe(0);
   });
+  it('never treats a Port Authority call followed only by Port Authority calls as a boarding', () => {
+    const input = ds(); input.stops.push({ id: 'stage', name: 'South Wing', terminal: 'PABT' });
+    const routeId = input.routes[0]!.id;
+    input.patterns.push({ id: 'in-staged', routeId, directionId: 0, headsign: 'New York', stopIds: ['1', '2', 'stage', '3'] });
+    expect(boardingInfo(input, 'stage', strings.en.gateTurnpikeExpress)).toMatchObject({ routes: [], destinations: [] });
+    input.patterns.push({ id: 'out-staged', routeId, directionId: 1, headsign: 'Fictional home', stopIds: ['stage', '2', '1'] });
+    expect(boardingInfo(input, 'stage', strings.en.gateTurnpikeExpress).routes).toHaveLength(1);
+    expect(boardingInfo(input, 'stage', strings.en.gateTurnpikeExpress).destinations).not.toContain('PABT');
+  });
   it('pins final Port Authority first and groups other stops only by supplied cities', () => {
     const input = ds(); input.stops.push({ id: 'stage', name: 'South Wing', terminal: 'PABT' });
     input.stops.find(s => s.id === '2')!.city = 'Hackensack';

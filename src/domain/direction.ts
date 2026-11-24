@@ -1,5 +1,5 @@
 import type { Dataset, Stop } from './types';
-import { boardIndex, dropIndex } from './place.ts';
+import { boardIndex, dropIndex, samePlace } from './place.ts';
 
 /** Great-circle distance in meters. */
 export function distanceM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -196,14 +196,26 @@ export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
  * A suggestion only: the rider confirms the stop, and the direction guard still applies. Stops without
  * coordinates (a printed timetable) never appear. The position is not kept by this function.
  */
-export function nearbyStops(ds: Dataset, pos: { lat: number; lon: number }, radiusM = 500, limit = 6): { stop: Stop; distanceM: number }[] {
-  const served = new Set(ds.patterns.flatMap((p) => p.stopIds.slice(0, -1).filter((_, i) => !p.noPickup?.includes(i))));
-  return ds.stops
-    .filter((s): s is Located => served.has(s.id) && located(s))
-    .map((s) => ({ stop: s as Stop, distanceM: Math.round(distanceM(pos, s)) }))
-    .filter((x) => x.distanceM <= radiusM)
-    .sort((a, b) => a.distanceM - b.distanceM || a.stop.name.localeCompare(b.stop.name))
-    .slice(0, limit);
+export function nearbyStops(ds: Dataset, pos: { lat: number; lon: number }, radiusM = 500, limit = 6): { stop: Stop; distanceM: number; stopIds: string[] }[] {
+  // A stop counts only where a rider can board: pickup allowed and the bus goes on to another place
+  // (a Port Authority call followed only by more Port Authority calls is the inbound terminal, as in boardingInfo).
+  const served = new Set(ds.patterns.flatMap((p) => p.stopIds.filter((id, i) =>
+    !p.noPickup?.includes(i) && p.stopIds.slice(i + 1).some((later) => !samePlace(ds, later, id)))));
+  // Port Authority is one place (src/domain/place.ts), so its platform entries show once and a tap on
+  // any of them boards every platform. Other stops stay separate: a tap selects exactly one stop ID.
+  const groups = new Map<string, { stop: Stop; distanceM: number; stopIds: string[] }>();
+  ds.stops.filter((s): s is Located => served.has(s.id) && located(s))
+    .map((s) => ({ stop: s as Stop, d: distanceM(pos, s) }))
+    .filter(({ d }) => Number.isFinite(d))
+    .sort((a, b) => a.d - b.d || a.stop.name.localeCompare(b.stop.name))
+    .forEach(({ stop, d }) => {
+      const key = stop.terminal === 'PABT' ? 'terminal:PABT' : `id:${stop.id}`;
+      const group = groups.get(key);
+      if (group) { if (!group.stopIds.includes(stop.id)) group.stopIds.push(stop.id); }
+      else groups.set(key, { stop, distanceM: d, stopIds: [stop.id] });
+    });
+  return [...groups.values()].filter((g) => g.distanceM <= radiusM).slice(0, limit)
+    .map((g) => ({ ...g, distanceM: Math.round(g.distanceM) }));
 }
 
 /** True when the dataset has stop coordinates, so a location-based suggestion can work at all. */

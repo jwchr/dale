@@ -51,6 +51,24 @@ async function requests(page: Page, count: number) {
 }
 
 for (const lang of ['en', 'es'] as const) {
+  test(`duplicate dataset stops show once with all routes and the opposite side stays separate (${lang})`, async ({ page }) => {
+    await open(page, { lang, hasLocations: true, duplicates: true });
+    await requests(page, 1);
+    const network: string[] = [];
+    page.on('request', request => network.push(request.url()));
+    await page.evaluate(() => window.locationCallbacks[0]!.success({
+      coords: { latitude: 40.8701, longitude: -74.04, accuracy: 25 },
+    } as GeolocationPosition));
+    const rows = page.locator('.near-me .results li');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first().locator('strong')).toHaveText('Maple Ave & Main St (to NYC)');
+    await expect(rows.first().locator('.muted')).toHaveText('164 · 165');
+    await expect(rows.first().locator('.stop-number')).toContainText(strings[lang].nearMe.distance(10));
+    await expect(rows.nth(1).locator('strong')).toHaveText('Maple Ave & Main St (to Demo Terminal)');
+    expect(network).toEqual([]);
+    await requests(page, 1);
+  });
+
   test(`a dataset refresh retries an unfinished shortcut and ignores its late callback (${lang})`, async ({ page }) => {
     const options = { lang, hasLocations: true };
     await open(page, options);
