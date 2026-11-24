@@ -20,7 +20,7 @@ export function render({ lang, hasLocations, hidden = false, autoAsk = true, ref
     ds.stops = ds.stops.map(s => s.id === 'D2' ? { ...s, terminal: 'PABT' as const } : s);
     ds.stops.push({ ...ds.stops.find(s => s.id === 'D2')!, id: 'D2-copy', lat: 40.87004 });
     ds.routes = [...demoDataset.routes, { id: 'R164', shortName: '164', longName: 'Invented duplicate-source route' }];
-    ds.patterns = [...demoDataset.patterns, { ...demoDataset.patterns[0]!, id: 'copy', routeId: 'R164', stopIds: ['D2-copy', 'PABT'] }];
+    ds.patterns = [...demoDataset.patterns, { ...demoDataset.patterns[0]!, id: 'copy', routeId: 'R164', stopIds: ['D2-copy', 'D3', 'D4', 'PABT'] }];
   }
   dataset = ds;
   root.render(<StrictMode>
