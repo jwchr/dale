@@ -1,5 +1,5 @@
 import type { Dataset, Stop } from './types';
-import { boardIndex, dropIndex } from './place.ts';
+import { boardIndex, dropIndex, samePlace } from './place.ts';
 
 /** Great-circle distance in meters. */
 export function distanceM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -197,7 +197,10 @@ export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
  * coordinates (a printed timetable) never appear. The position is not kept by this function.
  */
 export function nearbyStops(ds: Dataset, pos: { lat: number; lon: number }, radiusM = 500, limit = 6): { stop: Stop; distanceM: number; stopIds: string[] }[] {
-  const served = new Set(ds.patterns.flatMap((p) => p.stopIds.slice(0, -1).filter((_, i) => !p.noPickup?.includes(i))));
+  // A stop counts only where a rider can board: pickup allowed and the bus goes on to another place
+  // (a Port Authority call followed only by more Port Authority calls is the inbound terminal, as in boardingInfo).
+  const served = new Set(ds.patterns.flatMap((p) => p.stopIds.filter((id, i) =>
+    !p.noPickup?.includes(i) && p.stopIds.slice(i + 1).some((later) => !samePlace(ds, later, id)))));
   // Port Authority is one place (src/domain/place.ts), so its platform entries show once and a tap on
   // any of them boards every platform. Other stops stay separate: a tap selects exactly one stop ID.
   const groups = new Map<string, { stop: Stop; distanceM: number; stopIds: string[] }>();

@@ -51,9 +51,20 @@ describe('nearby physical stops', () => {
   it('ignores entries without coordinates, arrival-only and no-pickup entries', () => {
     const ds = dataset([stop('board', 20), stop('restricted', 10), { id: 'unlocated', name: 'No coordinates' }]);
     ds.patterns[1]!.noPickup = [0];
+    // An arrival-only stop with coordinates, closest of all: only the last stop of its pattern.
+    ds.stops.push(stop('arrive', 5));
+    ds.patterns.push({ id: 'p-arrive', routeId: 'r-board', directionId: 0, headsign: 'Demo town', stopIds: ['board', 'arrive'] });
     expect(nearbyStops(ds, pos).map(x => x.stop.id)).toEqual(['board']);
     expect(nearbyStops(ds, { lat: 30, lon: 30 })).toEqual([]);
     expect(nearbyStops(ds, pos, 500, 0)).toEqual([]);
+  });
+
+  it('skips a Port Authority entry that is only an inbound call followed by more Port Authority calls', () => {
+    const ds = dataset([stop('board', 30), stop('stage', 5, { terminal: 'PABT' }), stop('gate', 6, { terminal: 'PABT' })]);
+    ds.patterns = [{ id: 'p-in', routeId: 'r-board', directionId: 0, headsign: 'New York', stopIds: ['board', 'stage', 'gate'] }];
+    expect(nearbyStops(ds, pos).map(x => x.stop.id)).toEqual(['board']);
+    ds.patterns.push({ id: 'p-out', routeId: 'r-board', directionId: 1, headsign: 'Demo town', stopIds: ['gate', 'end'] });
+    expect(nearbyStops(ds, pos)).toMatchObject([{ stop: { id: 'gate' }, distanceM: 6, stopIds: ['gate'] }, { stop: { id: 'board' } }]);
   });
 
   it('uses the closest original ID even when distances round to the same metre', () => {
