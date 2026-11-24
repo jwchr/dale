@@ -67,6 +67,9 @@ export function preservesEnabled(before, after, progressSince) {
 }
 /** The cumulative/limit rules of preservesEnabled without its schedule-version equality.
  * A schedule rollover changes the version; these rules still hold across it. */
+// The archive byte ceiling may rise to the owner-approved 39 GB guard (D79, Jeff, Nov 24, 2026: "Yes, up to 40 GB"), never fall or exceed it.
+export const APPROVED_ARCHIVE_BYTE_LIMIT = 39_000_000_000;
+const archiveByteLimitOk = (before, after) => after === before || (after > before && after <= APPROVED_ARCHIVE_BYTE_LIMIT);
 export function continuesEnabled(before, after, progressSince) {
   // `batches` counts retained hot rows: HistoryJournal.pruneVerified decrements it after verified
   // archiving, so it is not cumulative evidence. `observations` only ever grows.
@@ -74,7 +77,8 @@ export function continuesEnabled(before, after, progressSince) {
     || !['byteLimit', 'databaseByteLimit', 'dailyWriteReservationLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
     || (before.budgetDay === after.budgetDay && after.reservedWrites < before.reservedWrites)
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
-    || !['byteLimit', 'classALimit32Days', 'classBLimit32Days'].every(k => after.archive[k] === before.archive[k])) fail();
+    || !archiveByteLimitOk(before.archive.byteLimit, after.archive.byteLimit)
+    || !['classALimit32Days', 'classBLimit32Days'].every(k => after.archive[k] === before.archive[k])) fail();
   // Hot bytes may decrease through the unchanged archive-before-prune path. Cumulative
   // evidence and verified archive reservations must never reset; do not turn unknown into0.
   return progressSince === undefined || (after.completedAttempt > before.completedAttempt && after.completedAttempt > progressSince && after.lastSuccessAt > progressSince

@@ -50,6 +50,11 @@ describe('enabled collector preservation without migration or mutation', () => {
     expect(() => preservesEnabled(before, { ...after, observations: before.observations - 1 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, dailyWriteReservationLimit: 999999 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, reservedBytes: 0 } })).toThrow();
+    // D79: the archive ceiling may rise to the approved 39 GB guard, never above it and never down.
+    expect(preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 39_000_000_000 } }, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 39_000_000_001 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 8_999_999_999 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 800_001 } })).toThrow();
   });
   it('reads only bounded static schedule and collection health, never auth/live/status or a mutation', async () => {
     const calls: string[] = [];

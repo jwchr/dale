@@ -5,7 +5,9 @@ export interface HistoryBucket {
   put(key: string, body: ArrayBuffer, options: { onlyIf: { etagDoesNotMatch: string }; sha256: ArrayBuffer; storageClass: 'Standard'; httpMetadata: { contentType: string; cacheControl: string } }): Promise<unknown>;
   get(key: string): Promise<ArchiveObject | null>;
 }
-const BYTE_LIMIT = 9_000_000_000;
+// Owner-approved fixed ceiling (Jeff, Nov 24, 2026: "Yes, up to 40 GB", at most about 45 cents a month above R2's free 10 GB),
+// so Thanksgiving week is saved in full. 1 GB stays below 40 GB for in-flight reservations, as 9 GB did below the free 10 GB.
+const BYTE_LIMIT = 39_000_000_000;
 export const A_LIMIT = 500_000, B_LIMIT = 2_000_000;
 // Corridor history feeds Dale's predictions, so statewide raw saving stops early and leaves it room
 // (Jeff, Nov 24, 2026, D78): 2 GB of storage and 150,000 of each operation class per guard window.

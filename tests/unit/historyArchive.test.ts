@@ -95,7 +95,7 @@ describe('verified permanent private archive', () => {
   });
   it.each(['bytes', 'classA', 'classB', 'sql'])('makes zero bucket calls when the %s free budget is exhausted', async budget => {
     const h = await harness();
-    if (budget === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 9_000_000_000, verifiedObjects: 0, failures: 0, reason: 'waiting' }));
+    if (budget === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 39_000_000_000, verifiedObjects: 0, failures: 0, reason: 'waiting' }));
     else if (budget === 'sql') {
       const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 75_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
@@ -105,7 +105,7 @@ describe('verified permanent private archive', () => {
   });
   it('keeps archiving corridor history inside the reserve that statewide raw saving cannot use', async () => {
     const h = await harness();
-    h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 8_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
     h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 400_000, 1_900_000);
     expect(h.archive.reserveRaw(1, 2, 2, 0, NOW)).toBe('free-storage-budget');
     await h.archive.flush(NOW);
