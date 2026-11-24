@@ -57,11 +57,24 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
   // A GPS fix at a stop counts as reaching it, once.
   useEffect(() => {
     const fixes: [Fix | undefined, Milestone['source']][] = [[bus, 'bus_gps'], [phone, 'phone_gps']];
-    for (const [fix, source] of fixes) {
-      if (!fix) continue;
-      const i = stopReached(stops, progress.reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
-      if (i !== undefined && i <= ids.length - 1) update({ ...state, milestones: [...state.milestones, { index: i, at: fix.at, source }] });
-    }
+    setState(previous => {
+      const milestones = [...previous.milestones];
+      // Same milestones tripProgress counts: bus GPS ones only while the official feed is OK.
+      let reachedIndex = Math.max(dep.stopIndex, ...milestones
+        .filter((m) => m.source !== 'bus_gps' || !session.officialFeed || session.officialFeed.state === 'ok').map(m => m.index));
+      for (const [fix, source] of fixes) {
+        if (!fix) continue;
+        const i = stopReached(stops, reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
+        if (i !== undefined && i <= ids.length - 1) {
+          milestones.push({ index: i, at: fix.at, source });
+          reachedIndex = i;
+        }
+      }
+      if (milestones.length === previous.milestones.length) return previous;
+      const next = { ...previous, milestones };
+      kept.set(session.id, next);
+      return next;
+    });
   }, [phone?.at, bus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function tap(i: number) {

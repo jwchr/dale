@@ -90,10 +90,10 @@ function reachableFrom(ds: Dataset, fromStopId: string, routeIds?: string[]): Se
   const out = new Set<string>();
   for (const p of ds.patterns) {
     if (routeIds && routeIds.length && !routeIds.includes(p.routeId)) continue;
-    // Like `reaches`, only the first time a pattern lists a stop counts (loop routes list some stops twice).
+    // Like `reaches`, board at the first matching call and search for destinations only after it.
     const i = boardIndex(ds, p, fromStopId);
     if (i < 0 || p.noPickup?.includes(i)) continue;
-    p.stopIds.forEach((to, j) => { if (j > i && p.stopIds.indexOf(to) === j && !p.noDropOff?.includes(j)) out.add(to); });
+    p.stopIds.forEach((to, j) => { if (j > i && p.stopIds.indexOf(to, i + 1) === j && !p.noDropOff?.includes(j)) out.add(to); });
   }
   // Reaching one Port Authority stop reaches Port Authority (src/domain/place.ts).
   if (ds.stops.some((s) => s.terminal === 'PABT' && out.has(s.id))) for (const s of ds.stops) if (s.terminal === 'PABT') out.add(s.id);
@@ -180,7 +180,7 @@ export function destinationsFrom(ds: Dataset, stopId: string): Stop[] {
     const target = board === stopId ? direct : across;
     for (let j = i + 1; j < p.stopIds.length; j++) {
       const id = p.stopIds[j]!;
-      if (p.stopIds.indexOf(id) === j && !p.noDropOff?.includes(j)) target.add(id);
+      if (p.stopIds.indexOf(id, i + 1) === j && !p.noDropOff?.includes(j)) target.add(id);
     }
   }
   const group = (s: Stop) => s.id === stopId ? 2 : direct.has(s.id) ? 0 : across.has(s.id) ? 1 : 2;

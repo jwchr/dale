@@ -79,5 +79,6 @@ export function departureEvidence(batch: DepartureBatch | undefined, item: Depar
   if (fresh(item.updatedAt) && item.destinationSkipped) return { kind: 'destination-skipped', gpsObservedAt, reportedAt: item.updatedAt };
   const prediction = (p: LivePrediction | undefined) => p && fresh(p.observedAt) && p.at >= checkedAt ? p : undefined;
   const boarding = prediction(item.departure) ?? prediction(item.boardingArrival), arrival = prediction(item.arrival);
-  return { kind: boarding ? 'live' : item.problem === 'date-unknown' ? 'date-unknown' : item.departure && fresh(item.departure.observedAt) && item.departure.at < checkedAt ? 'passed' : 'no-prediction', boarding, arrival, gpsObservedAt };
+  const boardingReport = item.departure ?? item.boardingArrival;
+  return { kind: boarding ? 'live' : item.problem === 'date-unknown' ? 'date-unknown' : boardingReport && fresh(boardingReport.observedAt) && boardingReport.at < checkedAt ? 'passed' : 'no-prediction', boarding, arrival, gpsObservedAt };
 }
