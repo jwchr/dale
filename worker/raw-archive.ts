@@ -59,11 +59,16 @@ export class RawArchive {
     // their durable rolling-day reservation must never be reused after it ages out.
     if (c.day !== day) { c.writes = 0; c.a = 0; c.b = 0; c.day = day; }
     const need = bytes + keepBytes;
-    const addBytes = c.bytes < need ? Math.ceil((need - c.bytes) / 8_388_608) * 8_388_608 : 0;
+    let addBytes = c.bytes < need ? Math.ceil((need - c.bytes) / 8_388_608) * 8_388_608 : 0;
     const addA = c.a < a ? Math.max(64, a - c.a) : 0, addB = c.b < b ? Math.max(64, b - c.b) : 0;
     const addWrites = c.writes < 1 ? 128 : 0;
     if (addBytes || addA || addB || addWrites) {
-      const reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
+      let reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
+      // At the byte stop a whole 8 MB block may no longer fit; buy only what this step needs, so a ledger
+      // whose first close failed can still close (Neon Nov24 c, #278). The byte check fails before any write.
+      if (reason === 'free-storage-budget' && addBytes > need - c.bytes) {
+        addBytes = need - c.bytes; reason = this.archive.reserveRaw(addBytes, addA, addB, addWrites, now);
+      }
       if (reason) { this.state.reason = reason; return false; }
       c.bytes += addBytes; c.a += addA; c.b += addB; c.writes += addWrites;
     }

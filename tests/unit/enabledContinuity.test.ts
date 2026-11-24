@@ -90,6 +90,9 @@ describe('enabled collector preservation without migration or mutation', () => {
     const higher = { ...live, archive: { ...live.archive, byteLimit: 40_000_000_000, classALimit32Days: 990_000 } };
     expect(() => preservesEnabled(higher, after, NOW)).toThrow();
     expect(() => preservesEnabled(higher, { ...after, archive: { ...after.archive, classALimit32Days: 990_000 } }, NOW)).toThrow();
+    // Raw limits already above the approved set never fall back to it either (Neon Nov24 c, #278).
+    const rawHigher = { ...live, archive: { ...live.archive, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_900_000 } };
+    expect(() => preservesEnabled(rawHigher, after, NOW)).toThrow();
     // The approved values match what the Worker reports, and 950,000 per 34 days stays under R2's free 1,000,000 a month.
     expect(APPROVED_ARCHIVE_CLASS_A_LIMIT).toBe(A_LIMIT);
     expect(APPROVED_RAW_LIMITS.rawClassALimit32Days).toBe(A_LIMIT - CORRIDOR_RESERVE.a);

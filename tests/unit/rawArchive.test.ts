@@ -208,6 +208,17 @@ describe('private as-received raw archives', () => {
     expect(h.raw.status().hoursUTC).toHaveLength(0); expect(h.state.pending).toHaveLength(0);
     expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
   });
+  it('closes a ledger whose first close failed at the byte stop, buying only the bytes it needs (Neon Nov24 c, #278)', async () => {
+    const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
+    // The ledger's 4096 bytes were spent on a failed put; 10,000 bytes remain, less than one 8 MB block.
+    h.state.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_990_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([], NOW + 3600_000, []);
+    expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
+    const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    expect(after.reservedBytes).toBeLessThan(37_000_000_000);
+  });
   it('takes a new original only when its hourly ledger can still be closed afterwards (Neon, #278)', async () => {
     const probe = await harness(); await probe.raw.capture([input()], NOW, []);
     const gzipBytes = probe.objects.get([...probe.objects.keys()].find(k => k.endsWith('.pb.gz'))!)!.byteLength;

@@ -81,7 +81,8 @@ export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimi
 // Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave
 // corridor history its 2 GB and 150,000-operation reserve under the shared guard.
 export const CORRIDOR_RESERVE = { bytes: 2_000_000_000, a: 150_000, b: 150_000 };
-const rawLimitsOk = (before, after) => (RAW_LIMITS.every(k => before[k] === undefined) || RAW_LIMITS.every(k => after[k] === before[k]) || RAW_LIMITS.every(k => after[k] === APPROVED_RAW_LIMITS[k]))
+// A move to the approved set may only raise each limit, never lower one a later decision set higher (Neon Nov24 c).
+const rawLimitsOk = (before, after) => (RAW_LIMITS.every(k => before[k] === undefined) || RAW_LIMITS.every(k => after[k] === before[k]) || RAW_LIMITS.every(k => after[k] === APPROVED_RAW_LIMITS[k] && !(after[k] < before[k])))
   && (RAW_LIMITS.every(k => after[k] === undefined) || (after.rawByteLimit <= after.byteLimit - CORRIDOR_RESERVE.bytes
     && after.rawClassALimit32Days <= after.classALimit32Days - CORRIDOR_RESERVE.a && after.rawClassBLimit32Days <= after.classBLimit32Days - CORRIDOR_RESERVE.b));
 export function continuesEnabled(before, after, progressSince) {
