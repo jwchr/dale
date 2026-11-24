@@ -19,3 +19,7 @@ npm run gtfs -- path/to/bus_data.zip   # M2: writes public/data/corridor.json fr
 ```
 
 Once the app runs on NJ Transit's data feed: schedule data was obtained from NJ Transit and is redistributed from Dale's own server, not an NJ Transit server. This information may not be real time. Where the feed leaves a stop's time blank, the build script fills it in and the app shows it as an estimate (`~7:20 AM`).
+
+## License
+
+Dale's own code is under the [MIT License](LICENSE) (copyright jwchr): anyone may reuse it if they keep the copyright line, with no warranty. The license covers only Dale's own work. NJ Transit schedule and live data stay under NJ Transit's developer terms, and fonts, map sprites, photos and other third-party assets stay under their own licenses and credits, as noted where each is used.
