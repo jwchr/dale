@@ -115,3 +115,20 @@ describe('audit A: repeated downstream stop', () => {
     expect(alightingStopFor(ds, 'S3', 'S2')).toBeUndefined();
   });
 });
+
+describe('audit A follow-up (Gemini Flash, #280)', () => {
+  it('lets a fresh arrival report show passed when the departure report is stale', () => {
+    const item = {
+      query: { tripId: 'synthetic', serviceDate: '20261124', stopIndex: 0, toStopIndex: 1 },
+      departure: { stopIndex: 0, kind: 'departure' as const, observedAt: now - LIVE_MAX_AGE_MS - 1, at: now - 60_000 },
+      boardingArrival: { stopIndex: 0, kind: 'arrival' as const, observedAt: now - 1000, at: now - 1 },
+    };
+    const batch: DepartureBatch = {
+      v: 1, source: LIVE_SOURCE, feedVersion: 'synthetic', receivedAt: now,
+      vehicles: { state: 'unavailable' }, updates: { state: 'ok', timestamp: now }, items: [item],
+    };
+    expect(departureEvidence(batch, item, now).kind).toBe('passed');
+    item.boardingArrival.observedAt = now - LIVE_MAX_AGE_MS - 1;
+    expect(departureEvidence(batch, item, now).kind).toBe('no-prediction');
+  });
+});

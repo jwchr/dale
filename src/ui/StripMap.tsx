@@ -60,10 +60,11 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
     setState(previous => {
       const milestones = [...previous.milestones];
       // Same milestones tripProgress counts: bus GPS ones only while the official feed is OK.
-      let reachedIndex = Math.max(dep.stopIndex, ...milestones
-        .filter((m) => m.source !== 'bus_gps' || !session.officialFeed || session.officialFeed.state === 'ok').map(m => m.index));
+      const feedOk = !session.officialFeed || session.officialFeed.state === 'ok';
+      let reachedIndex = Math.max(dep.stopIndex, ...milestones.filter((m) => m.source !== 'bus_gps' || feedOk).map(m => m.index));
       for (const [fix, source] of fixes) {
-        if (!fix) continue;
+        // No new bus GPS marks while the official feed is not OK (Gemini Flash, #280).
+        if (!fix || (source === 'bus_gps' && !feedOk)) continue;
         const i = stopReached(stops, reachedIndex, fix, fixPosition(stops, dep.stopIndex, fix, now));
         if (i !== undefined && i <= ids.length - 1) {
           milestones.push({ index: i, at: fix.at, source });
@@ -75,7 +76,7 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
       kept.set(session.id, next);
       return next;
     });
-  }, [phone?.at, bus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phone?.at, bus?.at, session.officialFeed?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function tap(i: number) {
     setUndo(state.milestones);
