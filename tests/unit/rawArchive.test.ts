@@ -183,6 +183,19 @@ describe('private as-received raw archives', () => {
     h.restart(); await h.raw.capture([], NOW + 60_000, []);
     expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
   });
+  it('acknowledges an interrupted receipt even when the raw byte budget refuses new originals', async () => {
+    const h = await harness(); h.ambiguous(); await h.raw.capture([input()], NOW, []);
+    expect(h.state.pending).toHaveLength(1); h.restart();
+    // The budget is nearly used up: a new original needs a fresh 8 MB block, which is refused.
+    h.state.credit.bytes = 0;
+    const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
+    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
+    expect(h.raw.status().reason).toBe('free-storage-budget');
+    expect(h.state.pending).toHaveLength(0); expect(h.objects.size).toBe(2);
+    expect(h.raw.status().hoursUTC[0]!.feeds.getVehiclePositions!.count).toBe(1);
+    h.restart(); expect(h.state.pending).toHaveLength(0);
+  });
   it.each(['bytes', 'classA', 'classB', 'sql'])('stops raw storage at the shared %s guard without bucket calls', async guard => {
     const h = await harness();
     if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));

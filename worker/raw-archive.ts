@@ -123,14 +123,11 @@ export class RawArchive {
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.pb.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
+    // Recovery runs first and buys no new bytes: each original's manifest was reserved when it
+    // was prepared, so a full raw byte budget can never strand a receipt without its manifest.
     const recovering = this.state.pending.slice();
-    const closingHours = new Set([...Object.keys(this.state.ledgers), ...recovering.map(p => hour(p.manifest.receivedAt))].filter(h => h < hour(now)));
-    if (!prepared.length && !recovering.length && !closingHours.size) return;
-    // Reserve for both originals/manifests, readbacks and any closed hourly ledger.
-    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0) + closingHours.size * 4096;
-    const objects = 2 * (prepared.length + recovering.length) + closingHours.size;
-    if (!this.credit(bytes, objects, objects, now)) return;
     if (recovering.length) {
+      if (!this.credit(0, 2 * recovering.length, 2 * recovering.length, now)) return;
       await this.checkpoint();
       for (const item of recovering) {
         try {
@@ -141,8 +138,20 @@ export class RawArchive {
           this.acknowledge(item);
         } catch { this.state.failures++; }
       }
-      // Recovery consumed a checkpoint; debit another before committing the new intent.
-      if (!this.credit(0, 0, 0, now)) return;
+    }
+    const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now) && !this.state.pending.some(p => hour(p.manifest.receivedAt) === h)));
+    if (!prepared.length && !closingHours.size) {
+      // Save recovered acknowledgments even when nothing new is due.
+      if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
+      return;
+    }
+    // Reserve for new originals/manifests, readbacks and any closed hourly ledger.
+    const bytes = prepared.reduce((sum, p) => sum + p.gzip.byteLength + 4096, 0) + closingHours.size * 4096;
+    const objects = 2 * prepared.length + closingHours.size;
+    if (!this.credit(bytes, objects, objects, now)) {
+      // New originals wait for budget; recovered acknowledgments still need saving.
+      if (recovering.length && this.credit(0, 0, 0, now)) await this.checkpoint();
+      return;
     }
     this.state.last = last; this.state.lastAt = lastAt;
     this.state.pending.push(...prepared.map(p => p.item));
