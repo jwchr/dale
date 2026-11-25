@@ -92,10 +92,11 @@ export function EarlierBusDetails({ bus, ds, lang, now }: { bus: EarlierBus; ds:
 }
 
 /** Stable list keys, so a newly listed bus does not close an open row (Neon BONUS Nov24). */
-function earlierKeys(items: EarlierBus[]): [EarlierBus, string][] {
+/** Row keys that stay the same while a prediction moves, so an open row stays open (CodeRabbit #281). */
+export function earlierKeys(items: EarlierBus[]): [EarlierBus, string][] {
   const seen = new Map<string, number>();
   return items.map(bus => {
-    const base = `${bus.route}|${bus.stop.scheduledAt ?? `e${bus.stop.evidence?.at ?? ''}`}`, n = seen.get(base) ?? 0;
+    const base = `${bus.route}|${bus.order ?? bus.stop.scheduledAt ?? `e${bus.stop.evidence?.at ?? ''}`}`, n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
     return [bus, n ? `${base}|${n}` : base];
   });

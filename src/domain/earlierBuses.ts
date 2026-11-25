@@ -3,14 +3,19 @@ import { isServiceActive, tripArrivalAt, tripTimeAt } from './schedule';
 import { addDays, localYmd } from './time';
 import { validServiceDate, type LivePrediction } from './liveBus';
 import type { Dataset, Pattern, Trip } from './types';
-import { boardIndex, placeIndex } from './place';
+import { boardIndex, placeIndex, samePlace } from './place';
 
 export interface EarlierQuery { route: string; stop: string; direction: 0 | 1 }
 export interface EarlierTime {
   scheduledAt: number | null;
   evidence: { at: number; sourceAt: number; kind: 'gps' | 'prediction'; minutesLate: number | null } | null;
 }
-export interface EarlierBus { route: string; direction: 0 | 1; stop: EarlierTime; portAuthority: EarlierTime | null }
+export interface EarlierBus {
+  route: string; direction: 0 | 1; stop: EarlierTime; portAuthority: EarlierTime | null;
+  /** Timetable boarding time, used only to order and key rows, never shown (CodeRabbit #281): an estimated stop's
+   * shown time is null, and keying on its live evidence would replace an open row whenever a prediction moves. */
+  order?: number;
+}
 export interface EarlierAnswer {
   v: 1; query: EarlierQuery; generatedAt: number; coverageStart: number; through: number; gap: boolean; items: EarlierBus[];
 }
@@ -102,7 +107,12 @@ export function createEarlierDomain(ds: Dataset) {
       const m = match(id); if (!m || m.route !== query.route || m.pattern.directionId !== query.direction) continue;
       // Any Port Authority stop ID is the rider's Port Authority (audit, Nov 24, 2026): late trips use other gates.
       const index = boardIndex(ds, m.pattern, query.stop);
-      if (index < 0 || !row.progress || row.progress[1] <= index) continue;
+      if (index < 0 || !row.progress) continue;
+      // Gone only once the bus reaches a stop that is not the rider's place: a second Port Authority call
+      // right after the first is still Port Authority (CodeRabbit #281). boardIndex guarantees one exists.
+      let leave = index + 1;
+      while (leave < m.pattern.stopIds.length && samePlace(ds, m.pattern.stopIds[leave]!, query.stop)) leave++;
+      if (row.progress[1] < leave) continue;
       const scheduled = tripTimeAt(ds, m.trip, m.date, index);
       // Live progress already shows the bus left; a bus that left early is listed before its scheduled time,
       // and one that left just before midnight counts for today (Neon BONUS Nov24).
@@ -117,7 +127,7 @@ export function createEarlierDomain(ds: Dataset) {
       // The last Port Authority call: live arrival evidence is kept only for the final terminal call, never the drop-off before it.
       let terminal = -1;
       for (let i = m.pattern.stopIds.length - 1; i > index; i--) if (pabt.has(m.pattern.stopIds[i]!) && !m.pattern.noDropOff?.includes(i)) { terminal = i; break; }
-      items.push({ scheduled, bus: { route: m.route, direction: query.direction, stop: time(index, false), portAuthority: terminal >= 0 ? time(terminal, true) : null } });
+      items.push({ scheduled, bus: { route: m.route, direction: query.direction, stop: time(index, false), portAuthority: terminal >= 0 ? time(terminal, true) : null, order: scheduled } });
     }
     items.sort((a, b) => b.scheduled - a.scheduled);
     return { v: 1, query, generatedAt: now, coverageStart: state.coverageStart, through: state.through, gap: state.gap, items: items.slice(0, 5).map(i => i.bus) };
@@ -136,6 +146,6 @@ export function parseEarlierAnswer(raw: unknown, query: EarlierQuery): EarlierAn
   if (!a || a.v !== 1 || !a.query || a.query.route !== query.route || a.query.stop !== query.stop || a.query.direction !== query.direction
     || !at(a.generatedAt) || !at(a.coverageStart) || !at(a.through) || a.coverageStart > a.through || a.through > a.generatedAt
     || typeof a.gap !== 'boolean' || !Array.isArray(a.items) || a.items.length > 5
-    || !a.items.every(i => i && i.route === query.route && i.direction === query.direction && time(i.stop) && (i.portAuthority === null || time(i.portAuthority)))) return;
+    || !a.items.every(i => i && i.route === query.route && i.direction === query.direction && (i.order === undefined || at(i.order)) && time(i.stop) && (i.portAuthority === null || time(i.portAuthority)))) return;
   return a;
 }

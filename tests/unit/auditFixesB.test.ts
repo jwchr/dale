@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEarlierDomain, parseEarlierQuery, type EarlierState } from '../../src/domain/earlierBuses';
-import { pollWhileVisible } from '../../src/ui/EarlierBuses';
+import { earlierKeys, pollWhileVisible } from '../../src/ui/EarlierBuses';
 import { liveDataset } from '../helpers/liveBus';
 import type { Dataset } from '../../src/domain/types';
 
@@ -21,6 +21,9 @@ function dataset(): Dataset {
   ds.patterns.push({ ...ds.patterns.find(p => p.id === 'P1')!, id: 'OUT', routeId: route, directionId: 1, stopIds: ['6', '2', '1'], stopSequences: [1, 2, 3] });
   ds.trips.push({ ...base, id: 'IN1', patternId: 'IN', times: [25200, 26400, 27500, 27600], arrivals: [25200, 26400, 27500, 27600] });
   ds.trips.push({ ...base, id: 'OUT1', patternId: 'OUT', times: [25800, 27000, 28200], arrivals: [25800, 27000, 28200] });
+  // Two Port Authority calls in a row before the bus leaves for New Jersey.
+  ds.patterns.push({ ...ds.patterns.find(p => p.id === 'P1')!, id: 'OUT2', routeId: route, directionId: 1, stopIds: ['6', '3', '2', '1'], stopSequences: [1, 2, 3, 4] });
+  ds.trips.push({ ...base, id: 'OUT2', patternId: 'OUT2', times: [26100, 26160, 27300, 28500], arrivals: [26100, 26160, 27300, 28500] });
   return ds;
 }
 const seen = (ds: Dataset, trip: string, index: number, clock: string) => {
@@ -56,6 +59,29 @@ describe('Earlier buses at Port Authority', () => {
     const ds = dataset(), d = createEarlierDomain(ds), state = fresh();
     d.fold(state, { records: [seen(ds, 'IN1', 2, '07:38')] }, now);
     expect(d.answer(state, { route: '165', stop: '4', direction: 0 }, now).items).toEqual([]);
+  });
+});
+
+describe('Earlier buses, CodeRabbit #281 fixes', () => {
+  it('does not list a bus still at a second Port Authority call as gone', () => {
+    const ds = dataset(), d = createEarlierDomain(ds), state = fresh(), q = { route: '165', stop: '6', direction: 1 as const };
+    d.fold(state, { records: [seen(ds, 'OUT2', 0, '07:15'), seen(ds, 'OUT2', 1, '07:17')] }, now);
+    expect(d.answer(state, q, now).items.filter(b => b.stop.scheduledAt === at('07:15'))).toEqual([]);
+    d.fold(state, { records: [seen(ds, 'OUT2', 2, '07:36')] }, now);
+    expect(d.answer(state, q, now).items.filter(b => b.stop.scheduledAt === at('07:15'))).toHaveLength(1);
+  });
+  it('keeps an estimated stop row key the same when its prediction moves', () => {
+    const ds = dataset(); ds.trips.find(t => t.id === 'OUT1')!.estimated = [1];
+    const d = createEarlierDomain(ds), state = fresh(), q = { route: '165', stop: '2', direction: 1 as const };
+    const predict = (clock: string, seenAt: string) => ({ tripInstanceId: 'OUT1@20261104', observedAt: at(seenAt),
+      predictions: [{ stopIndex: 1, kind: 'departure' as const, at: at(clock), observedAt: at(seenAt) }] });
+    d.fold(state, { records: [seen(ds, 'OUT1', 2, '07:52')], tripChanges: [predict('07:32', '07:20')] }, now);
+    const before = d.answer(state, q, now).items;
+    d.fold(state, { tripChanges: [predict('07:35', '07:25')] }, now);
+    const after = d.answer(state, q, now).items;
+    expect(before[0]!.stop).toMatchObject({ scheduledAt: null, evidence: { at: at('07:32') } });
+    expect(after[0]!.stop.evidence!.at).toBe(at('07:35'));
+    expect(earlierKeys(after).map(([, k]) => k)).toEqual(earlierKeys(before).map(([, k]) => k));
   });
 });
 
