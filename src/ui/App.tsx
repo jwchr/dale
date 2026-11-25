@@ -1549,8 +1549,7 @@ function SettingsScreen({ ctx, page, onPage, onBack, settings, setSettings, onGu
   </>;
   if (page === 'look') return (
     <section className="settings-sub">
-      {subHead(sp.look)}
-      <h2>{t.skin}</h2>
+      {subHead(t.skin)}
       <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
       <p className="muted small">{t.skinNote}</p>
       <h2>{t.theme}</h2>
@@ -1585,7 +1584,6 @@ function SettingsScreen({ ctx, page, onPage, onBack, settings, setSettings, onGu
         : <button ref={clearButton} className="ghost" onClick={() => { setCleared(false); setConfirmClear(true); }}>{t.history.clear}</button>)}
       <p className="small" role="status">{clearFailed ? t.confidence.clearFailed : cleared ? t.history.cleared : ''}</p>
       <h2>{t.about}</h2>
-      <p className="small">{versionLine(t, ctx.lang, ctx.tz)}</p>
       <p className="small"><a className="link" href={`${import.meta.env.BASE_URL}licenses.txt`}>{t.licenses}</a></p>
       <h2>{t.dataSource}</h2>
       {ds.meta.realtime && <p className="small">{t.live.source}</p>}
@@ -1603,7 +1601,7 @@ function SettingsScreen({ ctx, page, onPage, onBack, settings, setSettings, onGu
       <MenuRow ref={lookRow} title={sp.style} onOpen={() => onPage('look')}
         detail={<><span className="style-dots" aria-hidden="true"><i /><i /><i /></span>{t.skins[settings.skin]} · {settings.skin === 'clean' ? themeName : sp.ownColors}</>} />
       <MenuRow ref={photoRow} title={sp.homePhoto} detail={sp.homePhotoDetail} onOpen={() => onPage('photo')} />
-      <h2>{t.lockedAlerts.settingsHeading}</h2>
+      <h2>{sp.alerts}</h2>
       <LockedAlertsSetting t={t} row />
       <MenuRow ref={moreRow} title={sp.more} detail={sp.moreDetail} onOpen={() => onPage('more')} />
     </section>

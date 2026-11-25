@@ -53,7 +53,7 @@ export function LockedAlertsSetting({ t, row = false }: { t: Strings; row?: bool
             else if (!view.enabled) close();
             else turnOffLockedAlerts();
           }} />
-        {row ? <span className="menu-row-text"><strong>{s.title}</strong><span>{s.rowDetail}</span></span> : s.title}
+        {row ? <span className="menu-row-text"><strong>{s.settingsHeading}</strong><span>{s.title}</span></span> : s.title}
       </label>
       {formOpen && <form className="locked-consent" onSubmit={(e) => { void submit(e); }} noValidate aria-labelledby={needCode ? `${id}-code-label` : `${id}-consent-title`}>
         {needCode ? <p className="locked-alert-note" role="alert">{s.wrongCode}</p> : <>

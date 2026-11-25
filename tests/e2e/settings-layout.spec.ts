@@ -16,7 +16,7 @@ for (const lang of ['en', 'es'] as const) test(`Settings rows open their pages a
   // Stop alerts is one switch row; the ride-screen note sits inside "What it can and can't do".
   await expect(page.getByRole('checkbox', { name: t.lockedAlerts.title })).toBeVisible();
   await expect(page.getByText(t.lockedAlerts.settingsNote, { exact: true })).toBeHidden();
-  for (const [row, title] of [[sp.style, sp.look], [sp.homePhoto, sp.homePhoto], [sp.more, sp.more]] as const) {
+  for (const [row, title] of [[sp.style, t.skin], [sp.homePhoto, sp.homePhoto], [sp.more, sp.more]] as const) {
     await page.getByRole('button', { name: new RegExp(`^${row}`) }).click();
     await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeFocused();
     // One title per page: the photo page does not repeat it.

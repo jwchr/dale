@@ -197,7 +197,7 @@ main { flex: 1; padding-bottom: 24px; }
 .lock-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
 .lock-actions button { min-height: 52px; white-space: normal; }
 .lock-toggle { display: flex; gap: 10px; align-items: center; min-height: 48px; font-size: 0.9rem; }
-.lock-toggle input { accent-color: var(--brand); width: 20px; height: 20px; flex-shrink: 0; }
+.lock-toggle input { accent-color: var(--brand); font-size: inherit; width: 1.4em; height: 1.4em; flex-shrink: 0; }
 .lock-local { background: var(--bg); border-left: 3px solid var(--muted); padding: 8px 10px; margin-top: 10px; }
 .lock-facts { display: grid; grid-template-columns: 1fr 1.7fr; gap: 12px; margin: 12px 0; }
 .lock-facts dt { color: var(--muted); font-size: 0.8rem; }
@@ -756,11 +756,11 @@ main { flex: 1; padding-bottom: 24px; }
 .menu-row-text > span { color: var(--muted); font-size: .86em; }
 .menu-row .icon-chevron { flex: none; color: var(--muted); }
 
-.settings-back { display: inline-flex; align-items: center; gap: .3em; min-height: 44px; padding: 0 4px; margin: 4px 0 0; border: 0; background: none; color: var(--brand-text, var(--brand)); font-weight: 600; }
+.settings-back { display: inline-flex; align-items: center; gap: .3em; min-height: 44px; padding: 0 4px; margin: 4px 0 8px; border: 0; background: none; color: var(--brand-text, var(--brand)); font-weight: 600; }
 .settings-sub h1 { margin-top: 2px; }
 /* Three dots in the current style's own colors (they follow the active style's variables). */
 .style-dots { display: inline-flex; vertical-align: -.15em; margin-inline-end: .45em; }
-.style-dots i { width: 1.1em; height: 1.1em; border-radius: 50%; border: 2px solid var(--surface); margin-inline-start: -.35em; }
+.style-dots i { width: 1em; height: 1em; border-radius: 50%; margin-inline-start: .2em; }
 .style-dots i:first-child { margin-inline-start: 0; background: var(--bg); box-shadow: 0 0 0 1.5px var(--muted); }
 .style-dots i:nth-child(2) { background: var(--brand); }
 .style-dots i:nth-child(3) { background: var(--express, var(--accent, var(--brand-text))); }

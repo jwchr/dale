@@ -1,7 +1,7 @@
 // Settings in three groups up front, the rest one tap down (simpler layout mock-up, Jeff, Nov 24, 2026: "Yes, build it").
 export const settingsStrings = {
   en: {
-    look: 'Look',
+    look: 'Look', alerts: 'Alerts',
     style: 'Style', ownColors: 'its own colors',
     backTo: 'Back to Settings',
     demoSource: 'Invented demo data',
@@ -9,7 +9,7 @@ export const settingsStrings = {
     more: 'More settings', moreDetail: 'Animation, button helper, slogan, buses on Home, first ride, history, data, about',
   },
   es: {
-    look: 'Aspecto',
+    look: 'Aspecto', alerts: 'Alertas',
     style: 'Estilo', ownColors: 'sus propios colores',
     backTo: 'Volver a Ajustes',
     demoSource: 'Datos de demostración inventados',

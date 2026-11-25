@@ -583,7 +583,7 @@ const en = {
   themeSystem: 'Match phone',
   themeLight: 'Light',
   themeDark: 'Dark',
-  departuresShown: 'Departures on home',
+  departuresShown: 'Departures on Home',
   dataSource: 'Data',
   // First-ride guide (UX-07). Every step is from NJ Transit's printed route 165 timetable (issued 7/1/26) or
   // njtransit.com "How to Ride - Bus", "Rider Guide for Bus Customers" and /tap (Tap & Ride), checked 2026-11-03. Keep es in step.
@@ -1202,7 +1202,7 @@ const es: Strings = {
   themeSystem: 'Como el teléfono',
   themeLight: 'Claro',
   themeDark: 'Oscuro',
-  departuresShown: 'Salidas en inicio',
+  departuresShown: 'Salidas en Inicio',
   dataSource: 'Datos',
   guideOpen: '¿Primera vez? Cómo funciona',
   guide: {
