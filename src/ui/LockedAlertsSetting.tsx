@@ -9,7 +9,8 @@ import {
 
 const RETRYABLE: LockedNote[] = ['unavailable', 'later', 'full', 'invalid', 'failed', 'storage'];
 
-export function LockedAlertsSetting({ t }: { t: Strings }) {
+/** `row`: the Settings layout (simpler layout mock-up, Nov 24): one switch row, with the ride-screen note folded into the limits. */
+export function LockedAlertsSetting({ t, row = false }: { t: Strings; row?: boolean }) {
   const s = t.lockedAlerts;
   const view = useLockedAlertsView();
   const [asking, setAsking] = useState(false);
@@ -44,15 +45,15 @@ export function LockedAlertsSetting({ t }: { t: Strings }) {
   const unavailableHere = view.context !== 'ok' && !view.enabled;
 
   return (
-    <div className="locked-alerts" data-testid="locked-alerts">
-      <label className="lock-toggle">
+    <div className={row ? 'locked-alerts locked-alerts-row' : 'locked-alerts'} data-testid="locked-alerts">
+      <label className={row ? 'lock-toggle switch-row' : 'lock-toggle'}>
         <input ref={toggle} type="checkbox" checked={view.enabled || formOpen} disabled={unavailableHere || checking} aria-describedby={`${id}-status`}
           onChange={(e) => {
             if (e.target.checked) { clearLockedNote(); setAsking(true); }
             else if (!view.enabled) close();
             else turnOffLockedAlerts();
           }} />
-        {s.title}
+        {row ? <span className="menu-row-text"><strong>{s.title}</strong><span>{s.rowDetail}</span></span> : s.title}
       </label>
       {formOpen && <form className="locked-consent" onSubmit={(e) => { void submit(e); }} noValidate aria-labelledby={needCode ? `${id}-code-label` : `${id}-consent-title`}>
         {needCode ? <p className="locked-alert-note" role="alert">{s.wrongCode}</p> : <>
@@ -79,6 +80,7 @@ export function LockedAlertsSetting({ t }: { t: Strings }) {
       </div>
       {!formOpen && <details className="locked-limits">
         <summary>{s.limitsTitle}</summary>
+        {row && <p className="small">{s.settingsNote}</p>}
         <ul className="locked-limits-list">{s.limits.map((line) => <li key={line}>{line}</li>)}</ul>
       </details>}
     </div>

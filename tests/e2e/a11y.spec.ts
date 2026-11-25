@@ -24,8 +24,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await page.getByRole('button', { name: 'Atrás' }).click();
       }
       const t = lang === 'es'
-        ? { find: /Buscar parada/i, save: /Guardar/, reverse: /Invertir/, allDay: /todo el día/i, settings: 'Ajustes', homePhoto: 'Foto de inicio', more: 'Más ajustes', back: 'Atrás', guide: '¿Primera vez? Cómo funciona' }
-        : { find: /Find a stop/i, save: 'Save trip', reverse: /Reverse/, allDay: /All day|full-day/, settings: 'Settings', homePhoto: 'Home photo', more: 'More settings', back: 'Back', guide: 'First time riding? How it works' };
+        ? { find: /Buscar parada/i, save: /Guardar/, reverse: /Invertir/, allDay: /todo el día/i, settings: 'Ajustes', style: 'Estilo', homePhoto: 'Foto de inicio', more: 'Más ajustes', back: 'Atrás', guide: '¿Primera vez? Cómo funciona' }
+        : { find: /Find a stop/i, save: 'Save trip', reverse: /Reverse/, allDay: /All day|full-day/, settings: 'Settings', style: 'Style', homePhoto: 'Home photo', more: 'More settings', back: 'Back', guide: 'First time riding? How it works' };
       await audit(page, 'home (empty)');
       await page.getByRole('button', { name: t.find }).first().click();
       await page.getByRole('searchbox').fill('irvington');
@@ -38,14 +38,17 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await audit(page, 'home (commute, from Port Authority)');
       await page.locator('.dep').first().click();
       await audit(page, 'trip');
-      await page.getByRole('button', { name: t.back }).click();
+      await page.getByRole('button', { name: t.back, exact: true }).click();
       await page.getByRole('button', { name: t.allDay }).click();
       await audit(page, 'timetable');
       await page.getByRole('button', { name: t.settings, exact: true }).click();
       await audit(page, 'settings');
+      await page.getByRole('button', { name: new RegExp(`^${t.style}`) }).click();
+      await audit(page, 'settings style');
+      await page.getByRole('button', { name: t.back, exact: true }).click();
       await page.getByRole('button', { name: new RegExp(`^${t.homePhoto}`) }).click();
       await audit(page, 'settings home photo');
-      await page.getByRole('button', { name: t.back }).click();
+      await page.getByRole('button', { name: t.back, exact: true }).click();
       await page.getByRole('button', { name: new RegExp(`^${t.more}`) }).click();
       await audit(page, 'settings more');
       await page.getByRole('button', { name: t.guide }).click();
@@ -101,7 +104,9 @@ for (const [skin, colorScheme] of [['household', 'light'], ['household', 'dark']
     await page.getByRole('button', { name: /All day|full-day/ }).click();
     await audit(page, `${skin} timetable`);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('button', { name: { household: 'Household', garden: 'Garden State', clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'true');
     await audit(page, `${skin} settings`);
+    await page.getByRole('button', { name: /^Style/ }).click();
+    await expect(page.getByRole('button', { name: { household: 'Household', garden: 'Garden State', clean: 'Clean', parkway: 'Parkway', nyc: 'NYC night', turnpike: 'Turnpike' }[skin] }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'true');
+    await audit(page, `${skin} settings style`);
   });
 }

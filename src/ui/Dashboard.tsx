@@ -161,7 +161,7 @@ export function ConnectionMap({ t, nj, ny, eastbound, county, bus, you }: { t: S
 
 /** The cream-gold banner that opens the first-ride guide. */
 /** One tappable row that opens a deeper screen: a title, a short plain line under it and a chevron (simpler layout, Nov 24). */
-export function MenuRow({ title, detail, onOpen, ref }: { title: string; detail?: string; onOpen: () => void; ref?: Ref<HTMLButtonElement> }) {
+export function MenuRow({ title, detail, onOpen, ref }: { title: string; detail?: ReactNode; onOpen: () => void; ref?: Ref<HTMLButtonElement> }) {
   return <button ref={ref} type="button" className="menu-row" onClick={onOpen}>
     <span className="menu-row-text"><strong>{title}</strong>{detail && <span>{detail}</span>}</span><ChevronRight />
   </button>;

@@ -72,7 +72,8 @@ export function HomePhotoProvider({ children }: { children: ReactNode }) {
   return <Context.Provider value={{ photo, url, loaded, busy, message, change, refresh }}>{children}</Context.Provider>;
 }
 
-export function HomePhotoSettings({ t }: { t: Strings }) {
+/** On its own Settings page the page title names the section, so `labelledBy` points there instead of repeating it. */
+export function HomePhotoSettings({ t, labelledBy }: { t: Strings; labelledBy?: string }) {
   const model = useHomePhoto(), id = useId();
   const input = useRef<HTMLInputElement>(null), chooser = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
@@ -81,8 +82,8 @@ export function HomePhotoSettings({ t }: { t: Strings }) {
   }, [model?.busy]);
   if (!model) return null;
   const s = t.homePhoto;
-  return <section className="home-photo-settings" aria-labelledby={id}>
-    <h2 id={id}>{s.title}</h2>
+  return <section className="home-photo-settings" aria-labelledby={labelledBy ?? id}>
+    {!labelledBy && <h2 id={id}>{s.title}</h2>}
     <p id={`${id}-note`} className="small muted">{s.note}</p>
     {model.url && <img className="home-photo-preview" src={model.url} alt={s.preview} />}
     <div className="home-photo-picker">

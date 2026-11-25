@@ -13,7 +13,7 @@ for (const lang of ['en', 'es'] as const) test(`a fresh install opens in Househo
   await page.emulateMedia({ colorScheme: 'dark' });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light');
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'palisades-october');
-  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: new RegExp(`^${t.settingsPage.style}`) }).click();
   await expect(page.getByRole('button', { name: t.skins.household, exact: true }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'true');
   // The style list sits under the "Style" heading; Household comes first.
   const styles = page.getByRole('heading', { name: t.skin, exact: true }).locator('xpath=following-sibling::div[1]').getByRole('button');
@@ -27,7 +27,7 @@ test('an existing install keeps its saved Garden State style', async ({ page }) 
   await expect(page.locator('html')).toHaveAttribute('data-skin', 'garden');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-skin', 'garden');
-  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: /^Style/ }).click();
   await expect(page.getByRole('button', { name: strings.en.skins.garden, exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: strings.en.skins.household, exact: true }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed', 'false');
 });

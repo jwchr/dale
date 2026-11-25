@@ -79,7 +79,7 @@ type Screen =
   | { name: 'commute'; favoriteId: string; reversed: boolean; end: CommutePickEnd; level: 'city' | 'stop' }
   | { name: 'timetable'; leg: Leg; title: string; date?: string }
   | { name: 'departure'; dep: Departure; leg: Leg }
-  | { name: 'settings'; page?: 'more' | 'photo' }
+  | { name: 'settings'; page?: SettingsPage }
   | { name: 'guide' }
   | { name: 'penn'; railOnly?: boolean }
   | { name: 'boarding'; dep: Departure; leg: Leg }
@@ -554,7 +554,7 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
               label: ds.stops.find((s) => s.id === screen.leg.toStopId)?.terminal ? 'other' : 'home' })}
             onUnlock={() => { setActiveLock(undefined); if (!ds.meta.demo) forgetLock(store); setDemoAdvanceMs(0); }} />
         )}
-        {screen.name === 'settings' && <SettingsScreen ctx={ctx} page={screen.page} onPage={page => setScreen({ name: 'settings', page })} settings={settings} setSettings={setSettings} onGuide={() => setScreen({ name: 'guide' })}
+        {screen.name === 'settings' && <SettingsScreen ctx={ctx} page={screen.page} onPage={page => setScreen({ name: 'settings', page })} onBack={back} settings={settings} setSettings={setSettings} onGuide={() => setScreen({ name: 'guide' })}
           historyCount={pastReports.length} onClearHistory={() => { const ok = clearHistory(store, Math.min(lockNow, Date.now())); if (ok) setPastReports([]); return ok; }} />}
         {screen.name === 'guide' && <RiderGuide t={t} />}
         {screen.name === 'boarding' && (
@@ -1511,8 +1511,9 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   );
 }
 
-function SettingsScreen({ ctx, page, onPage, settings, setSettings, onGuide, historyCount, onClearHistory }: {
-  ctx: Ctx; page?: 'more' | 'photo' | undefined; onPage: (page: 'more' | 'photo') => void; settings: Settings; setSettings: (s: Settings) => void; onGuide: () => void; historyCount: number; onClearHistory: () => boolean;
+type SettingsPage = 'look' | 'photo' | 'more';
+function SettingsScreen({ ctx, page, onPage, onBack, settings, setSettings, onGuide, historyCount, onClearHistory }: {
+  ctx: Ctx; page?: SettingsPage | undefined; onPage: (page: SettingsPage) => void; onBack: () => void; settings: Settings; setSettings: (s: Settings) => void; onGuide: () => void; historyCount: number; onClearHistory: () => boolean;
 }) {
   const { t, ds } = ctx;
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1530,20 +1531,37 @@ function SettingsScreen({ ctx, page, onPage, settings, setSettings, onGuide, his
     <button className="chip" aria-pressed={settings[k] === v} onClick={() => setSettings({ ...settings, [k]: v })}>{label}</button>
   );
   const sp = t.settingsPage;
+  const themeName = settings.theme === 'light' ? t.themeLight : settings.theme === 'dark' ? t.themeDark : t.themeSystem;
   // Keyboard and screen-reader focus follows the page: a sub-page's title when it opens, the row it came from on Back.
-  const pageTitle = useRef<HTMLHeadingElement>(null), photoRow = useRef<HTMLButtonElement>(null), moreRow = useRef<HTMLButtonElement>(null);
+  const pageTitle = useRef<HTMLHeadingElement>(null), lookRow = useRef<HTMLButtonElement>(null), photoRow = useRef<HTMLButtonElement>(null), moreRow = useRef<HTMLButtonElement>(null);
   const shownPage = useRef(page);
   useEffect(() => {
     const before = shownPage.current; shownPage.current = page;
     if (before === page) return;
     if (page) pageTitle.current?.focus();
-    else (before === 'photo' ? photoRow : moreRow).current?.focus();
+    else ({ look: lookRow, photo: photoRow, more: moreRow }[before!]).current?.focus();
   }, [page]);
   // Simpler layout (Jeff, Nov 24, 2026: "Yes, build it"): Language, Look and Alerts up front; every other setting one tap down.
-  if (page === 'photo') return <section><h1 ref={pageTitle} tabIndex={-1}>{sp.homePhoto}</h1><HomePhotoSettings t={t} /></section>;
+  // Each deeper page opens with a labeled way back to Settings, above its title.
+  const subHead = (title: string, id?: string) => <>
+    <button type="button" className="settings-back link" aria-label={sp.backTo} onClick={onBack}><span aria-hidden="true">‹</span>{t.settings}</button>
+    <h1 ref={pageTitle} tabIndex={-1} id={id}>{title}</h1>
+  </>;
+  if (page === 'look') return (
+    <section className="settings-sub">
+      {subHead(sp.look)}
+      <h2>{t.skin}</h2>
+      <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
+      <p className="muted small">{t.skinNote}</p>
+      <h2>{t.theme}</h2>
+      <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
+      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
+    </section>
+  );
+  if (page === 'photo') return <section className="settings-sub">{subHead(sp.homePhoto, 'settings-photo-title')}<HomePhotoSettings t={t} labelledBy="settings-photo-title" /></section>;
   if (page === 'more') return (
-    <section className="settings-more">
-      <h1 ref={pageTitle} tabIndex={-1}>{sp.more}</h1>
+    <section className="settings-more settings-sub">
+      {subHead(sp.more)}
       <label className="lock-toggle"><input type="checkbox" checked={settings.liveMotion} onChange={e => setSettings({ ...settings, liveMotion: e.currentTarget.checked })} />{t.live.motion}</label>
       <p className="small muted">{t.live.motionNote}</p>
       <h2>{t.bilingualButtons.title}</h2>
@@ -1571,11 +1589,9 @@ function SettingsScreen({ ctx, page, onPage, settings, setSettings, onGuide, his
       <p className="small"><a className="link" href={`${import.meta.env.BASE_URL}licenses.txt`}>{t.licenses}</a></p>
       <h2>{t.dataSource}</h2>
       {ds.meta.realtime && <p className="small">{t.live.source}</p>}
-      <p className="small">{ds.meta.source} · {ds.meta.feedVersion}</p>
+      <p className="small">{ds.meta.demo ? sp.demoSource : ds.meta.source} · {ds.meta.feedVersion}</p>
       {ds.meta.transcribed && <p className="small">{t.transcribedBanner(fmtYmd(ds.meta.transcribed.issued, settings.lang))}</p>}
       {ds.meta.stopCities && <p className="small">{ds.meta.stopCities.state === 'verified' ? <>{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</> : t.selection.cityUnavailable}</p>}
-      <p className="small muted">{dataNotice(ds, t)}</p>
-      <p className="small muted">{t.appTagline}</p>
     </section>
   );
   return (
@@ -1584,16 +1600,11 @@ function SettingsScreen({ ctx, page, onPage, settings, setSettings, onGuide, his
       <h2>{t.language}</h2>
       <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
       <h2>{sp.look}</h2>
-      <h3>{t.skin}</h3>
-      <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
-      <p className="muted small">{t.skinNote}</p>
-      <h3>{t.theme}</h3>
-      <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
-      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
+      <MenuRow ref={lookRow} title={sp.style} onOpen={() => onPage('look')}
+        detail={<><span className="style-dots" aria-hidden="true"><i /><i /><i /></span>{t.skins[settings.skin]} · {settings.skin === 'clean' ? themeName : sp.ownColors}</>} />
       <MenuRow ref={photoRow} title={sp.homePhoto} detail={sp.homePhotoDetail} onOpen={() => onPage('photo')} />
       <h2>{t.lockedAlerts.settingsHeading}</h2>
-      <p className="small muted">{t.lockedAlerts.settingsNote}</p>
-      <LockedAlertsSetting t={t} />
+      <LockedAlertsSetting t={t} row />
       <MenuRow ref={moreRow} title={sp.more} detail={sp.moreDetail} onOpen={() => onPage('more')} />
     </section>
   );

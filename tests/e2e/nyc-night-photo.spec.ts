@@ -47,7 +47,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await page.getByRole('button', { name: t.journey.trainMode, exact: true }).click();
     await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'ramble-night');
     await page.getByRole('button', { name: t.journey.busMode, exact: true }).click();
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: new RegExp(`^${t.settingsPage.style}`) }).click();
     for (const skin of ['garden', 'nyc'] as const) {
       const button = page.getByRole('button', { name: t.skins[skin], exact: true }); await button.focus(); await button.press('Enter');
       await expect(page.locator('html')).toHaveAttribute('data-skin', skin);
@@ -95,7 +95,7 @@ test('style changes keep fallback art until the matching image is ready and igno
   await page.route('**/backgrounds/*.webp', async route => { await ready; await route.continue(); });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'ramble-night');
-  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: /^Style/ }).click();
   await page.getByRole('button', { name: strings.en.skins.garden, exact: true }).click();
   await expect(page.locator('.skin-backdrop svg')).toHaveCount(1); await expect(page.locator('.photo-backdrop')).toHaveCount(0);
   await page.getByRole('button', { name: strings.en.skins.nyc, exact: true }).click();
@@ -120,7 +120,7 @@ test('switching to the night photo preserves an existing exact-bus lock', async 
   await expect.poll(() => page.evaluate(() => localStorage.getItem('arriba.lock.v1.g2'))).not.toBeNull();
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.lock.v1.g2')!));
   await page.getByRole('button', { name: t.back, exact: true }).click();
-  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: new RegExp(`^${t.settingsPage.style}`) }).click();
   await page.getByRole('button', { name: t.skins.nyc, exact: true }).click();
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'ramble-night');
   const after = await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.lock.v1.g2')!));

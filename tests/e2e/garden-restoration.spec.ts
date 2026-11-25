@@ -116,7 +116,7 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
     await page.getByRole('button', { name: t.journey.trainMode, exact: true }).click();
     await expect(page.getByText(t.rail.sample, { exact: true })).toBeVisible();
     await page.getByRole('button', { name: t.journey.busMode, exact: true }).click();
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click(); await page.getByRole('button', { name: new RegExp(`^${t.settingsPage.style}`) }).click();
     await expect(page.getByText(t.themeCleanOnly, { exact: true })).toBeVisible();
     for (const skin of ['clean','turnpike','nyc','parkway','household','garden'] as const) {
       await page.getByRole('button', { name: t.skins[skin], exact: true }).and(page.locator('[aria-pressed]')).click();
@@ -124,6 +124,8 @@ for (const lang of ['en', 'es'] as const) for (const theme of ['light', 'dark'] 
       await expect(page.getByRole('button', { name: t.skins[skin], exact: true }).and(page.locator('[aria-pressed]'))).toHaveAttribute('aria-pressed','true');
       if (skin === 'clean') expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim())).not.toBe(reference.tokens['--surface']);
     }
+    // Style is one level under Settings now (simpler layout, Nov 24): Back twice to reach the guide again.
+    await page.getByRole('button', { name: t.back, exact: true }).click();
     await page.getByRole('button', { name: t.back, exact: true }).click();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!))).toEqual(initialPreferences);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.favorites.v1')!))).toEqual(favorites);

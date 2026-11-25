@@ -3,6 +3,7 @@ export const lockedAlertStrings = {
   en: {
     title: 'Alerts when my phone is locked',
     settingsHeading: 'Stop alerts',
+    rowDetail: 'A heads-up as your stop gets close',
     settingsNote: 'Chime, voice, vibration and phone notifications are chosen on the ride screen and work while Dale is open.',
     consentTitle: 'Before you turn this on',
     consent: 'While you ride a locked bus, Dale’s server keeps a short-lived ride record: the trip, where you got on and where you get off, your language and a push address from this browser. It is deleted when the ride ends. If the delete can’t reach the server (for example, with no signal), the record can stay for at most 3 hours.',
@@ -46,6 +47,7 @@ export const lockedAlertStrings = {
   es: {
     title: 'Alertas con el teléfono bloqueado',
     settingsHeading: 'Alertas de parada',
+    rowDetail: 'Un aviso cuando se acerca tu parada',
     settingsNote: 'El sonido, la voz, la vibración y las notificaciones se eligen en la pantalla del viaje y funcionan mientras Dale está abierta.',
     consentTitle: 'Antes de activarlo',
     consent: 'Mientras viajas en un autobús seguido, el servidor de Dale guarda un registro breve del viaje: el viaje, dónde subiste y dónde te bajas, tu idioma y una dirección de avisos de este navegador. Se borra cuando termina el viaje. Si el borrado no llega al servidor (por ejemplo, sin señal), el registro puede quedarse como máximo 3 horas.',
