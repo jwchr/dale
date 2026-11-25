@@ -538,6 +538,33 @@ test('ride progress: LED bar and strip map, from the timetable, a tap, then the 
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toMatch(/40\.82|74\.02/);
 });
 
+test('ride progress: a late bus shows each stop ahead at its expected time, with the timetable time under it', async ({ page }) => {
+  await selectDemoTrip(page);
+  await page.getByRole('button', { name: 'I’m waiting at this stop' }).click();
+  // The demo clock runs the bus 36 minutes late (owner report, Nov 24, 2026).
+  const lock = page.locator('.bus-lock');
+  await lock.locator('.lock-demo summary').click();
+  for (let i = 0; i < 3; i++) await lock.getByRole('button', { name: 'Advance 12 minutes' }).click();
+  await page.getByRole('button', { name: 'Bus arrived', exact: true }).click();
+  await page.getByRole('button', { name: 'I boarded', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: /Riding to/ });
+  const strip = dialog.locator('.strip');
+  // On the timetable: only the scheduled time, no second line.
+  await expect(strip.locator('.strip-sched')).toHaveCount(0);
+  await strip.locator('.strip-stop').nth(1).click();
+  await expect(dialog.locator('.led-pace')).toHaveText(/^\d+ min behind schedule$/);
+  const late = Number((await dialog.locator('.led-pace').textContent())!.match(/\d+/)![0]);
+  // The tapped stop keeps its tap time; each stop ahead shows ~expected time over "Sched." time.
+  await expect(strip.locator('li').nth(1).locator('.strip-sched')).toHaveCount(0);
+  const ahead = strip.locator('li').nth(2);
+  const [expected, sched] = [await ahead.locator('.strip-time').textContent(), await ahead.locator('.strip-sched').textContent()];
+  expect(expected).toMatch(/^~\d{1,2}:\d{2} [AP]M$/);
+  expect(sched).toMatch(/^Sched\. \d{1,2}:\d{2} [AP]M$/);
+  const minutes = (text: string) => { const [, h, m, ap] = text.match(/(\d{1,2}):(\d{2}) ([AP])M/)!; return (Number(h) % 12 + (ap === 'P' ? 12 : 0)) * 60 + Number(m); };
+  expect(Math.abs(minutes(expected!) - minutes(sched!) - late)).toBeLessThanOrEqual(1); // minutes round separately
+  await expect(ahead.getByRole('button')).toHaveAccessibleName(/expected about ~?\d{1,2}:\d{2}/);
+});
+
 test('ride progress on the printed timetable: no stop locations, so taps only, said plainly', async ({ page }) => {
   await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: 'Find a stop' }).first().click();
