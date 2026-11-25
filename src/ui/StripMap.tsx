@@ -29,6 +29,19 @@ export function stopLabel(name: string): { town: string; detail: string } {
   return i > 0 ? { town: plain.slice(0, i), detail: plain.slice(i + 3) } : { town: plain, detail: '' };
 }
 
+/**
+ * The times one strip stop shows: a reached stop its reach time; a stop ahead of a bus running off
+ * schedule (shift != 0) the time at that pace, always an estimate, with the timetable time under it;
+ * otherwise the timetable time. A timetable time Dale estimated keeps its estimate mark in both places.
+ */
+export function stripTimes(stop: { at: number; estimated: boolean }, shift: number, reachedAt?: number): {
+  time: { at: number; estimated: boolean }; sched?: { at: number; estimated: boolean };
+} {
+  if (reachedAt !== undefined) return { time: { at: reachedAt, estimated: false } };
+  if (shift) return { time: { at: stop.at + shift, estimated: true }, sched: { at: stop.at, estimated: stop.estimated } };
+  return { time: { at: stop.at, estimated: stop.estimated } };
+}
+
 export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Dataset; session: BusSession; alightIndex: number; now: number; t: Strings; lang: Lang }) {
   const p = t.progress;
   const dep = session.departure;
@@ -144,12 +157,13 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
                   <span className="strip-name">{i === currentIndex && <span>{p.at} · </span>}{label.town}{label.detail && <small><span className="sr-only">, </span>{label.detail}</small>}</span>
                   <span className="sr-only">{reached ? p.srReached : shift ? p.srExpected : p.srScheduled}</span>
                   <span className="strip-dot" aria-hidden="true" />
-                  {shift
-                    ? <>
-                      <span className="strip-time">{clock(stopTimes[i]!.at + shift, true)}</span>
-                      <span className="strip-sched">{p.schedShort(clock(stopTimes[i]!.at))}</span>
-                    </>
-                    : <span className="strip-time">{reached ? clock(reached.at) : clock(stopTimes[i]!.at, stopTimes[i]!.estimated)}</span>}
+                  {(() => {
+                    const shown = stripTimes(stopTimes[i]!, shift, reached?.at);
+                    return <>
+                      <span className="strip-time">{clock(shown.time.at, shown.time.estimated)}</span>
+                      {shown.sched && <span className="strip-sched">{p.schedShort(clock(shown.sched.at, shown.sched.estimated))}</span>}
+                    </>;
+                  })()}
                   <span className="sr-only">{i === alightIndex ? p.srYours : ''}{p.srTap}</span>
                 </button>
               </li>
