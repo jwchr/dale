@@ -750,3 +750,9 @@ main { flex: 1; padding-bottom: 24px; }
 @container (min-width: 30rem) {
   .earlier-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
 }
+/* One row that opens a deeper screen (simpler layout, Nov 24): title, a short line under it, chevron. */
+.menu-row { display: flex; align-items: center; gap: 12px; width: 100%; margin: 12px 0; padding: 12px 14px; border-radius: 14px; text-align: start; }
+.menu-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.menu-row-text span { color: var(--muted); font-size: .86rem; }
+.menu-row .icon-chevron { flex: none; color: var(--muted); }
+.settings-main h3 { font-size: .95rem; margin: 10px 0 0; }

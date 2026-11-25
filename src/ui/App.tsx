@@ -40,7 +40,7 @@ import { StopChoice } from './StopChoice';
 import { StopSign } from './StopSign';
 import { TourGuide } from './TourGuide';
 import { NearMe } from './NearMe';
-import { ArrowRight, BetaPill, BusIcon, RescueIcon, DirectionPanel, FilterIcon, Pin, GuidanceBanner, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
+import { ArrowRight, BetaPill, BusIcon, RescueIcon, DirectionPanel, FilterIcon, Pin, GuidanceBanner, MenuRow, MinutesTile, StatusPill, TabBar, type DirectionChoice, type Tab } from './Dashboard';
 import { HomeConnection } from './HomeConnection';
 import { stopLabel } from './StripMap';
 import type { VehicleObservation } from '../domain/lock';
@@ -79,7 +79,7 @@ type Screen =
   | { name: 'commute'; favoriteId: string; reversed: boolean; end: CommutePickEnd; level: 'city' | 'stop' }
   | { name: 'timetable'; leg: Leg; title: string; date?: string }
   | { name: 'departure'; dep: Departure; leg: Leg }
-  | { name: 'settings' }
+  | { name: 'settings'; page?: 'more' | 'photo' }
   | { name: 'guide' }
   | { name: 'penn'; railOnly?: boolean }
   | { name: 'boarding'; dep: Departure; leg: Leg }
@@ -359,7 +359,8 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
     if (s.name === 'home') return [s];
     const top = st[st.length - 1]!;
     // Tapping Settings (or search, or the guide) again while already there does not stack copies.
-    if (top.name === s.name && ['settings', 'search', 'guide', 'penn', 'schedules', 'gates'].includes(s.name)) return st;
+    if (top.name === s.name && ['settings', 'search', 'guide', 'penn', 'schedules', 'gates'].includes(s.name)
+      && (s.name !== 'settings' || top.name !== 'settings' || top.page === s.page)) return st;
     // Keep the history short, but never drop home at the bottom: Back must always lead home.
     return st.length >= 20 ? [st[0]!, ...st.slice(2), s] : [...st, s];
   });
@@ -553,7 +554,7 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
               label: ds.stops.find((s) => s.id === screen.leg.toStopId)?.terminal ? 'other' : 'home' })}
             onUnlock={() => { setActiveLock(undefined); if (!ds.meta.demo) forgetLock(store); setDemoAdvanceMs(0); }} />
         )}
-        {screen.name === 'settings' && <SettingsScreen ctx={ctx} settings={settings} setSettings={setSettings} onGuide={() => setScreen({ name: 'guide' })}
+        {screen.name === 'settings' && <SettingsScreen ctx={ctx} page={screen.page} onPage={page => setScreen({ name: 'settings', page })} settings={settings} setSettings={setSettings} onGuide={() => setScreen({ name: 'guide' })}
           historyCount={pastReports.length} onClearHistory={() => { const ok = clearHistory(store, Math.min(lockNow, Date.now())); if (ok) setPastReports([]); return ok; }} />}
         {screen.name === 'guide' && <RiderGuide t={t} />}
         {screen.name === 'boarding' && (
@@ -1510,8 +1511,8 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   );
 }
 
-function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onClearHistory }: {
-  ctx: Ctx; settings: Settings; setSettings: (s: Settings) => void; onGuide: () => void; historyCount: number; onClearHistory: () => boolean;
+function SettingsScreen({ ctx, page, onPage, settings, setSettings, onGuide, historyCount, onClearHistory }: {
+  ctx: Ctx; page?: 'more' | 'photo' | undefined; onPage: (page: 'more' | 'photo') => void; settings: Settings; setSettings: (s: Settings) => void; onGuide: () => void; historyCount: number; onClearHistory: () => boolean;
 }) {
   const { t, ds } = ctx;
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1528,29 +1529,29 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
   const opt = <K extends keyof Settings>(k: K, v: Settings[K], label: string) => (
     <button className="chip" aria-pressed={settings[k] === v} onClick={() => setSettings({ ...settings, [k]: v })}>{label}</button>
   );
-  return (
-    <section>
-      <h1>{t.settings}</h1>
+  const sp = t.settingsPage;
+  // Keyboard and screen-reader focus follows the page: a sub-page's title when it opens, the row it came from on Back.
+  const pageTitle = useRef<HTMLHeadingElement>(null), photoRow = useRef<HTMLButtonElement>(null), moreRow = useRef<HTMLButtonElement>(null);
+  const shownPage = useRef(page);
+  useEffect(() => {
+    const before = shownPage.current; shownPage.current = page;
+    if (before === page) return;
+    if (page) pageTitle.current?.focus();
+    else (before === 'photo' ? photoRow : moreRow).current?.focus();
+  }, [page]);
+  // Simpler layout (Jeff, Nov 24, 2026: "Yes, build it"): Language, Look and Alerts up front; every other setting one tap down.
+  if (page === 'photo') return <section><h1 ref={pageTitle} tabIndex={-1}>{sp.homePhoto}</h1><HomePhotoSettings t={t} /></section>;
+  if (page === 'more') return (
+    <section className="settings-more">
+      <h1 ref={pageTitle} tabIndex={-1}>{sp.more}</h1>
       <label className="lock-toggle"><input type="checkbox" checked={settings.liveMotion} onChange={e => setSettings({ ...settings, liveMotion: e.currentTarget.checked })} />{t.live.motion}</label>
       <p className="small muted">{t.live.motionNote}</p>
-      <h2>{t.lockedAlerts.settingsHeading}</h2>
-      <p className="small muted">{t.lockedAlerts.settingsNote}</p>
-      <LockedAlertsSetting t={t} />
-      <h2>{t.language}</h2>
-      <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
       <h2>{t.bilingualButtons.title}</h2>
       <div className="choice-list" role="group" aria-label={t.bilingualButtons.title}>{opt('bilingualButtons', false, t.bilingualButtons.off)}{opt('bilingualButtons', true, t.bilingualButtons.on)}</div>
       <p className="small muted">{t.bilingualButtons.note}</p>
       <h2>{t.slogans.title}</h2>
       <div className="choice-list" role="group" aria-label={t.slogans.title}>{opt('rotateSlogans', false, t.slogans.fixed)}{opt('rotateSlogans', true, t.slogans.rotate)}</div>
       <p className="small muted">{t.slogans.note}</p>
-      <h2>{t.skin}</h2>
-      <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
-      <p className="muted small">{t.skinNote}</p>
-      <HomePhotoSettings t={t} />
-      <h2>{t.theme}</h2>
-      <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
-      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
       <h2>{t.departuresShown}</h2>
       <div className="choice-list">{opt('count', 3, '3')}{opt('count', 5, '5')}</div>
       <h2>{t.guide.title}</h2>
@@ -1575,6 +1576,25 @@ function SettingsScreen({ ctx, settings, setSettings, onGuide, historyCount, onC
       {ds.meta.stopCities && <p className="small">{ds.meta.stopCities.state === 'verified' ? <>{t.selection.citySource} {new Intl.DateTimeFormat(settings.lang, { timeZone: ctx.tz, dateStyle: 'medium' }).format(new Date(ds.meta.stopCities.retrievedAt))}</> : t.selection.cityUnavailable}</p>}
       <p className="small muted">{dataNotice(ds, t)}</p>
       <p className="small muted">{t.appTagline}</p>
+    </section>
+  );
+  return (
+    <section className="settings-main">
+      <h1>{t.settings}</h1>
+      <h2>{t.language}</h2>
+      <div className="choice-list">{opt('lang', 'en', 'English')}{opt('lang', 'es', 'Español')}</div>
+      <h2>{sp.look}</h2>
+      <h3>{t.skin}</h3>
+      <div className="choice-list">{SKINS.map((k) => <span key={k}>{opt('skin', k, t.skins[k])}</span>)}</div>
+      <p className="muted small">{t.skinNote}</p>
+      <h3>{t.theme}</h3>
+      <div className="choice-list">{opt('theme', 'system', t.themeSystem)}{opt('theme', 'light', t.themeLight)}{opt('theme', 'dark', t.themeDark)}</div>
+      {settings.skin !== 'clean' && <p className="muted small">{t.themeCleanOnly}</p>}
+      <MenuRow ref={photoRow} title={sp.homePhoto} detail={sp.homePhotoDetail} onOpen={() => onPage('photo')} />
+      <h2>{t.lockedAlerts.settingsHeading}</h2>
+      <p className="small muted">{t.lockedAlerts.settingsNote}</p>
+      <LockedAlertsSetting t={t} />
+      <MenuRow ref={moreRow} title={sp.more} detail={sp.moreDetail} onOpen={() => onPage('more')} />
     </section>
   );
 }

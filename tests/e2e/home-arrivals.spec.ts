@@ -1,4 +1,5 @@
 import { strings } from '../../src/ui/i18n';
+import { openSettings } from './settingsNav';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
@@ -176,8 +177,9 @@ test('live icons reflect each source, respect reduced motion, and can be paused 
   await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
   await page.emulateMedia({ reducedMotion: 'reduce' }); await expect(icon).toHaveCSS('animation-name', 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.getByRole('button', { name: 'Household', exact: true }).click(); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await openSettings(page, strings.en, 'more'); await page.getByRole('checkbox', { name: 'Animate live indicators' }).uncheck();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // More settings -> Settings
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // Settings -> Home
   await expect(icon).toHaveCSS('animation-name', 'none');
   state.mode = 'failed'; state.now += 31000; await page.clock.fastForward(31000);
   await expect(row.locator('.boarding-clock .live-symbol')).toHaveAttribute('data-live', 'false');
@@ -191,7 +193,7 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
   const icon = current(page).locator('.boarding-clock .live-symbol');
   await expect(icon).toHaveAttribute('data-live', 'true');
   await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
-  await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+  await openSettings(page, t, 'more');
   await page.getByRole('checkbox', { name: t.live.motion }).uncheck();
   await expect(page.locator('html')).toHaveAttribute('data-live-motion', 'off');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).liveMotion)).toBe(false);
@@ -207,7 +209,8 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
     await route.fulfill({ json: response(queries, 'live', state.now), headers: { 'access-control-allow-origin': '*' } });
   });
   try {
-    await page.getByRole('button', { name: t.back, exact: true }).click();
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // More settings -> Settings
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // Settings -> Home
     await expect(icon).toHaveAttribute('data-live', 'false');
     await expect(icon).toHaveCSS('animation-name', 'none');
     const scheduledIcon = (await icon.elementHandle())!;
@@ -222,10 +225,11 @@ for (const lang of ['en', 'es'] as const) test(`paused live motion survives sche
     // the read. A one-shot evaluate can instead read empty styles off the old SVG.
     await expect(icon).toHaveCSS('animation-name', 'none');
     await expect(current(page).locator('.boarding-clock .badge-live')).toHaveText(t.live.rows.live);
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     await expect(page.getByRole('checkbox', { name: t.live.motion })).not.toBeChecked();
     await page.getByRole('checkbox', { name: t.live.motion }).check();
-    await page.getByRole('button', { name: t.back, exact: true }).click();
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // More settings -> Settings
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // Settings -> Home
     await expect(icon).toHaveAttribute('data-live', 'true');
     await expect(icon).toHaveCSS('animation-name', 'live-broadcast');
     await page.emulateMedia({ reducedMotion: 'reduce' });

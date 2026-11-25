@@ -6,7 +6,7 @@ test.use({ serviceWorkers: 'block' });
 
 for (const lang of ['en', 'es'] as const) {
   // Settings opens from the Household tab (#101 part 2).
-  const settings = lang === 'en' ? 'Settings' : 'Ajustes', settingsTab = lang === 'en' ? 'Household' : 'Hogar';
+  const settings = lang === 'en' ? 'Settings' : 'Ajustes', settingsTab = lang === 'en' ? 'Settings' : 'Ajustes';
   const retry = lang === 'en' ? 'Try again' : 'Intentar de nuevo';
   const failed = lang === 'en' ? "Couldn't load the schedule" : 'No se pudo cargar el horario';
 

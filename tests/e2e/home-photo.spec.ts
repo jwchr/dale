@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { strings } from '../../src/ui/i18n';
 import { liveDataset } from '../helpers/liveBus';
+import { openSettings } from './settingsNav';
 
 // Saving re-encodes the photo on a canvas and writes it to IndexedDB, which is CPU-heavy: under the full
 // parallel suite one save took longer than the default 5 s (Nov 17, "readable in turnpike (en)").
@@ -20,7 +21,7 @@ async function start(page: Page, lang: 'en' | 'es' = 'en', skin = 'garden') {
   await page.route(API + '/v1/live?**', route => route.abort());
   await page.route(API + '/v1/departures?**', route => route.abort());
   await page.goto('/?live=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click();
+  await openSettings(page, strings[lang], 'photo');
 }
 async function fixture(page: Page, color = '#1a5874', type = 'image/png') {
   const data = await page.evaluate(({ color, type }) => {
@@ -58,7 +59,7 @@ for (const lang of ['en', 'es'] as const) test(`local photo persists, replaces a
   await expect(page.locator('.photo-backdrop')).toHaveAttribute('data-photo', 'personal');
   const first = await stored(page); expect(first).toMatchObject({ keys: ['blob', 'version'], type: 'image/jpeg', dimensions: [120, 180] });
   expect(first!.text).not.toContain('private-location');
-  await page.reload(); await page.getByRole('button', { name: strings[lang].dash.tabs.household, exact: true }).click();
+  await page.reload(); await openSettings(page, strings[lang], 'photo');
   await expect(panel.getByRole('status')).toHaveText(s.saved, { timeout: PHOTO_SAVE_MS });
   await panel.getByLabel(s.replace, { exact: true }).setInputFiles({ name: 'new.png', mimeType: 'image/png', buffer: await fixture(page, '#9a3030') });
   await expect.poll(async () => (await stored(page))!.version, { timeout: PHOTO_SAVE_MS }).not.toBe(first!.version);
@@ -136,7 +137,8 @@ test('unavailable storage does not block app use or claim success', async ({ pag
   await expect(panel.locator('input')).toBeDisabled();
   await panel.getByRole('button', { name: strings.en.retry, exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.storage);
-  await page.getByRole('button', { name: strings.en.back, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.back, exact: true }).click(); // Home photo -> Settings
+  await page.getByRole('button', { name: strings.en.back, exact: true }).click(); // Settings -> Home
   await expect(page.locator('.dep').first()).toBeVisible();
 });
 
@@ -274,7 +276,7 @@ test('malformed stored records fail closed without deleting them or blocking tri
       tx.oncomplete = () => resolve(); tx.onabort = reject;
     }); db.close();
   }, DB);
-  await page.reload(); await page.getByRole('button', { name: strings.en.dash.tabs.household, exact: true }).click();
+  await page.reload(); await openSettings(page, strings.en, 'photo');
   await expect(panel.getByRole('status')).toHaveText(strings.en.homePhoto.storage);
   await expect(panel.locator('input')).toBeDisabled();
   expect(await page.evaluate(async name => {
@@ -282,7 +284,8 @@ test('malformed stored records fail closed without deleting them or blocking tri
     const value = await new Promise(resolve => { const r = db.transaction('photo').objectStore('photo').get('home'); r.onsuccess = () => resolve(r.result); });
     db.close(); return value;
   }, DB)).toEqual({ version: 'invalid', filename: 'synthetic-only' });
-  await page.getByRole('button', { name: strings.en.back, exact: true }).click();
+  await page.getByRole('button', { name: strings.en.back, exact: true }).click(); // Home photo -> Settings
+  await page.getByRole('button', { name: strings.en.back, exact: true }).click(); // Settings -> Home
   await expect(page.locator('.dep').first()).toBeVisible();
 });
 

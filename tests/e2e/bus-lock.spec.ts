@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { demoDataset } from '../../src/data/demo';
+import { strings } from '../../src/ui/i18n';
+import { openSettings } from './settingsNav';
 
 test.use({ serviceWorkers: 'block' });
 
@@ -130,7 +132,7 @@ test('Spanish Bus Lock fits a narrow screen and passes accessibility checks', as
   await page.setViewportSize({ width: 320, height: 740 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await selectDemoTrip(page);
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   await page.getByRole('button', { name: /Volver a Bus Lock/ }).click();
   await page.getByRole('button', { name: 'Estoy esperando en esta parada' }).click();
@@ -175,7 +177,7 @@ test('ride mode counts down 3, 2, 1 stops from fresh demo GPS and says when it c
   await expect(ride).toContainText('Your ticket stays in the NJ Transit app');
   const { violations } = await new AxeBuilder({ page }).include('.ride-mode').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(violations.map((v) => `${v.id}: ${v.nodes.map((x) => x.target.join(' ')).join(' | ')}`)).toEqual([]);
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Español' }).click();
   await page.getByRole('button', { name: 'Atrás' }).click(); // back to the trip it came from, still riding
   await expect(page.locator('.ride-mode h3')).toHaveText('Vas a Port Authority Bus Terminal');
@@ -357,7 +359,7 @@ test('trip update: the rider shares or copies a plain message; Dale sends nothin
 
 test('trip update on the printed timetable has no DEMO mark, and reads in Spanish', async ({ page }) => {
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Español' }).click();
   await page.getByRole('button', { name: 'Atrás' }).click();
   await page.getByRole('button', { name: /Buscar parada/i }).first().click();
@@ -481,7 +483,7 @@ test('report history: last week’s own reports show for the same bus, labeled a
   expect(await page.evaluate(() => localStorage.getItem('arriba.history.v1'))).not.toMatch(/lat|lon/);
 
   // Settings: how many are kept, and clearing asks first.
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await openSettings(page, strings.en, 'more');
   await expect(page.getByText(/^2 reports from your past rides kept on this phone/)).toBeVisible();
   await page.getByRole('button', { name: 'Clear my report history' }).click();
   await page.getByRole('button', { name: 'Keep them' }).click();
@@ -490,7 +492,8 @@ test('report history: last week’s own reports show for the same bus, labeled a
   await page.getByRole('button', { name: 'Yes, clear' }).click();
   await expect(page.getByRole('heading', { name: 'Your report history' })).toBeFocused();
   await expect(page.getByRole('status').filter({ hasText: 'Your report history is cleared.' })).toBeVisible();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // More settings -> Settings
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // Settings -> Home
   await expect(page.locator('.past-reports')).toHaveCount(0);
 });
 
@@ -614,7 +617,7 @@ for (const [why, setup] of [
 
 test('Settings links the open-source and map data licences', async ({ page }) => {
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await openSettings(page, strings.en, 'more');
   const link = page.getByRole('link', { name: 'Open-source software and map data licences' });
   const href = await link.getAttribute('href');
   const res = await page.request.get(href!);

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openSettings } from './settingsNav';
 import AxeBuilder from '@axe-core/playwright';
 import { strings } from '../../src/ui/i18n';
 import { OPENING_SLOGAN_KEY } from '../../src/domain/openingSlogan';
@@ -26,7 +27,7 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.locator('.top-slogan')).toHaveText(t.appTagline);
     expect(await page.evaluate(key => localStorage.getItem(key), OPENING_SLOGAN_KEY)).toBeNull();
     const favoritesBefore = await page.evaluate(() => localStorage.getItem('arriba.favorites.v1'));
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     const group = page.getByRole('group', { name: t.slogans.title });
     await expect(group.getByRole('button', { name: t.slogans.fixed })).toHaveAttribute('aria-pressed', 'true');
     await group.getByRole('button', { name: t.slogans.rotate }).focus(); await page.keyboard.press('Enter');
@@ -50,7 +51,7 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.locator('.top-slogan')).toHaveText(first!);
     expect(await page.evaluate(key => localStorage.getItem(key), OPENING_SLOGAN_KEY)).toBe(index);
     await page.reload(); await expect(page.locator('.top-slogan')).not.toHaveText(first!);
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     await page.getByRole('group', { name: t.slogans.title }).getByRole('button', { name: t.slogans.fixed }).click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).rotateSlogans)).toBe(false);
     await page.reload(); await expect(page.locator('.top-slogan')).toHaveText(t.appTagline);
@@ -64,7 +65,7 @@ for (const lang of ['en', 'es'] as const) {
     await setup(page, lang, skin, true);
     await page.addStyleTag({ content: 'body { font-size: 32px !important; }' });
     const text = await page.locator('.top-slogan').textContent(); expect(t.slogans.candidates).toContain(text);
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     const group = page.getByRole('group', { name: t.slogans.title });
     for (const button of await group.getByRole('button').all()) {
       await button.focus(); await expect(button).toBeFocused();
@@ -83,7 +84,7 @@ for (const lang of ['en', 'es'] as const) {
 test('blocked storage keeps the canonical slogan and usable settings', async ({ page }) => {
   await page.addInitScript(() => { Storage.prototype.getItem = () => { throw Error('Synthetic refusal'); }; Storage.prototype.setItem = () => { throw Error('Synthetic refusal'); }; });
   await page.goto(URL); await expect(page.locator('.top-slogan')).toHaveText(strings.en.appTagline);
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await openSettings(page, strings.en, 'more');
   await page.getByRole('button', { name: strings.en.slogans.rotate }).click();
   await expect(page.locator('.top-slogan')).toHaveText(strings.en.appTagline);
 });

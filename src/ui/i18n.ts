@@ -4,6 +4,7 @@ import { openingSloganStrings } from './openingSloganStrings';
 import { commuteChangeStrings } from './commuteChangeStrings';
 import { routeDistanceStrings } from './routeDistanceStrings';
 import { homePhotoStrings } from './homePhotoStrings';
+import { settingsStrings } from './settingsStrings';
 import { lockedAlertStrings } from './lockedAlertStrings';
 import { cityPickerStrings } from './cityPickerStrings';
 import { mapStrings } from './mapStrings';
@@ -30,6 +31,7 @@ const en = {
   earlierBuses: earlierBusStrings.en,
   bilingualButtons: bilingualButtonStrings.en,
   homePhoto: homePhotoStrings.en,
+  settingsPage: settingsStrings.en,
   lockedAlerts: lockedAlertStrings.en,
   slogans: openingSloganStrings.en,
   dash: dashboardStrings.en,
@@ -652,6 +654,7 @@ const es: Strings = {
   earlierBuses: earlierBusStrings.es,
   bilingualButtons: bilingualButtonStrings.es,
   homePhoto: homePhotoStrings.es,
+  settingsPage: settingsStrings.es,
   lockedAlerts: lockedAlertStrings.es,
   slogans: openingSloganStrings.es,
   dash: dashboardStrings.es,

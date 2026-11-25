@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openSettings } from './settingsNav';
 import AxeBuilder from '@axe-core/playwright';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { strings } from '../../src/ui/i18n';
@@ -26,14 +27,15 @@ for (const lang of ['en', 'es'] as const) {
     await setup(page, lang);
     const before = await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'));
     await expect(page.locator('.bilingual-button-label')).toHaveCount(0);
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     const group = page.getByRole('group', { name: t.bilingualButtons.title });
     await expect(group.getByRole('button', { name: t.bilingualButtons.off })).toHaveAttribute('aria-pressed', 'true');
     const enable = group.getByRole('button', { name: t.bilingualButtons.on });
     await enable.focus(); await page.keyboard.press('Enter'); await expect(enable).toBeFocused();
     await expect(enable).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).bilingualButtons)).toBe(true);
-    await page.getByRole('button', { name: t.back, exact: true }).click();
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // More settings -> Settings
+    await page.getByRole('button', { name: t.back, exact: true }).click(); // Settings -> Home
     const find = page.getByRole('button', { name: `${t.findStop} ${other.findStop}`, exact: true });
     await expect(find.locator('.bilingual-button-label > span')).toHaveText(t.findStop);
     await expect(find.locator('small')).toHaveText(other.findStop); await expect(find.locator('small')).toHaveAttribute('lang', second);
@@ -44,10 +46,11 @@ for (const lang of ['en', 'es'] as const) {
     await page.getByRole('button', { name: other.back, exact: true }).click();
     const reversed = page.getByRole('button', { name: `${other.findStop} ${t.findStop}`, exact: true });
     await expect(reversed.locator('small')).toHaveAttribute('lang', lang);
-    await page.getByRole('button', { name: other.dash.tabs.household, exact: true }).click();
+    await openSettings(page, other, 'more');
     await page.getByRole('group', { name: other.bilingualButtons.title }).getByRole('button', { name: other.bilingualButtons.off }).click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('arriba.settings.v1')!).bilingualButtons)).toBe(false);
-    await page.getByRole('button', { name: other.back, exact: true }).click();
+    await page.getByRole('button', { name: other.back, exact: true }).click(); // More settings -> Settings
+    await page.getByRole('button', { name: other.back, exact: true }).click(); // Settings -> Home
     await expect(page.locator('.bilingual-button-label')).toHaveCount(0);
     await expect(page.getByRole('button', { name: other.findStop, exact: true })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('arriba.favorites.v1.g2'))).toBe(before);
@@ -151,9 +154,10 @@ test('remembered helper also works on the schedule-error controls', async ({ pag
 test('blocked preference storage keeps the helper usable for this page only', async ({ page }) => {
   await page.addInitScript(() => { Storage.prototype.getItem = () => { throw Error('Synthetic refusal'); }; Storage.prototype.setItem = () => { throw Error('Synthetic refusal'); }; });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
-  await page.getByRole('button', { name: 'Household', exact: true }).click();
+  await openSettings(page, strings.en, 'more');
   await page.getByRole('button', { name: strings.en.bilingualButtons.on, exact: true }).click();
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // More settings -> Settings
+  await page.getByRole('button', { name: 'Back', exact: true }).click(); // Settings -> Home
   await expect(page.getByRole('button', { name: `${strings.en.findStop} ${strings.es.findStop}`, exact: true })).toBeVisible();
   await page.reload(); await expect(page.locator('.bilingual-button-label')).toHaveCount(0);
   await expect(page.getByRole('button', { name: strings.en.findStop, exact: true })).toBeVisible();

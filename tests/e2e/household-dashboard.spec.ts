@@ -74,7 +74,7 @@ test('the direction buttons switch the saved trip between New York and New Jerse
 test('every tab opens its screen, in English and Spanish', async ({ page }) => {
   await setup(page, 'failed');
   const tab = (name: string) => page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name, exact: true });
-  await expect(tab('Dashboard')).toHaveAttribute('aria-current', 'page');
+  await expect(tab('Home')).toHaveAttribute('aria-current', 'page');
   await tab('Schedules').click();
   await expect(page.getByRole('heading', { name: 'Schedules', level: 1 })).toBeVisible();
   await expect(tab('Schedules')).toHaveAttribute('aria-current', 'page');
@@ -83,11 +83,11 @@ test('every tab opens its screen, in English and Spanish', async ({ page }) => {
   await tab('PABT gates').click();
   await expect(page.getByRole('heading', { name: 'Port Authority, made simpler.', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Port Authority gates', level: 2 })).toBeVisible();
-  await tab('Household').click();
+  await tab('Settings').click();
   await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Español', exact: true }).click();
   const tabEs = (name: string) => page.getByRole('navigation', { name: 'Principal' }).getByRole('button', { name, exact: true });
-  await expect(tabEs('Hogar')).toHaveAttribute('aria-current', 'page');
+  await expect(tabEs('Ajustes')).toHaveAttribute('aria-current', 'page');
   await tabEs('Inicio').click();
   await expect(page.getByRole('heading', { name: 'Próximas llegadas' })).toBeVisible();
   await tabEs('Horarios').click();

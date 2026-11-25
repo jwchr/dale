@@ -16,11 +16,11 @@ for (const lang of ['en', 'es'] as const) test(`a setting saved in one tab survi
     await page.goto('/?printed=1&now=2026-11-04T07:50');
     await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
   }
-  await a.getByRole('button', { name: '5', exact: true }).click();
-  await expect.poll(() => saved(a)).toMatchObject({ count: 5 });
-  await expect(b.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await a.getByRole('button', { name: 'Turnpike', exact: true }).click();
+  await expect.poll(() => saved(a)).toMatchObject({ skin: 'turnpike' });
+  await expect(b.getByRole('button', { name: 'Turnpike', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await b.getByRole('button', { name: t.themeDark, exact: true }).click();
-  await expect.poll(() => saved(a)).toMatchObject({ count: 5, theme: 'dark', lang, skin: 'clean' });
+  await expect.poll(() => saved(a)).toMatchObject({ skin: 'turnpike', theme: 'dark', lang });
   await expect(a.getByRole('button', { name: t.themeDark, exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -36,17 +36,17 @@ test('settings adopted from another tab are not written back over a newer save',
   // Same order a real second tab produces: save, notification here, then a newer save
   // before this page has re-rendered.
   await page.evaluate(() => {
-    const key = 'arriba.settings.v1', first = { ...JSON.parse(localStorage.getItem(key)!), count: 5 };
+    const key = 'arriba.settings.v1', first = { ...JSON.parse(localStorage.getItem(key)!), skin: 'turnpike' };
     localStorage.setItem(key, JSON.stringify(first));
     window.dispatchEvent(new StorageEvent('storage', { key }));
     localStorage.setItem(key, JSON.stringify({ ...first, theme: 'dark' }));
   });
-  await expect(page.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Turnpike', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 100))));
-  expect(await saved(page)).toMatchObject({ count: 5, theme: 'dark' });
+  expect(await saved(page)).toMatchObject({ skin: 'turnpike', theme: 'dark' });
   // This tab's own next change still saves, on top of the newest stored values it has seen.
   await page.getByRole('button', { name: t.themeSystem, exact: true }).click();
-  await expect.poll(() => saved(page)).toMatchObject({ count: 5, theme: 'system' });
+  await expect.poll(() => saved(page)).toMatchObject({ skin: 'turnpike', theme: 'system' });
 });
 
 // #171 review r4593163990: another tab's save can land before this tab hears about it (or the
@@ -61,12 +61,12 @@ for (const lang of ['en', 'es'] as const) test(`a change saves only its own sett
   // The other tab's save, with no storage notice reaching this tab.
   await page.evaluate(() => {
     const key = 'arriba.settings.v1';
-    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), bilingualButtons: true, count: 5 }));
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), bilingualButtons: true, skin: 'turnpike' }));
   });
   await page.getByRole('button', { name: t.themeDark, exact: true }).click();
-  await expect.poll(() => saved(page)).toMatchObject({ theme: 'dark', bilingualButtons: true, count: 5, lang, skin: 'clean' });
+  await expect.poll(() => saved(page)).toMatchObject({ theme: 'dark', bilingualButtons: true, skin: 'turnpike', lang });
   // The screen now shows the stored values it merged with.
-  await expect(page.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Turnpike', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: t.themeDark, exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -79,9 +79,9 @@ test('settings changes still work when this browser refuses to save them', async
   });
   await page.goto('/?printed=1&now=2026-11-04T07:50');
   await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
-  await page.getByRole('button', { name: '5', exact: true }).click();
+  await page.getByRole('button', { name: 'Turnpike', exact: true }).click();
   await page.getByRole('button', { name: t.themeDark, exact: true }).click();
   // Both in-memory choices hold; the second change did not reset the first.
-  await expect(page.getByRole('button', { name: '5', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Turnpike', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: t.themeDark, exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { strings } from '../../src/ui/i18n';
+import { openSettings } from './settingsNav';
 const printed = JSON.parse(readFileSync(new URL('../../public/data/corridor.json', import.meta.url), 'utf8'));
 test.use({ serviceWorkers: 'block' });
 for (const lang of ['en', 'es'] as const) {
@@ -32,7 +33,7 @@ for (const lang of ['en', 'es'] as const) {
     await expect(page.getByRole('button', { name: j.trainMode })).toBeVisible();
     await page.getByRole('button', { name: j.trainMode }).click();
     await expect(page.getByText(j.step(2, 5), { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: t.dash.tabs.household, exact: true }).click();
+    await openSettings(page, t, 'more');
     await expect(page.getByText(t.transcribedBanner(lang === 'en' ? '7/1/2026' : '1/7/2026'), { exact: true })).toBeVisible();
     await expect(page.locator('.data-banner')).toHaveCount(0);
   });

@@ -1,7 +1,7 @@
 // Home dashboard pieces and the bottom tab bar (#101 part 2). Layout: docs/design/mockups/04-dashboard.jpg.
 // Original artwork only, drawn as inline SVG: no NJ Transit or Port Authority marks. The New Jersey outline
 // is hand-drawn from the state's real border points (simplified); the route map is schematic, not to scale.
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react';
 import type { Strings } from './i18n';
 
 const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
@@ -160,6 +160,12 @@ export function ConnectionMap({ t, nj, ny, eastbound, county, bus, you }: { t: S
 }
 
 /** The cream-gold banner that opens the first-ride guide. */
+/** One tappable row that opens a deeper screen: a title, a short plain line under it and a chevron (simpler layout, Nov 24). */
+export function MenuRow({ title, detail, onOpen, ref }: { title: string; detail?: string; onOpen: () => void; ref?: Ref<HTMLButtonElement> }) {
+  return <button ref={ref} type="button" className="menu-row" onClick={onOpen}>
+    <span className="menu-row-text"><strong>{title}</strong>{detail && <span>{detail}</span>}</span><ChevronRight />
+  </button>;
+}
 export function GuidanceBanner({ t, onOpen }: { t: Strings; onOpen: () => void }) {
   return <button type="button" className="guidance-banner" onClick={onOpen}>
     <Signpost /><span className="guidance-text"><strong>{t.dash.guidanceTitle}</strong><span>{t.dash.guidanceBody}</span></span><ChevronRight />
@@ -172,7 +178,8 @@ const TAB_ICONS: Record<Tab, (active: boolean) => ReactNode> = {
   schedules: () => <Icon><circle cx="12" cy="12" r="8.8" /><path d="M12 7v5.2l3.4 2.1" /></Icon>,
   routes: () => <Icon><circle cx="6" cy="6" r="2.6" /><circle cx="18" cy="18" r="2.6" /><path d="M8.6 6h7.9a3 3 0 0 1 0 6h-9a3 3 0 0 0 0 6h7.9" /></Icon>,
   gates: () => <Icon><path d="M3 6.2h18v3.6a2.2 2.2 0 0 0 0 4.4v3.6H3v-3.6a2.2 2.2 0 0 0 0-4.4z" /><path d="m9.4 9.6-2.4 2.4 2.4 2.4M14.6 9.6l2.4 2.4-2.4 2.4" /></Icon>,
-  household: () => <Icon><circle cx="12" cy="7.4" r="3.1" /><circle cx="5.4" cy="9.2" r="2.2" /><circle cx="18.6" cy="9.2" r="2.2" /><path d="M6.6 20.5v-1.7a5.4 5.4 0 0 1 10.8 0v1.7M1.6 19.4v-.9a3.9 3.9 0 0 1 5.2-3.7M22.4 19.4v-.9a3.9 3.9 0 0 0-5.2-3.7" /></Icon>,
+  // Settings (simpler layout, Nov 24): a gear, so the tab reads as settings rather than people.
+  household: () => <Icon><circle cx="12" cy="12" r="3.1" /><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" /><circle cx="12" cy="12" r="6.6" /></Icon>,
 };
 /** One navigation for every style (owner, #101): fixed at the bottom, above the phone's home bar. */
 export function TabBar({ t, active, onTab }: { t: Strings; active: Tab | undefined; onTab: (tab: Tab) => void }) {
