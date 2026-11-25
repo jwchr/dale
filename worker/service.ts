@@ -30,6 +30,10 @@ interface ConnectionFailures { authentication?: { code: string; at: number }; ve
 interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
+// A failed poll keeps the last good feed while NJ Transit's own timestamp is under 2 minutes old (#282):
+// one timeout must not blank buses that are still fresh. aged() marks it stale past that; history gets the real result.
+const keepFresh = (prev: NormalizedFeed | undefined, next: NormalizedFeed, now: number): NormalizedFeed =>
+  next.feed.state === 'unavailable' && prev?.feed.timestamp && prev.feed.state !== 'unavailable' && now - prev.feed.timestamp <= 120_000 ? prev : next;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
 const aged = (feed: NormalizedFeed, now: number) => ({ ...feed.feed, ...(feed.feed.timestamp && now - feed.feed.timestamp > 120_000 ? { state: 'stale' as const } : {}) });
 
@@ -37,6 +41,8 @@ const aged = (feed: NormalizedFeed, now: number) => ({ ...feed.feed, ...(feed.fe
 export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, clock = Date.now) {
   const normalize = createNormalizer(ds);
   return class Feed {
+    /** This poll's own result, before keepFresh: what history records. */
+    private polled?: { vehicles: NormalizedFeed; updates: NormalizedFeed };
     private saved: Saved = { transportVersion: 2, feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
     private pending?: Promise<void>;
     private ready: Promise<void>;
@@ -173,9 +179,11 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (background && attempt === undefined && !forRides) return;
         this.pending = (async () => {
           const beforeVehicleAttempts = this.upstreamVehicleAttempts;
+          this.polled = undefined;
           await this.refresh();
           if (attempt !== undefined) {
-            try { this.journal!.complete(attempt, this.saved.vehicles ?? unavailable(), clock(), this.saved.updates, this.upstreamVehicleAttempts > beforeVehicleAttempts); this.collectionError = false; }
+            const got = this.polled ?? { vehicles: this.saved.vehicles ?? unavailable(), updates: this.saved.updates };
+            try { this.journal!.complete(attempt, got.vehicles, clock(), got.updates, this.upstreamVehicleAttempts > beforeVehicleAttempts); this.collectionError = false; }
             catch { this.collectionError = true; }
           }
         })().finally(() => { this.pending = undefined; });
@@ -321,13 +329,15 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         };
         const [vehicles, updates] = await Promise.all([fetchFeed('getVehiclePositions', 'vehicles'), fetchFeed('getTripUpdates', 'updates')]);
         if (denials > 0 && successes === 0) this.saved.token = undefined;
-        this.saved.vehicles = vehicles; this.saved.updates = updates;
+        this.polled = { vehicles, updates };
+        this.saved.vehicles = keepFresh(this.saved.vehicles, vehicles, now); this.saved.updates = keepFresh(this.saved.updates, updates, now);
       } catch (error) {
         for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
-        this.saved.vehicles = unavailable(); this.saved.updates = unavailable();
+        this.polled = { vehicles: unavailable(), updates: unavailable() };
+        this.saved.vehicles = keepFresh(this.saved.vehicles, unavailable(), now); this.saved.updates = keepFresh(this.saved.updates, unavailable(), now);
       }
       if (rail && railPlan) {
         try {
