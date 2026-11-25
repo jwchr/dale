@@ -8,7 +8,8 @@ import { isServiceActive } from './schedule-compare.mjs';
 export const CONTEXT_MAX_BYTES = 16_000_000, CONTEXT_PART_CHARS = 32_000;
 /** Normal collection and archiving for about ten minutes while the deferred update lands. */
 export const ROLLOVER_WRITE_HEADROOM = 600;
-export const ROLLOVER_COVERAGE_DAYS = 7;
+/** D82: NJ Transit's weekly file can end about six days out; five days ahead still leaves a daily retry window. */
+export const ROLLOVER_COVERAGE_DAYS = 5;
 /** Physical SQLite growth exceeds the context's text bytes (rows, pages, manifest, indexes):
  * count the context twice and keep a fixed margin for collection while the update lands. */
 export const ROLLOVER_DATABASE_FACTOR = 2, ROLLOVER_DATABASE_MARGIN_BYTES = 16_000_000;

@@ -90,7 +90,7 @@ it('prepares a changed NJ Transit file as a fresh canonical schedule with an agg
   expect(summary.deployed.feedVersion).toBe(feed); expect(summary.candidate.feedVersion).toBe(nextFeed);
   expect(summary.trips).toMatchObject({ common: 12, coreChanged: 1 });
   expect(r.stdout).toMatch(/^Plain summary: Trips on Dale's routes first differ on /m);
-  expect(r.stdout).toContain('Rollover coverage: every service date from 20261104 to 20261111 has corridor trips');
+  expect(r.stdout).toContain('Rollover coverage: every service date from 20261104 to 20261109 has corridor trips');
   const capacity = JSON.parse(r.stdout.split('Rollover capacity (aggregate only): ')[1]!.split('\n')[0]!);
   expect(capacity).toMatchObject({ contextParts: 1, contextWriteUnits: 6, reservedWrites: 100, writeHeadroom: 600, databaseBytes: 2000 });
   // Aggregate only: no trip IDs, stop names or times reach the public log.

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { liveDataset, NOW } from '../helpers/liveBus';
 // @ts-expect-error native deployment helper
-import { contextPartCount, requireCoverage, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM, ROLLOVER_DATABASE_FACTOR, ROLLOVER_DATABASE_MARGIN_BYTES } from '../../scripts/schedule-rollover.mjs';
+import { contextPartCount, requireCoverage, ROLLOVER_COVERAGE_DAYS, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM, ROLLOVER_DATABASE_FACTOR, ROLLOVER_DATABASE_MARGIN_BYTES } from '../../scripts/schedule-rollover.mjs';
 // @ts-expect-error native deployment helper
 import { enabledCheckpoint, preservesEnabled, rolloverProgress, waitForRolloverProgress, waitForServedContext, CODE_DEFERRAL_MS, ROLLOVER_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const databases: DatabaseSync[] = [];
@@ -61,12 +61,18 @@ describe('rollover capacity mirrors the Worker context admission', () => {
     expect(() => rolloverCapacity({ ...c, reservedWrites: undefined }, text)).toThrow();
     expect(Object.values(rolloverCapacity(c, text).summary).every(v => v === null || Number.isSafeInteger(v))).toBe(true);
   });
-  it('requires corridor trips on every service date of the coming week', () => {
-    // The fixture runs weekdays only, so a full week fails; an all-days copy passes.
+  it('requires corridor trips on every service date from today through today + 5', () => {
+    expect(ROLLOVER_COVERAGE_DAYS).toBe(5);
+    // The fixture runs weekdays only, so the coming weekend fails; an all-days copy passes.
     expect(() => requireCoverage(liveDataset, '20261104')).toThrow('rollover-coverage-gap');
     const daily = structuredClone(liveDataset); for (const cal of Object.values(daily.calendars)) cal.days = [true, true, true, true, true, true, true];
-    expect(requireCoverage(daily, '20261104')).toMatchObject({ from: '20261104', to: '20261111' });
+    expect(requireCoverage(daily, '20261104')).toMatchObject({ from: '20261104', to: '20261109' });
     expect(() => requireCoverage(daily, '20261104', 7 + 200)).toThrow('rollover-coverage-gap');
+    // A file ending six days out (NJ Transit's Nov 23 file: Nov 23 to Nov 30) passes on its second day, and fails once only four days remain.
+    const ending = structuredClone(daily); for (const cal of Object.values(ending.calendars)) cal.end = '20261110';
+    expect(requireCoverage(ending, '20261104')).toMatchObject({ to: '20261109' });
+    expect(requireCoverage(ending, '20261105')).toMatchObject({ to: '20261110' });
+    expect(() => requireCoverage(ending, '20261106')).toThrow('rollover-coverage-gap');
   });
 });
 
