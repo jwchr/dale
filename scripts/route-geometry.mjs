@@ -1,5 +1,7 @@
 // Pure same-input derivation. No authentication, network, files, recorder state or Dataset mutation.
 import { parseCsv, filterCsvByColumn } from './gtfs-lib.mjs';
+// Same cap as MAX_GEOMETRY_TRIPS in src/domain/routeDistance.ts (the Worker and phone parser).
+export const MAX_GEOMETRY_TRIPS = 4000;
 const meters = (a, b) => {
   const rad = Math.PI / 180, p = (b[0] - a[0]) * rad, q = (b[1] - a[1]) * rad;
   const x = Math.sin(p / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(q / 2) ** 2;
@@ -187,7 +189,7 @@ function derive(files, ds, sourceSHA256, counts, bump) {
   }
   counts.foundShapes = byShape.size;
   if (byShape.size > 256) throw new GeometryError('shape-limit', 'Geometry size limit', counts);
-  if (trips.length > 2000) throw new GeometryError('trip-limit', 'Geometry size limit', counts);
+  if (trips.length > MAX_GEOMETRY_TRIPS) throw new GeometryError('trip-limit', 'Geometry size limit', counts);
   const normalized = new Map(); let totalPoints = 0;
   for (const [id, rows] of byShape) {
     rows.sort((a, b) => Number(a.shape_pt_sequence) - Number(b.shape_pt_sequence));

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Dataset } from '../../src/domain/types';
 import baseline from '../fixtures/route-geometry-baseline.json';
 import { distanceM } from '../../src/domain/direction';
-import { parseRouteGeometry } from '../../src/domain/routeDistance';
+import { parseRouteGeometry, MAX_GEOMETRY_TRIPS as PARSE_TRIPS } from '../../src/domain/routeDistance';
 import {
   buildRouteGeometry, buildRouteGeometryWithReport, GeometryError, geometryFailureDiagnostic,
-  GEOMETRY_COUNT_KEYS, GEOMETRY_FAILURE_REASONS,
+  GEOMETRY_COUNT_KEYS, GEOMETRY_FAILURE_REASONS, MAX_GEOMETRY_TRIPS,
 // @ts-expect-error pure ESM build helper without declaration files
 } from '../../scripts/route-geometry.mjs';
 
@@ -240,11 +240,20 @@ describe('geometry failure reasons', () => {
     expect(error).toBeInstanceOf(GeometryError); expect(error.message).toContain('source mismatch');
     expect(geometryFailureDiagnostic(error).reason).toBe('source-mismatch');
   });
+  it('builds and parses 2,199 trips, the size of NJ Transit\'s Nov 25, 2026 file (over the old 2,000 cap)', () => {
+    expect(MAX_GEOMETRY_TRIPS).toBe(PARSE_TRIPS);
+    const ids = Array.from({ length: 2199 }, (_, i) => `PRIVTRIP_${i}`), f = files();
+    f['trips.txt'] = 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + ids.map(id => `r,s,${id},Synthetic,0,PRIVSHAPE\n`).join('');
+    f['stop_times.txt'] = 'trip_id,stop_id,stop_sequence,shape_dist_traveled\n' + ids.map(id => `${id},PRIVSTOP_A,1,0\n${id},PRIVSTOP_B,2,17\n${id},PRIVSTOP_C,3,35\n`).join('');
+    const ds = dataset(ids), report = buildRouteGeometryWithReport(f, ds, SHA);
+    expect(Object.keys(report.geometry.trips)).toHaveLength(2199);
+    expect(Object.keys(parseRouteGeometry(report.geometry, ds).trips)).toHaveLength(2199);
+  });
   it('types the trip and shape size limits with counts gathered so far', () => {
-    const ids = Array.from({ length: 2001 }, (_, i) => `PRIVTRIP_${i}`), f = files();
+    const ids = Array.from({ length: 4001 }, (_, i) => `PRIVTRIP_${i}`), f = files();
     f['trips.txt'] = 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + ids.map(id => `r,s,${id},Synthetic,0,PRIVSHAPE\n`).join('');
     const trip = geometryFailureDiagnostic(failure(() => buildRouteGeometryWithReport(f, dataset(ids), SHA)));
-    expect(trip).toMatchObject({ reason: 'trip-limit', counts: { datasetTrips: 2001, sourceTripRows: 2001, foundShapes: 1 } }); expectPrivate(trip);
+    expect(trip).toMatchObject({ reason: 'trip-limit', counts: { datasetTrips: 4001, sourceTripRows: 4001, foundShapes: 1 } }); expectPrivate(trip);
 
     const many = Array.from({ length: 257 }, (_, i) => `PRIVTRIP_${i}`), g = files();
     g['trips.txt'] = 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + many.map((id, i) => `r,s,${id},Synthetic,0,PRIVSHAPE${i}\n`).join('');
