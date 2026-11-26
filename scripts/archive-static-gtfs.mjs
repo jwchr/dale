@@ -51,8 +51,25 @@ function containsSecret(bytes, secrets) {
   return secrets.filter(Boolean).some(secret => [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]
     .some(value => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(Buffer.from(value))));
 }
-// ZIP local-file signature. Includes refusal of small HTTP-200 JSON or HTML error bodies.
-const isZip = bytes => bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4;
+// A whole ZIP: it starts with a local file header (so HTTP-200 JSON or HTML error bodies are refused) and ends
+// with its end-of-central-directory record, whose central directory lies inside the file. A download cut off
+// early keeps the first bytes but loses that end record, so it is refused instead of saved as the day's file.
+function isZip(bytes) {
+  if (bytes.length < 52 || bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 3 || bytes[3] !== 4) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let at = bytes.length - 22; at >= Math.max(30, bytes.length - 22 - 65_535); at--) {
+    if (view.getUint32(at, true) !== 0x06054b50 || at + 22 + view.getUint16(at + 20, true) !== bytes.length) continue;
+    const entries = view.getUint16(at + 10, true), size = view.getUint32(at + 12, true), offset = view.getUint32(at + 16, true);
+    if (entries === 0xffff || size === 0xffffffff || offset === 0xffffffff) {
+      // ZIP64: the locator just before the end record points at the ZIP64 end record.
+      if (at < 50 || view.getUint32(at - 20, true) !== 0x07064b50) return false;
+      const zip64 = Number(view.getBigUint64(at - 12, true));
+      return zip64 + 56 <= at - 20 && view.getUint32(zip64, true) === 0x06064b50;
+    }
+    return entries > 0 && offset + size <= at && view.getUint32(offset, true) === 0x02014b50;
+  }
+  return false;
+}
 function parseIndex(bytes, feed) {
   try {
     if (bytes.byteLength > 16_384) fail('invalid-response');

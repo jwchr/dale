@@ -10,7 +10,20 @@ const BUS = 'static-bus-gtfs', RAIL = 'static-rail-gtfs';
 const NOW = Date.UTC(2026, 10, 26, 9, 17);
 const credentials = { NJT_API_USERNAME: 'synthetic-user-3981', NJT_API_PASSWORD: 'synthetic-password-7412' };
 const tokens = { bus: 'synthetic-bus-token-3728', rail: 'synthetic-rail-token-9924' };
-const zip = (suffix = 1) => new Uint8Array([0x50, 0x4b, 3, 4, 0, 255, suffix]);
+// A real one-file stored ZIP whose content is [suffix, ...extra], so isZip's end-record check passes.
+const zip = (suffix = 1, extra: Uint8Array = new Uint8Array()) => {
+  const name = new TextEncoder().encode('a.txt'), data = new Uint8Array([suffix, ...extra]);
+  const local = new Uint8Array(30 + name.length + data.length), lv = new DataView(local.buffer);
+  lv.setUint32(0, 0x04034b50, true); lv.setUint32(18, data.length, true); lv.setUint32(22, data.length, true);
+  lv.setUint16(26, name.length, true); local.set(name, 30); local.set(data, 30 + name.length);
+  const central = new Uint8Array(46 + name.length), cv = new DataView(central.buffer);
+  cv.setUint32(0, 0x02014b50, true); cv.setUint32(20, data.length, true); cv.setUint32(24, data.length, true);
+  cv.setUint16(28, name.length, true); central.set(name, 46);
+  const end = new Uint8Array(22), ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, 1, true); ev.setUint16(10, 1, true);
+  ev.setUint32(12, central.length, true); ev.setUint32(16, local.length, true);
+  return new Uint8Array([...local, ...central, ...end]);
+};
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 const decode = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes));
@@ -159,10 +172,37 @@ describe('daily private static timetable archive', () => {
 
   it.each([...Object.values(credentials), tokens.bus, encodeURIComponent(credentials.NJT_API_PASSWORD)])(
     'rejects a ZIP carrying a secret echo (%#)', async secret => {
-      const h = harness(); h.setBus(new Uint8Array([...zip(), ...new TextEncoder().encode(secret)]));
+      const h = harness(); h.setBus(zip(1, new TextEncoder().encode(secret)));
       expect((await h.run()).feeds[BUS].code).toBe('invalid-response');
       expect(h.writes.some(w => w.key.includes(BUS))).toBe(false);
     });
+
+  it.each([
+    ['cut off mid-file', (z: Uint8Array) => z.slice(0, z.length - 30)],
+    ['cut off inside the end record', (z: Uint8Array) => z.slice(0, z.length - 5)],
+    ['only its first bytes', (z: Uint8Array) => z.slice(0, 40)],
+    ['bytes after the end record', (z: Uint8Array) => new Uint8Array([...z, 1, 2, 3])],
+    ['a central directory pointing outside the file', (z: Uint8Array) => { const c = z.slice(); new DataView(c.buffer).setUint32(c.length - 6, 9_999, true); return c; }],
+    ['no entries', (z: Uint8Array) => { const c = z.slice(); new DataView(c.buffer).setUint16(c.length - 12, 0, true); return c; }],
+  ])('refuses a ZIP %s and keeps the last good file', async (_label, damage) => {
+    const h = harness(); await h.run(); h.writes.length = 0; h.day(); h.setBus(damage(zip(3)));
+    const result = await h.run();
+    expect(result.feeds[BUS].code).toBe('invalid-response'); expect(result.feeds[RAIL].status).not.toBe('failed');
+    expect(h.writes.some(w => w.key.includes(BUS))).toBe(false);
+  });
+
+  it('accepts a ZIP with a file comment and a ZIP64 end record', async () => {
+    const plain = zip(3), comment = new TextEncoder().encode('made by a tool');
+    const commented = new Uint8Array([...plain, ...comment]); new DataView(commented.buffer).setUint16(plain.length - 2, comment.length, true);
+    const central = plain.length - 22 - 51, z64 = new Uint8Array(56), l64 = new Uint8Array(20), end = plain.slice(plain.length - 22);
+    new DataView(z64.buffer).setUint32(0, 0x06064b50, true);
+    const lv = new DataView(l64.buffer); lv.setUint32(0, 0x07064b50, true); lv.setBigUint64(8, BigInt(central + 51), true);
+    const ev = new DataView(end.buffer); ev.setUint16(10, 0xffff, true); ev.setUint32(16, 0xffffffff, true);
+    const zip64 = new Uint8Array([...plain.slice(0, central + 51), ...z64, ...l64, ...end]);
+    for (const bytes of [commented, zip64]) {
+      const h = harness(); h.setBus(bytes); expect((await h.run()).feeds[BUS].status).toBe('saved');
+    }
+  });
 
   it.each([[401, 'access-denied'], [403, 'access-denied'], [429, 'rate-limited'], [302, 'invalid-response']])(
     'maps HTTP %s to the fixed code %s and continues rail', async (status, code) => {
@@ -301,8 +341,8 @@ describe('wrangler wiring and private temporary files', () => {
 describe('daily private archive of the public partner and NJ Transit schedule ZIPs', () => {
   type Feed = { feed: string; url: string; max: number; source: string };
   const two: Feed[] = [
-    { feed: 'static-partner-a', url: 'https://www.njtransit.com/A_bus_data.zip', max: 64, source: 'synthetic A' },
-    { feed: 'static-partner-b', url: 'https://api.prod.coachusa.com/gtfs', max: 64, source: 'synthetic B' },
+    { feed: 'static-partner-a', url: 'https://www.njtransit.com/A_bus_data.zip', max: 256, source: 'synthetic A' },
+    { feed: 'static-partner-b', url: 'https://api.prod.coachusa.com/gtfs', max: 256, source: 'synthetic B' },
   ];
   function open(answer: (url: string) => Response | Promise<Response>, feeds = two, timeoutMs = 1_000) {
     const objects = new Map<string, Uint8Array>(), writes: string[] = [], requests: { url: string; init: RequestInit }[] = [];
@@ -359,7 +399,7 @@ describe('daily private archive of the public partner and NJ Transit schedule ZI
     ['an HTML error page', () => new Response('<!DOCTYPE html><html>Page not found</html>'), 'invalid-response'],
     ['a missing file', () => new Response('', { status: 404 }), 'http-error'],
     ['rate limiting', () => new Response('', { status: 429 }), 'rate-limited'],
-    ['a file over its cap', () => new Response(new Uint8Array(65).fill(0x50).buffer), 'response-too-large'],
+    ['a file over its cap', () => new Response(new Uint8Array(257).fill(0x50).buffer), 'response-too-large'],
     ['a network failure', () => { throw new TypeError('offline'); }, 'network-error'],
     ['a hung answer', () => new Promise<Response>(() => {}), 'timed-out'],
     ['a body that stalls', () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0x50])); } })), 'timed-out'],
@@ -380,7 +420,7 @@ describe('daily private archive of the public partner and NJ Transit schedule ZI
   });
 
   it('never saves an answer that carries an NJ Transit credential', async () => {
-    const leaked = new Uint8Array([0x50, 0x4b, 3, 4, ...new TextEncoder().encode(credentials.NJT_API_PASSWORD)]);
+    const leaked = zip(1, new TextEncoder().encode(credentials.NJT_API_PASSWORD));
     const h = open(url => new Response((url.includes('A_bus') ? leaked : zip(6)).slice().buffer));
     expect((await h.run()).feeds['static-partner-a']).toMatchObject({ status: 'failed', code: 'invalid-response' });
     expect([...h.objects.keys()].some(k => k.includes('static-partner-a'))).toBe(false);
