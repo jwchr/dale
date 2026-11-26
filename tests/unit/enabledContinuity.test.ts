@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { liveDataset, NOW } from '../helpers/liveBus';
 import { historyContextKey } from '../../worker/history-journal';
-import { A_LIMIT, CORRIDOR_RESERVE } from '../../worker/history-archive';
+import { A_LIMIT, B_LIMIT, CORRIDOR_RESERVE } from '../../worker/history-archive';
 // @ts-expect-error native deployment helper
-import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, APPROVED_ARCHIVE_CLASS_A_LIMIT, APPROVED_RAW_LIMITS, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
+import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, APPROVED_ARCHIVE_CLASS_A_LIMIT, APPROVED_ARCHIVE_CLASS_B_LIMIT, APPROVED_RAW_LIMITS, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const ds = structuredClone(liveDataset); ds.meta.feedVersion = 'abcdef123456'; ds.meta.source = 'NJ Transit GTFS BUS G2';
 const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
 const env = { HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' };
@@ -55,52 +55,66 @@ describe('enabled collector preservation without migration or mutation', () => {
     expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 75_000 }, { ...after, dailyWriteReservationLimit: 89_999 })).toThrow();
     expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 90_000 }, { ...after, dailyWriteReservationLimit: 75_000 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, reservedBytes: 0 } })).toThrow();
-    // D79: the archive ceiling may rise to the approved 39 GB guard, never above it and never down.
-    expect(preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 39_000_000_000 } }, NOW)).toBe(true);
-    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 39_000_000_001 } })).toThrow();
+    // D86: the archive ceiling may rise to the approved 500 GB guard, never above it and never down.
+    expect(preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 500_000_000_000 } }, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 500_000_000_001 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 8_999_999_999 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 800_001 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 20_000_000_000 } })).toThrow();
     // D78: raw limits arrive with the corridor reserve, then never change.
-    const big = { ...after.archive, byteLimit: 39_000_000_000 };
-    const raw78 = { ...big, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 };
+    const big = { ...after.archive, byteLimit: 500_000_000_000 };
+    const raw78 = { ...big, rawByteLimit: 498_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 };
     expect(preservesEnabled(before, { ...after, archive: raw78 }, NOW)).toBe(true);
-    expect(() => preservesEnabled(before, { ...after, archive: { ...raw78, rawByteLimit: 39_000_000_000 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...raw78, rawByteLimit: 500_000_000_000 } })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...raw78, rawClassALimit32Days: 650_001 } })).toThrow();
-    const live = { ...before, archive: { ...before.archive, byteLimit: 39_000_000_000, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 } };
+    const live = { ...before, archive: { ...before.archive, byteLimit: 500_000_000_000, rawByteLimit: 498_000_000_000, rawClassALimit32Days: 650_000, rawClassBLimit32Days: 7_850_000 } };
     expect(preservesEnabled(live, { ...after, archive: raw78 }, NOW)).toBe(true);
     expect(() => preservesEnabled(live, { ...after, archive: { ...raw78, rawClassBLimit32Days: 7_000_000 } })).toThrow();
     expect(() => preservesEnabled(live, { ...after, archive: big })).toThrow();
-    // A rollback keeps the 39 GB guard: lowering it is refused (turn RAW_ARCHIVE off instead).
+    // A rollback keeps the 500 GB guard: lowering it is refused (turn RAW_ARCHIVE off instead).
     expect(() => preservesEnabled(live, { ...after, archive: { ...raw78, byteLimit: 9_000_000_000 } })).toThrow();
   });
-  it('lets the Class A guard rise only to the approved 950,000 and raw limits move only to the approved set (D80)', () => {
+  it('lets the Class A guard rise only to the approved 3,000,000 and raw limits move only to the approved set (D86)', () => {
     const c = collection(); c.archive.classALimit32Days = 500_000;
     const before = enabledCheckpoint(c, ds.meta.feedVersion, NOW);
     const raw = collection(); raw.bytes = 500; raw.completedAttempt = NOW + 20000; raw.lastAttemptAt = NOW + 20000; raw.lastSuccessAt = NOW + 20000;
     raw.observations++; raw.batches++; raw.reservedWrites += 12; raw.alarmAt = NOW + 50000;
     raw.archive.verifiedObjects++; raw.archive.reservedBytes += 500; raw.archive.lastSuccessAt = NOW + 21000;
-    Object.assign(raw.archive, { byteLimit: 39_000_000_000, classALimit32Days: 950_000, ...APPROVED_RAW_LIMITS });
+    Object.assign(raw.archive, { byteLimit: 500_000_000_000, classALimit32Days: 3_000_000, classBLimit32Days: 9_000_000, ...APPROVED_RAW_LIMITS });
     const after = enabledCheckpoint(raw, ds.meta.feedVersion, NOW + 22000);
     expect(preservesEnabled(before, after, NOW)).toBe(true);
-    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 960_000 } })).toThrow();
-    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 900_000 } })).toThrow();
-    // Once at 950,000 it never falls back.
-    const live = { ...before, archive: { ...before.archive, byteLimit: 39_000_000_000, classALimit32Days: 950_000, rawByteLimit: 37_000_000_000, rawClassALimit32Days: 350_000, rawClassBLimit32Days: 1_850_000 } };
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 3_100_000 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classALimit32Days: 2_900_000 } })).toThrow();
+    // Once at 3,000,000 it never falls back.
+    const live = { ...before, archive: { ...before.archive, byteLimit: 500_000_000_000, classALimit32Days: 3_000_000, rawByteLimit: 498_000_000_000, rawClassALimit32Days: 350_000, rawClassBLimit32Days: 7_850_000 } };
     expect(preservesEnabled(live, after, NOW)).toBe(true);
     expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, classALimit32Days: 500_000, rawClassALimit32Days: 350_000 } })).toThrow();
-    expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, rawClassALimit32Days: 700_000 } })).toThrow();
+    expect(() => preservesEnabled(live, { ...after, archive: { ...after.archive, rawClassALimit32Days: 2_000_000 } })).toThrow();
     // A guard already above the approved value (a later owner decision) never falls back to it (Neon, #278).
-    const higher = { ...live, archive: { ...live.archive, byteLimit: 40_000_000_000, classALimit32Days: 990_000 } };
+    const higher = { ...live, archive: { ...live.archive, byteLimit: 600_000_000_000, classALimit32Days: 3_500_000 } };
     expect(() => preservesEnabled(higher, after, NOW)).toThrow();
-    expect(() => preservesEnabled(higher, { ...after, archive: { ...after.archive, classALimit32Days: 990_000 } }, NOW)).toThrow();
+    expect(() => preservesEnabled(higher, { ...after, archive: { ...after.archive, classALimit32Days: 3_500_000 } }, NOW)).toThrow();
     // Raw limits already above the approved set never fall back to it either (Neon Nov24 c, #278).
-    const rawHigher = { ...live, archive: { ...live.archive, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_900_000 } };
+    const rawHigher = { ...live, archive: { ...live.archive, rawClassALimit32Days: 2_900_000, rawClassBLimit32Days: 8_900_000 } };
     expect(() => preservesEnabled(rawHigher, after, NOW)).toThrow();
-    // The approved values match what the Worker reports, and 950,000 per 34 days stays under R2's free 1,000,000 a month.
+    // The approved values match what the Worker reports (D86, paid R2, fixed ceilings).
     expect(APPROVED_ARCHIVE_CLASS_A_LIMIT).toBe(A_LIMIT);
+    expect(APPROVED_ARCHIVE_CLASS_B_LIMIT).toBe(B_LIMIT);
     expect(APPROVED_RAW_LIMITS.rawClassALimit32Days).toBe(A_LIMIT - CORRIDOR_RESERVE.a);
-    expect(A_LIMIT).toBeLessThan(1_000_000);
+    expect(APPROVED_RAW_LIMITS.rawClassBLimit32Days).toBe(B_LIMIT - CORRIDOR_RESERVE.b);
+    // Class B stays inside R2's free 10,000,000 a month; Class A stays a fixed ceiling, never unlimited.
+    expect(B_LIMIT).toBeLessThan(10_000_000);
+    expect(A_LIMIT).toBeLessThanOrEqual(3_000_000);
+  });
+  it('lets the Class B guard rise only to the approved 9,000,000 (D86)', () => {
+    const before = enabledCheckpoint(collection(), ds.meta.feedVersion, NOW);
+    const raw = collection(); raw.bytes = 500; raw.completedAttempt = NOW + 20000; raw.lastAttemptAt = NOW + 20000; raw.lastSuccessAt = NOW + 20000;
+    raw.observations++; raw.batches++; raw.reservedWrites += 12; raw.alarmAt = NOW + 50000;
+    raw.archive.verifiedObjects++; raw.archive.reservedBytes += 500; raw.archive.lastSuccessAt = NOW + 21000;
+    const after = enabledCheckpoint(raw, ds.meta.feedVersion, NOW + 22000);
+    expect(preservesEnabled(before, { ...after, archive: { ...after.archive, classBLimit32Days: 9_000_000 } }, NOW)).toBe(true);
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classBLimit32Days: 9_000_001 } })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, classBLimit32Days: 7_999_999 } })).toThrow();
   });
   it('keeps the deploy proof corridor reserve equal to the Worker reserve', () => {
     expect(SCRIPT_RESERVE).toEqual(CORRIDOR_RESERVE);

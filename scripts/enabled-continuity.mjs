@@ -70,18 +70,19 @@ export function preservesEnabled(before, after, progressSince) {
 }
 /** The cumulative/limit rules of preservesEnabled without its schedule-version equality.
  * A schedule rollover changes the version; these rules still hold across it. */
-// The archive byte ceiling may rise only to exactly the owner-approved 39 GB guard (D79, Jeff, Nov 24, 2026: "Yes, up to 40 GB"), never fall or stop in between.
-export const APPROVED_ARCHIVE_BYTE_LIMIT = 39_000_000_000;
+// D86 (paid R2, Jeff, Nov 26, 2026): each archive guard may rise only to exactly its approved fixed value, never fall or stop in between.
+export const APPROVED_ARCHIVE_BYTE_LIMIT = 500_000_000_000;
 const archiveByteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_BYTE_LIMIT);
-// D80: the shared Class A guard may rise only to this fixed value, inside R2's free 1,000,000 a month.
-export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 950_000;
+export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 3_000_000;
 const archiveClassALimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_A_LIMIT);
+export const APPROVED_ARCHIVE_CLASS_B_LIMIT = 9_000_000;
+const archiveClassBLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_B_LIMIT);
 // D84: the daily SQL write counter may rise only to this fixed value, under Cloudflare Free's 100,000 rows a day.
 export const APPROVED_DAILY_WRITE_LIMIT = 90_000;
 const dailyWriteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_DAILY_WRITE_LIMIT);
-// D80: the one approved set of raw limits a live Worker may move to.
-export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 };
-// Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave
+// D86: the one approved set of raw limits a live Worker may move to (each guard minus the corridor reserve).
+export const APPROVED_RAW_LIMITS = { rawByteLimit: 498_000_000_000, rawClassALimit32Days: 2_850_000, rawClassBLimit32Days: 8_850_000 };
+// Statewide raw saving's own limits (D78): once live they change only to the approved D86 set, and they always leave
 // corridor history its 2 GB and 150,000-operation reserve under the shared guard.
 export const CORRIDOR_RESERVE = { bytes: 2_000_000_000, a: 150_000, b: 150_000 };
 // A move to the approved set may only raise each limit, never lower one a later decision set higher (Neon Nov24 c).
@@ -99,7 +100,7 @@ export function continuesEnabled(before, after, progressSince) {
     || !archiveByteLimitOk(before.archive.byteLimit, after.archive.byteLimit)
     || !rawLimitsOk(before.archive, after.archive)
     || !archiveClassALimitOk(before.archive.classALimit32Days, after.archive.classALimit32Days)
-    || after.archive.classBLimit32Days !== before.archive.classBLimit32Days) fail();
+    || !archiveClassBLimitOk(before.archive.classBLimit32Days, after.archive.classBLimit32Days)) fail();
   // Hot bytes may decrease through the unchanged archive-before-prune path. Cumulative
   // evidence and verified archive reservations must never reset; do not turn unknown into0.
   return progressSince === undefined || (after.completedAttempt > before.completedAttempt && after.completedAttempt > progressSince && after.lastSuccessAt > progressSince

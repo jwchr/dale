@@ -4,6 +4,7 @@ import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HistoryArchive, type HistoryBucket } from '../../worker/history-archive';
+import { reserveRequests, type RequestBudget } from '../../worker/request-budget';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from '../../worker/raw-archive';
 import { REGION_COUNTIES } from '../../worker/region-raw';
@@ -191,7 +192,7 @@ describe('private as-received raw archives', () => {
     // The budget is nearly used up: a new original needs a fresh 8 MB block, which is refused.
     h.state.credit.bytes = 0;
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 497_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
     expect(h.raw.status().reason).toBe('free-storage-budget');
     expect(h.state.pending).toHaveLength(0); expect(h.objects.size).toBe(2);
@@ -205,7 +206,7 @@ describe('private as-received raw archives', () => {
     // grant is left, so recovery must buy operations (no bytes) from the archive.
     Object.assign(h.state.credit, { bytes: 0, a: 0, b: 0, writes: 0 });
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 498_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     await h.raw.capture([input(NOW + 30_000, new Uint8Array([255, 0, 64, 201, 17]))], NOW + 30_000, []);
     expect(h.state.pending).toHaveLength(0);
     expect([...h.objects.keys()].filter(k => k.endsWith('.manifest.json'))).toHaveLength(1);
@@ -214,14 +215,14 @@ describe('private as-received raw archives', () => {
     expect(h.raw.status().reason).toBe('free-storage-budget');
     expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(1);
     const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    expect(after.reservedBytes).toBe(37_500_000_000);
+    expect(after.reservedBytes).toBe(498_500_000_000);
   });
   it('closes a finished hourly ledger at the raw byte stop while new originals wait (Neon, #278)', async () => {
     const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish();
     // Only the 4096 bytes kept back for the open ledger remain, and no new 8 MB block can be bought.
     h.state.credit.bytes = 4096;
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 497_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     await h.raw.capture([input(NOW + 3600_000)], NOW + 3600_000, []);
     expect(h.raw.status().reason).toBe('free-storage-budget');
     expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
@@ -233,11 +234,11 @@ describe('private as-received raw archives', () => {
     // The ledger's 4096 bytes were spent on a failed put; 10,000 bytes remain, less than one 8 MB block.
     h.state.credit.bytes = 0;
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 36_999_990_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 497_999_990_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     await h.raw.capture([], NOW + 3600_000, []);
     expect([...h.objects.keys()].filter(k => k.includes('/ledgers/'))).toHaveLength(1);
     const after = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    expect(after.reservedBytes).toBeLessThan(37_000_000_000);
+    expect(after.reservedBytes).toBeLessThan(498_000_000_000);
   });
   it('takes a new original only when its hourly ledger can still be closed afterwards (Neon, #278)', async () => {
     const probe = await harness(); await probe.raw.capture([input()], NOW, []);
@@ -246,7 +247,7 @@ describe('private as-received raw archives', () => {
     // Enough for the original and its manifest, but not the 4096 bytes its ledger will need.
     h.state.credit = { ...h.state.credit, bytes: gzipBytes + 4096 };
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 36_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 497_999_999_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     await h.raw.capture([input()], NOW, []);
     expect(h.raw.status().reason).toBe('free-storage-budget'); expect(h.objects.size).toBe(0);
     expect(h.raw.status().hoursUTC).toHaveLength(0);
@@ -265,22 +266,22 @@ describe('private as-received raw archives', () => {
   });
   it.each(['bytes', 'classA', 'classB', 'sql'])('stops raw storage at the shared %s guard without bucket calls', async guard => {
     const h = await harness();
-    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 499_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
     else if (guard === 'sql') {
       const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 90_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
-    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 950_000 : 0, guard === 'classB' ? 2_000_000 : 0);
+    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 3_000_000 : 0, guard === 'classB' ? 9_000_000 : 0);
     await h.raw.capture([input()], NOW, []);
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : guard === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
     expect(h.journal.status(NOW).enabled).toBe(true);
   });
   it.each(['bytes', 'classA', 'classB'])('stops raw storage at the corridor reserve (%s)', async guard => {
     const h = await harness(), day = new Date(NOW).toISOString().slice(0, 10);
-    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 36_999_999_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
-    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 800_000 : 0, guard === 'classB' ? 1_850_000 : 0);
+    if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 497_999_999_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(day, guard === 'classA' ? 2_850_000 : 0, guard === 'classB' ? 8_850_000 : 0);
     await h.raw.capture([input()], NOW, []);
     expect(h.calls).toEqual([]); expect(h.raw.status().reason).toBe(guard === 'bytes' ? 'free-storage-budget' : 'free-operation-budget');
-    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 });
+    expect(h.archive.status(NOW)).toMatchObject({ rawByteLimit: 498_000_000_000, rawClassALimit32Days: 2_850_000, rawClassBLimit32Days: 8_850_000 });
   });
   it.each(['getVehiclePositions', 'rail-getVehiclePositions'] as const)('does not let failing %s archive writes block the other feeds on either poll', async failed => {
     const h = await harness(); h.fail(`/${failed}/`);
@@ -459,7 +460,7 @@ describe('raw collection through the bus Worker', () => {
     const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
     state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000; state.rawArchive.credit.bytes = 0;
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
-    meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
+    meta.reservedBytes = 498_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     // Each poll's new bus originals are refused at the byte stop; rail stays paused.
     h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(3);
     h.time(NOW + 1_800_000); await h.poll(); expect(h.railCalls).toBe(3);
@@ -481,6 +482,18 @@ describe('raw collection through the bus Worker', () => {
     expect(raw.hoursUTC[0].feeds.getTripUpdates.count).toBe(1);
     expect((h.saved.get('state-v1') as { token?: unknown }).token).toBeDefined();
     expect((h.saved.get('state-v1') as { vehicles: { feed: { state: string } } }).vehicles.feed.state).not.toBe('unavailable');
+  });
+  it('live buses reserve first: alerts are skipped and counted when only the bus feeds still fit (Neon Nov26 e, #301)', async () => {
+    const h = await service(true, true, true, null); await h.poll();
+    const state = h.saved.get('state-v1') as { busBudget: RequestBudget }, at = NOW + 45_000;
+    // Leave exactly two requests in the rolling day: enough for both bus feeds, not for alerts.
+    while (reserveRequests(structuredClone(state.busBudget), 3, at)) reserveRequests(state.busBudget, 1, at);
+    h.saved.set('state-v1', state); h.restart(); h.time(at); await h.poll();
+    const raw = (await h.health()).rawArchive;
+    expect(raw.hoursUTC[0].feeds.getVehiclePositions.count).toBe(2);
+    expect(raw.hoursUTC[0].feeds.getTripUpdates.count).toBe(2);
+    expect(raw.hoursUTC[0].feeds.getAlerts.count).toBe(1);
+    expect(raw.hoursUTC[0].events.getAlerts['request-ceiling']).toBe(1);
   });
   it('keeps both complete bus feeds when statewide rail fails upstream', async () => {
     const h = await service(); h.failRail(); await h.poll();
