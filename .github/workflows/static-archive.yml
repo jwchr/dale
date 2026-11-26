@@ -12,7 +12,7 @@ jobs:
   archive:
     if: github.ref == 'refs/heads/main' && github.repository == 'jwchr/dale'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Save distinct bus and rail timetable originals privately
+      - name: Save distinct bus, rail and partner timetable originals privately
         run: node scripts/archive-static-gtfs.mjs
         env:
           WRANGLER_SEND_METRICS: 'false'
