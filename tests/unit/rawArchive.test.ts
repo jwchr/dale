@@ -1,3 +1,4 @@
+import { dueSources } from '../../worker/traffic-archive';
 import bindings from 'gtfs-realtime-bindings';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
@@ -353,9 +354,10 @@ describe('raw collection through the bus Worker', () => {
         if (!weather) throw new Error('No background weather calls');
         return Response.json(String(url).includes('/alerts/') ? { type: 'FeatureCollection', features: [] } : { type: 'Feature', properties: { synthetic: 'weather' } });
       }
-      if (String(url).includes('panynj.gov') || String(url).includes('511nj.org')) {
+      if (String(url).includes('panynj.gov') || String(url).includes('511nj.org') || String(url).includes('njtransit.com/rss')) {
         if (!traffic) throw new Error('No background traffic calls');
-        return String(url).includes('511nj.org') ? new Response('<?xml version="1.0"?><rss version="2.0"><channel><title>synthetic</title></channel></rss>')
+        return String(url).includes('511nj.org') || String(url).includes('njtransit.com/rss') ? new Response('<?xml version="1.0"?><rss version="2.0"><channel><title>synthetic</title></channel></rss>')
+          : String(url).includes('everbridge') ? Response.json({ data: [] }) : String(url).includes('ridepath') ? Response.json({ results: [] })
           : Response.json([{ synthetic: 'crossing', SentBy: 'Synthetic Staff' }]);
       }
       if (String(url).includes('/BUSDV2/') && endpoint !== 'authenticateUser') {
@@ -479,22 +481,23 @@ describe('raw collection through the bus Worker', () => {
     const bundles = () => [...h.objects.keys()].filter(k => k.includes('/traffic-poll/') && k.endsWith('.json.gz'));
     expect(bundles()).toHaveLength(1);
     const saved = JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(bundles()[0]!)!)));
-    expect(saved.responses.map((r: { source: string; status: string }) => `${r.source}:${r.status}`)).toEqual(['crossingTimes:ok', 'crossingAlerts:ok', 'incidents:ok']);
+    expect(saved.responses.map((r: { source: string; status: string }) => `${r.source}:${r.status}`)).toEqual(dueSources(Math.floor(NOW / 60_000) * 60_000).map(s => `${s}:ok`));
     expect(saved.slot).toBe(new Date(Math.floor(NOW / 60_000) * 60_000).toISOString().slice(0, 16) + 'Z');
     expect(JSON.parse(saved.responses[1].text)).toEqual([{ synthetic: 'crossing' }]);
     expect(JSON.parse(saved.responses[0].text)).toEqual([{ synthetic: 'crossing', SentBy: 'Synthetic Staff' }]);
     expect(saved.responses[2].text).toContain('<rss');
     // A second poll in the same minute fetches nothing; the next minute fetches again.
-    const calls = () => h.urls.filter(u => u.includes('panynj.gov') || u.includes('511nj.org')).length;
+    const calls = () => h.urls.filter(u => u.includes('panynj.gov') || u.includes('511nj.org') || u.includes('njtransit.com/rss')).length;
+    const first = dueSources(Math.floor(NOW / 60_000) * 60_000).length, next = dueSources(Math.floor(NOW / 60_000) * 60_000 + 60_000).length;
     h.time(NOW + (60_000 - NOW % 60_000) - 1); await h.poll();
-    expect(calls()).toBe(3);
+    expect(calls()).toBe(first);
     h.time(NOW + (60_000 - NOW % 60_000) + 30_000); await h.poll();
-    expect(calls()).toBe(6); expect(bundles()).toHaveLength(2);
+    expect(calls()).toBe(first + next); expect(bundles()).toHaveLength(2);
     expect((await h.health()).rawArchive.reason).toBe('ready');
   });
   it('makes no crossings or incidents calls while raw saving itself is off, even with TRAFFIC_RAW on', async () => {
     const h = await service(true, true, false, null, undefined, false, false, true); await h.poll();
-    expect(h.urls.some(u => u.includes('panynj.gov') || u.includes('511nj.org'))).toBe(false);
+    expect(h.urls.some(u => u.includes('panynj.gov') || u.includes('511nj.org') || u.includes('njtransit.com/rss'))).toBe(false);
   });
   it('saves one National Weather Service bundle per minute when WEATHER_RAW is on, after the crossings', async () => {
     const h = await service(true, true, true, null, undefined, false, false, true, true); await h.poll();
