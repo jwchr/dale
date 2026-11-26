@@ -30,6 +30,14 @@ export interface BusDvState {
   /** Private caller checkpoint only. Never pass this state to the raw archive or a public endpoint. */
   token?: { value: string; mintedAt: number };
   sequence: number; pending?: number; reason?: string;
+  /** Aggregate counts only (no vehicle IDs or exact positions), safe for the public status page. */
+  coverage?: Partial<Record<Mode, BusDvCoverage>>;
+}
+/** How far one mode's last good vehicle answer reached: shows whether the statewide radius covers the state. */
+export interface BusDvCoverage {
+  at: number; vehicles: number; maxMiles: number | null;
+  /** Rounded outward to 0.1 degree (about 11 km), so no exact vehicle position is published. */
+  lat: [number, number] | null; lon: [number, number] | null;
 }
 export const newBusDvState = (): BusDvState => ({ budget: { hours: {} }, cursor: 0,
   tried: {}, ok: {}, boardFraction: 0, mints: [], sequence: 0 });
@@ -43,6 +51,32 @@ type LocalResponse = Omit<RawResponse, 'feed'> & { feed: typeof BUSDV_FEEDS[numb
 export type BusDvResponse = RawResponse;
 interface Entry extends Request { receivedAt: number; status: 'ok' | BusDvFailureCode; text?: string; base64?: string }
 const encode = (text: string) => new TextEncoder().encode(text);
+
+const coord = (v: unknown, lo: number, hi: number) => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined;
+};
+/** Counts and outward-rounded extents of a getVehicleLocations answer; undefined unless it is a JSON array. */
+export function busDvCoverage(bytes: Uint8Array): Omit<BusDvCoverage, 'at'> | undefined {
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\ufeff/, '')); } catch { return; }
+  if (!Array.isArray(value)) return;
+  let maxMiles: number | null = null, lat: [number, number] | null = null, lon: [number, number] | null = null;
+  for (const row of value) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const r = row as Record<string, unknown>;
+    const miles = coord(r.VehicleDistanceMiles, 0, 10_000), y = coord(r.VehicleLat, -90, 90), x = coord(r.VehicleLong, -180, 180);
+    if (miles !== undefined) maxMiles = Math.max(maxMiles ?? 0, Math.ceil(miles));
+    if (y !== undefined && x !== undefined) {
+      lat = [Math.min(lat?.[0] ?? Infinity, Math.floor(y * 10) / 10), Math.max(lat?.[1] ?? -Infinity, Math.ceil(y * 10) / 10)];
+      lon = [Math.min(lon?.[0] ?? Infinity, Math.floor(x * 10) / 10), Math.max(lon?.[1] ?? -Infinity, Math.ceil(x * 10) / 10)];
+    }
+  }
+  return { vehicles: value.length, maxMiles, lat, lon };
+}
+/** A copy for the public status page: never the private state itself (it holds the token). */
+export const busDvCoverageStatus = (state: BusDvState | undefined) =>
+  state?.coverage ? JSON.parse(JSON.stringify(state.coverage)) as Partial<Record<Mode, BusDvCoverage>> : null;
 
 /** A bad or partially malformed list must not silently remove previously discovered boards. */
 export function busDvLocationCodes(bytes: Uint8Array): string[] | undefined {
@@ -280,7 +314,11 @@ export class BusDvArchive {
               }
             }
             if (valid) s.ok[`${r.method}:${r.mode!}`] = receivedAt;
-          } else entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
+          } else {
+            entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
+            const coverage = r.method === 'getVehicleLocations' ? busDvCoverage(bytes) : undefined;
+            if (coverage) (s.coverage ??= {})[r.mode!] = { at: receivedAt, ...coverage };
+          }
         } catch (error) { fail(r, failureCode(error)); }
       });
       if (entries.length) {
