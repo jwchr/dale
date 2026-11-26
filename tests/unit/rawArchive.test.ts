@@ -387,7 +387,8 @@ describe('raw collection through the bus Worker', () => {
   it.each([null, undefined, { v: 1, feedVersion: 'old', counties: REGION_COUNTIES, routeIds: ['10'] },
     { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: [] }])('saves every statewide bus response whole with no usable region file (D84, %j)', async region => {
     const h = await service(true, true, true, region); await h.poll();
-    for (const feed of ['getVehiclePositions', 'getTripUpdates']) {
+    // D84: bus alerts are saved whole too, alongside both bus feeds.
+    for (const feed of ['getVehiclePositions', 'getTripUpdates', 'getAlerts']) {
       const busKey = [...h.objects.keys()].find(k => k.includes(`/${feed}/`) && k.endsWith('.pb.gz'))!;
       const sent = binaryFeed([{ id: 'synthetic', ...(feed === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }]);
       expect(new Uint8Array(gunzipSync(h.objects.get(busKey)!))).toEqual(new Uint8Array(sent));
@@ -396,6 +397,7 @@ describe('raw collection through the bus Worker', () => {
     expect(new Uint8Array(gunzipSync(h.objects.get(railKey)!))).toEqual(original());
     expect((await h.health()).rawArchive).toMatchObject({ busRegion: 'statewide' });
     expect((await h.health()).rawArchive.reason).not.toBe('region-unavailable');
+    expect([...h.objects.keys()].some(k => k.includes('/rail-getAlerts/') && k.endsWith('.pb.gz'))).toBe(true);
     const normal = await service(); await normal.poll();
     const history = (db: DatabaseSync) => db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt').all();
     expect(history(h.db).length).toBeGreaterThan(0);
@@ -423,53 +425,62 @@ describe('raw collection through the bus Worker', () => {
     expect([...h.objects.keys()].some(k => /\/get(VehiclePositions|TripUpdates)\//.test(k))).toBe(false);
     expect((await h.health()).rawArchive.blockedSecrets).toBe(2);
   });
-  it('saves both rail protobuf originals every 30 seconds, including after eviction, using one cached token', async () => {
+  it('saves all three rail protobuf originals every 30 seconds, including after eviction, using one cached token', async () => {
     const h = await service(); await h.poll();
-    expect(h.railCalls).toBe(2);
+    expect(h.railCalls).toBe(3);
     const railKey = [...h.objects.keys()].find(k => k.includes('/rail-getVehiclePositions/') && k.endsWith('.pb.gz'))!;
     expect(new Uint8Array(gunzipSync(h.objects.get(railKey)!))).toEqual(original());
     expect(railKey).toBe(`raw/v1/${new Date(NOW).toISOString().slice(0, 10)}/rail-getVehiclePositions/${NOW}-${sha(original())}.pb.gz`);
-    h.restart(); h.time(NOW + 30_000); await h.poll(); expect(h.railCalls).toBe(4);
-    h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.restart(); h.time(NOW + 30_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(9);
     expect(h.urls.filter(url => url.endsWith('/getToken'))).toHaveLength(1);
     const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;
-    for (const feed of ['getVehiclePositions', 'getTripUpdates', 'rail-getVehiclePositions', 'rail-getTripUpdates']) expect(feeds[feed].count).toBe(3);
+    for (const feed of ['getVehiclePositions', 'getTripUpdates', 'rail-getVehiclePositions', 'rail-getTripUpdates', 'rail-getAlerts']) expect(feeds[feed].count).toBe(3);
     expect(JSON.stringify(await h.health())).not.toContain('synthetic');
     expect(h.urls.some(url => url.includes('/TrainData/'))).toBe(false);
   });
   it('tries statewide rail again an hour after a budget stop, even when nothing else clears it (audit DL-006)', async () => {
-    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(3);
     const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
     state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
-    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
-    h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(3);
+    h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
   });
   it('waits another hour when the rail retry after a budget stop fails before saving anything (Neon Nov24 d, #278)', async () => {
-    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(2);
+    const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(3);
     const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
     state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
-    h.failRail(); h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
-    h.time(NOW + 90_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
-    h.time(NOW + 30_000 + 7_200_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.failRail(); h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.time(NOW + 90_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.time(NOW + 30_000 + 7_200_000); await h.poll(); expect(h.railCalls).toBe(9);
   });
   it('bus refusals during a budget stop do not push back the hourly rail retry (CodeRabbit, #278)', async () => {
-    const h = await service(); await h.poll(); expect(h.railCalls).toBe(2);
+    const h = await service(); await h.poll(); expect(h.railCalls).toBe(3);
     const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
     state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000; state.rawArchive.credit.bytes = 0;
     const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body));
     meta.reservedBytes = 37_500_000_000; h.db.prepare('UPDATE dale_archive_meta SET body=?').run(JSON.stringify(meta));
     // Each poll's new bus originals are refused at the byte stop; rail stays paused.
-    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(2);
-    h.time(NOW + 1_800_000); await h.poll(); expect(h.railCalls).toBe(2);
+    h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(3);
+    h.time(NOW + 1_800_000); await h.poll(); expect(h.railCalls).toBe(3);
     expect((await h.health()).rawArchive.reason).toBe('free-storage-budget');
     // One hour after the stop began, rail tries once, then waits another hour.
-    h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
-    h.time(NOW + 60_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(4);
+    h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
+    h.time(NOW + 60_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
   });
   it('keeps trip updates and rail when vehicle positions fail upstream', async () => {
     const h = await service(); h.failBus(); await h.poll();
     const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;
     expect(feeds.getVehiclePositions).toBeUndefined(); expect(feeds.getTripUpdates.count).toBe(1); expect(feeds['rail-getVehiclePositions'].count).toBe(1);
+  });
+  it('a failed statewide bus alerts call is counted and never touches live buses or the shared token (D84)', async () => {
+    const h = await service(true, true, true, null); h.oversized('getAlerts'); await h.poll();
+    const raw = (await h.health()).rawArchive;
+    expect(raw.hoursUTC[0].events.getAlerts['response-too-large']).toBe(1);
+    expect(raw.hoursUTC[0].feeds.getVehiclePositions.count).toBe(1);
+    expect(raw.hoursUTC[0].feeds.getTripUpdates.count).toBe(1);
+    expect((h.saved.get('state-v1') as { token?: unknown }).token).toBeDefined();
+    expect((h.saved.get('state-v1') as { vehicles: { feed: { state: string } } }).vehicles.feed.state).not.toBe('unavailable');
   });
   it('keeps both complete bus feeds when statewide rail fails upstream', async () => {
     const h = await service(); h.failRail(); await h.poll();
@@ -583,7 +594,7 @@ describe('raw collection through the bus Worker', () => {
     h.restart(); h.time(NOW + 30_000); await h.poll();
     const urls = h.urls.slice(before);
     expect(urls.filter(url => api === 'bus' ? url.includes('/GTFSG2/') : url.includes('/GTFSRT/'))).toHaveLength(0);
-    expect(urls.filter(url => api === 'bus' ? url.includes('/GTFSRT/') : url.includes('/GTFSG2/'))).toHaveLength(2);
+    expect(urls.filter(url => api === 'bus' ? url.includes('/GTFSRT/') : url.includes('/GTFSG2/'))).toHaveLength(api === 'bus' ? 3 : 2);
     const ledger = (await h.health()).rawArchive.hoursUTC[0];
     for (const feed of api === 'bus' ? ['getVehiclePositions', 'getTripUpdates'] : ['rail-getVehiclePositions', 'rail-getTripUpdates'])
       expect(ledger.events[feed]).toEqual({ 'request-ceiling': 1 });

@@ -27,7 +27,7 @@ export class RailGtfsrt {
     const token = s.token && now >= s.token.at && now - s.token.at < 23 * HOUR ? s.token.value : undefined;
     s.mints = s.mints.filter(at => now - at < DAY);
     if (!token && (s.mints.length >= RAIL_GTFSRT_MINT_LIMIT || s.mints.some(at => now - at < HOUR))) { s.reason = 'token-limit'; return; }
-    if (!reserveRequests(s.budget, token ? 2 : 3, now)) { s.reason = 'request-ceiling'; return; }
+    if (!reserveRequests(s.budget, token ? 3 : 4, now)) { s.reason = 'request-ceiling'; return; }
     s.pollAt = now;
     if (!token) s.mints.push(now);
     return { token, mint: !token };
@@ -35,7 +35,7 @@ export class RailGtfsrt {
 
   async collect(plan: RailPlan): Promise<{ responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] }> {
     const result: { responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] } = { responses: [], failures: [], secrets: [] };
-    const methods = ['getVehiclePositions', 'getTripUpdates'] as const;
+    const methods = ['getVehiclePositions', 'getTripUpdates', 'getAlerts'] as const;
     const request = (method: 'getToken' | typeof methods[number], fields: Record<string, string>, max: number) =>
       njtRequest(method, fields, max, this.fetchImpl, 15_000, 'rail-gtfsrt');
     let token = plan.token;

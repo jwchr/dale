@@ -2,7 +2,8 @@ import bindings from 'gtfs-realtime-bindings';
 import type { HistoryArchive, HistoryBucket } from './history-archive';
 import type { RegionFilter } from './region-raw';
 
-export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'rail-getVehiclePositions' | 'rail-getTripUpdates';
+// Alerts are saved raw only (D84: "All the data, save all the data."); nothing in Dale reads them yet.
+export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts';
 export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number;
   /** Original bus bytes are checked for secrets but never saved after filtering. */
   sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter }
