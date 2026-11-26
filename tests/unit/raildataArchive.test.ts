@@ -137,4 +137,39 @@ describe('RailData raw archive (D84)', () => {
     expect(stationCodes(enc({ errorMessage: 'x' }))).toBeUndefined();
     expect(stationCodes(new Uint8Array([1, 2]))).toBeUndefined();
   });
+
+  // Neon review of #303, Nov 26, 2026.
+  it.each([{ status: 500, message: 'Invalid token.', code: 'access-denied' }, { status: 400, message: 'Daily usage limit:40000.', code: 'rate-limited' }])(
+    'reads an error body before its HTTP status: a $status saying "$message" counts as $code', async ({ status, message, code }) => {
+      const h = harness();
+      h.answers.getVehicleData = () => Response.json({ errorMessage: message }, { status });
+      const result = await h.run();
+      if (typeof result !== 'object') throw new Error('refused');
+      expect(result.failures).toContainEqual(expect.objectContaining({ feed: 'raildata-getVehicleData', code }));
+      delete h.answers.getVehicleData;
+      h.time(NOW + 2 * 3600_000); await h.run();
+      const mints = h.calls.filter(c => c.method === 'getToken').length;
+      // A dropped token is minted again on the next poll; a daily limit sends nothing for the pause.
+      expect(mints).toBe(code === 'access-denied' ? 2 : 1);
+    });
+
+  it.each([['an HTML page', () => new Response('<html>Maintenance</html>')], ['an empty answer', () => new Response('')]])('never saves %s as RailData', async (_, page) => {
+    const h = harness();
+    h.answers.getStationList = page;
+    const result = await h.run();
+    if (typeof result !== 'object') throw new Error('refused');
+    expect(result.failures).toContainEqual(expect.objectContaining({ feed: 'raildata-getStationList', code: 'invalid-response' }));
+    expect(result.responses.some(r => r.feed === 'raildata-getStationList')).toBe(false);
+  });
+
+  it('starts nothing 12 seconds into its turn, so a slow NJ Transit cannot hold the live bus poll', async () => {
+    const h = harness();
+    h.answers.getVehicleData = () => { h.time(NOW + 12_000); return Response.json({ synthetic: true }); };
+    const result = await h.run();
+    if (typeof result !== 'object') throw new Error('refused');
+    expect(h.calls.filter(c => c.method !== 'getToken')).toHaveLength(2);
+    expect(result.failures.length).toBeGreaterThan(0);
+    expect(result.failures.every(f => f.code === 'timed-out')).toBe(true);
+    expect(result.responses.some(r => r.feed === 'raildata-poll')).toBe(true);
+  });
 });

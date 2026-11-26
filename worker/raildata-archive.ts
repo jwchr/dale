@@ -1,8 +1,8 @@
 import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
-import { RAIL_STATIONS, railArchiveFailure, type RailArchiveMethod } from './rail';
+import { RAIL_STATIONS, RailError, railArchiveFailure, type RailArchiveMethod } from './rail';
 import type { RawFeed, RawResponse } from './raw-archive';
-import { ARCHIVE_CONNECTIONS, inPool } from './pool';
+import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool } from './pool';
 
 /** D84 ("save all the data"): every RailData answer NJ Transit serves statewide, saved raw and private.
  *  Cadence follows the approved statewide plan: train positions every poll, every station's departure
@@ -23,7 +23,7 @@ export const newRailDataState = (): RailDataState => ({ budget: { hours: {} }, c
 export interface RailDataPlan { vehicles: boolean; boards: string[]; messages: boolean; list: boolean; schedule: boolean }
 export interface RailDataFailure { feed: RawFeed; code: string; at: number }
 export interface RailDataSource {
-  archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }>;
+  archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number, timeoutMs?: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }>;
 }
 interface BundleEntry { method: RailArchiveMethod; station?: string; receivedAt: number; status: 'ok' | string; text?: string; base64?: string }
 
@@ -73,9 +73,14 @@ export class RailDataArchive {
 
   async collect(plan: RailDataPlan): Promise<{ responses: RawResponse[]; failures: RailDataFailure[]; secrets: string[] }> {
     const responses: RawResponse[] = [], failures: RailDataFailure[] = [], secrets = new Set<string>(), entries: BundleEntry[] = [];
+    const started = this.clock();
     const call = async (method: RailArchiveMethod, fields: Record<string, string>, max: number, station?: string) => {
       try {
-        const { bytes, token } = await this.source.archiveRequest(method, fields, max);
+        // The live bus poll waits for this turn, so a slow NJ Transit answer cannot hold it (Neon, #303):
+        // nothing starts after ARCHIVE_START_MS, and nothing runs past ARCHIVE_TURN_MS.
+        const elapsed = this.clock() - started;
+        if (elapsed >= ARCHIVE_START_MS) throw new RailError('timed-out');
+        const { bytes, token } = await this.source.archiveRequest(method, fields, max, ARCHIVE_TURN_MS - elapsed);
         secrets.add(token);
         return bytes;
       } catch (error) {

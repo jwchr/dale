@@ -2,7 +2,7 @@ import { HISTORY_INTERVAL_MS } from './history-journal';
 import { NjtError, type Credentials } from './njt-client';
 import { reserveRequests, type RequestBudget } from './request-budget';
 import type { RawResponse } from './raw-archive';
-import { ARCHIVE_CONNECTIONS, inPool } from './pool';
+import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool, looksLikeMarkup } from './pool';
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 export const BUSDV_REQUEST_LIMIT = 30_000;
@@ -71,7 +71,7 @@ function preserve(bytes: Uint8Array): Pick<Entry, 'text' | 'base64'> {
   }
 }
 
-function containsSecret(bytes: Uint8Array, secrets: string[]): boolean {
+export function containsSecret(bytes: Uint8Array, secrets: string[]): boolean {
   return secrets.filter(Boolean).some(secret => [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]
     .some(value => {
       const needle = encode(value);
@@ -92,8 +92,11 @@ function errorBody(bytes: Uint8Array): BusDvFailureCode | undefined {
   const message = typeof value === 'string' ? value : row
     ? [row.errorMessage, row.ErrorMessage, row.error, row.Error, row.message, row.Message].filter(v => typeof v === 'string').join(' ') : '';
   if (/rate.?limit|usage.?limit|daily.?limit|too many requests|quota|40000/i.test(message)) return 'rate-limited';
-  if (/invalid\s+token|token.*expir|expir.*token|access.?denied|unauthori[sz]ed|invalid.*credential/i.test(message)) return 'access-denied';
-  if (row && ['errorMessage', 'ErrorMessage', 'error', 'Error'].some(key => key in row)) return 'access-denied';
+  if (/invalid\s+token|token.*expir|expir.*token|access.?denied|unauthori[sz]ed|invalid.*credential|authenticat\w*\s+fail/i.test(message)) return 'access-denied';
+  // Any other filled-in error field is an unreadable answer. Only an auth message drops the token: a false
+  // drop spends one of three daily mints, and the third locks BUSDV2 saving out for a day (Neon, #304).
+  // An empty or null error field is not an error.
+  if (row && ['errorMessage', 'ErrorMessage', 'error', 'Error'].some(key => row[key] !== undefined && row[key] !== null && row[key] !== '' && row[key] !== false)) return 'invalid-response';
 }
 
 /** Only the official BUSDV2 host and statically enumerated methods can be reached. */
@@ -137,6 +140,7 @@ async function request(method: Method, fields: Record<string, string>, maxBytes:
     for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
     const code = errorBody(bytes);
     if (code) throw new NjtError(code);
+    if (looksLikeMarkup(bytes)) throw new NjtError('invalid-response');
     return bytes;
   };
   try {
@@ -224,6 +228,7 @@ export class BusDvArchive {
     if (plan.refusal) { fail(undefined, plan.refusal, false); return finish(); }
     if (this.clock() < (s.pauseUntil ?? 0)) { fail(undefined, 'rate-limited', false); return finish(); }
     this.collecting = true;
+    const started = this.clock();
     try {
       let authFailure: BusDvFailureCode | undefined;
       if (plan.mint) {
@@ -247,13 +252,20 @@ export class BusDvArchive {
       // Two at a time: RailData takes two more, leaving rail GTFS-RT and R2 the rest of the Worker's 6.
       await inPool(plan.requests, ARCHIVE_CONNECTIONS, async r => {
         if (authFailure || !token) { fail(r, authFailure ?? 'access-denied'); return; }
+        // A rate limit from a sibling stops the rest of this poll too (Neon, #304).
+        if (this.clock() < (s.pauseUntil ?? 0)) { fail(r, 'rate-limited', false); return; }
+        // The live bus poll waits for this turn, so a slow NJ Transit answer cannot hold it (Neon, #304):
+        // nothing starts after ARCHIVE_START_MS, and nothing runs past ARCHIVE_TURN_MS.
+        const elapsed = this.clock() - started;
+        if (elapsed >= ARCHIVE_START_MS) { fail(r, 'timed-out', false); return; }
         const fields: Record<string, string> = { token };
         if (r.mode) fields.mode = r.mode;
         if (r.method === 'getVehicleLocations') Object.assign(fields, { lat: '40.2', lon: '-74.6', radius: STATEWIDE_RADIUS });
         // Blank means all; not checked against a live answer.
         if (r.method === 'getBusDV') Object.assign(fields, { stop: r.stop!, direction: '', route: '', IP: '', minutesRequested: '', maxVariants: '', sortMode: '' });
         try {
-          const bytes = await request(r.method, fields, r.method === 'getBusDV' ? BOARD_MAX_BYTES : OTHER_MAX_BYTES, this.fetchImpl, this.timeoutMs);
+          const bytes = await request(r.method, fields, r.method === 'getBusDV' ? BOARD_MAX_BYTES : OTHER_MAX_BYTES,
+            this.fetchImpl, Math.min(this.timeoutMs, ARCHIVE_TURN_MS - elapsed));
           if (containsSecret(bytes, [...secrets])) throw new NjtError('invalid-response');
           const receivedAt = this.clock();
           if (r.method === 'getLocations' || r.method === 'getBusRoutes') {
