@@ -312,9 +312,16 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         for (const b of [bus, gate]) for (const [hour, used] of Object.entries(b.hours)) combined.hours[hour] = (combined.hours[hour] ?? 0) + used;
         if (!reserveRequests(combined, count, now) || !reserveRequests(api === 'bus' ? bus : gate, count, now, api === 'gate' ? 6500 : 40_000)) return false;
         if (api === 'gate' && !this.gateWrites(3, now)) throw new NjtError('sql-write-budget');
-        // Memory changes only after the write, so a failed write never spends requests later (Neon review #296).
-        await this.ctx.storage.put('state-v1', { ...this.saved, busBudget: bus, gateBudget: gate });
+        // Memory changes before the write, so any other state-v1 save that starts meanwhile carries these requests too; a failed
+        // write puts the old budgets back, so it never spends requests later (Neon reviews #296, Nov26 b P3 and Nov26 c P2).
+        const before = { bus: this.saved.busBudget, gate: this.saved.gateBudget };
         this.saved.busBudget = bus; this.saved.gateBudget = gate;
+        try { await this.ctx.storage.put('state-v1', this.saved); }
+        catch (error) {
+          if (this.saved.busBudget === bus) this.saved.busBudget = before.bus;
+          if (this.saved.gateBudget === gate) this.saved.gateBudget = before.gate;
+          throw error;
+        }
         return true;
       });
       this.budgetPending = work.catch(() => {}); return work;

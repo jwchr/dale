@@ -171,6 +171,18 @@ describe('gates in the existing corridor alarm', () => {
     fail = false; h.setTime(NOW + 60_000); await h.object.alarm();
     expect(h.calls).toHaveLength(2); expect(gateTotal(h)).toBe(40);
   });
+  it('a state save that starts while a budget save is pending keeps the reserved requests (Neon review #296, Nov26 c)', async () => {
+    const h = harness(); await h.read(); const put = h.ctx.storage.put; let raced = false;
+    const hours = (v: unknown) => Object.values((v as { gateBudget?: { hours: Record<string, number> } }).gateBudget?.hours ?? {}).reduce((a, b) => a + b, 0);
+    h.ctx.storage.put = async (k, v) => {
+      if (k !== 'state-v1' || raced || hours(v) === 0) return put(k, v);
+      // Another writer saves the object's state while this budget write is still in flight, and its write lands second.
+      raced = true; const other = structuredClone((h.object as unknown as { saved: unknown }).saved);
+      await put(k, v); return put(k, other);
+    };
+    await h.object.alarm(); expect(raced).toBe(true); expect(h.calls.length).toBeGreaterThan(0);
+    h.cold(); await h.read(); expect(gateTotal(h)).toBe(40);
+  });
   it('drops lease credit after an hour and reserves again, so every request stays in the ceiling (CodeRabbit #296)', async () => {
     const h = harness({ ds: fourRoutes() }); await h.object.alarm(); expect(gateTotal(h)).toBe(40);
     h.setTime(NOW + 3600_000); await h.object.alarm(); expect(gateTotal(h)).toBe(80);
