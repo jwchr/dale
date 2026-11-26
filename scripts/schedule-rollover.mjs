@@ -28,13 +28,14 @@ export function contextPartCount(body) {
 
 /**
  * Last regular end date of any corridor trip's calendar. One-off added dates (a holiday run) are left out:
- * they say nothing about whether the regular week is covered.
+ * they say nothing about whether the regular week is covered. So is a calendar that runs on no weekday
+ * (a holiday-only service): its end date can sit far out without any regular trips (Neon Nov25 j).
  */
 export function lastServiceDate(ds) {
   let last = '';
   for (const t of ds.trips) {
-    const end = ds.calendars[t.serviceId]?.end;
-    if (end && end > last) last = end;
+    const cal = ds.calendars[t.serviceId];
+    if (cal?.end && cal.days?.some(Boolean) && cal.end > last) last = cal.end;
   }
   return last;
 }
