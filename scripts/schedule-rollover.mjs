@@ -8,7 +8,8 @@ import { isServiceActive } from './schedule-compare.mjs';
 export const CONTEXT_MAX_BYTES = 16_000_000, CONTEXT_PART_CHARS = 32_000;
 /** Normal collection and archiving for about ten minutes while the deferred update lands. */
 export const ROLLOVER_WRITE_HEADROOM = 600;
-export const ROLLOVER_COVERAGE_DAYS = 7;
+/** D82: NJ Transit's weekly file can end about six days out; five days ahead still leaves a daily retry window. */
+export const ROLLOVER_COVERAGE_DAYS = 5;
 /** Physical SQLite growth exceeds the context's text bytes (rows, pages, manifest, indexes):
  * count the context twice and keep a fixed margin for collection while the update lands. */
 export const ROLLOVER_DATABASE_FACTOR = 2, ROLLOVER_DATABASE_MARGIN_BYTES = 16_000_000;
@@ -25,16 +26,42 @@ export function contextPartCount(body) {
   return parts;
 }
 
-/** Corridor trips active on each service date from today through today + days; throws on any empty date. */
+/**
+ * Last regular end date of any corridor trip's calendar. One-off added dates (a holiday run) are left out:
+ * they say nothing about whether the regular week is covered. So is a calendar that runs on no weekday
+ * (a holiday-only service): its end date can sit far out without any regular trips (Neon Nov25 j).
+ */
+export function lastServiceDate(ds) {
+  let last = '';
+  for (const t of ds.trips) {
+    const cal = ds.calendars[t.serviceId];
+    if (cal?.end && cal.days?.some(Boolean) && (!cal.start || cal.start <= cal.end) && cal.end > last) last = cal.end; // inverted range runs no day (Neon Nov25 k)
+  }
+  return last;
+}
+
+/**
+ * Corridor trips active on each service date from today through today + days; throws on any empty date.
+ * A file that reaches a full week out is checked on all seven weekdays (Neon Nov24 h): five days ahead
+ * alone skips Sunday when run on Monday, and Saturday when run on Sunday.
+ */
 export function requireCoverage(ds, today, days = ROLLOVER_COVERAGE_DAYS) {
   if (!/^\d{8}$/.test(today ?? '')) throw new Error('rollover-coverage-date');
+  const span = Math.max(days, lastServiceDate(ds) >= addDays(today, 6) ? 6 : days);
   const perDate = [];
-  for (let i = 0; i <= days; i++) {
+  for (let i = 0; i <= span; i++) {
     const date = addDays(today, i);
     perDate.push(ds.trips.filter(t => isServiceActive(ds.calendars[t.serviceId], date)).length);
   }
   if (perDate.some(n => n <= 0)) throw new Error('rollover-coverage-gap');
-  return { from: today, to: addDays(today, days), minTripsPerDate: Math.min(...perDate) };
+  return { from: today, to: addDays(today, span), minTripsPerDate: Math.min(...perDate) };
+}
+
+/** Refuses a new file that ends before the live one (Neon Nov24 h): the live file stays, and the next daily run retries. */
+export function requireNoShorter(current, next) {
+  const currentEnd = lastServiceDate(current), nextEnd = lastServiceDate(next);
+  if (nextEnd < currentEnd) throw new Error('rollover-would-shorten');
+  return { currentEnd, nextEnd };
 }
 
 /**

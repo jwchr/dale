@@ -14,8 +14,9 @@ import { addStopCities } from './stop-cities.mjs';
 import { addOfficialFares, addZoneChecks } from './official-fares.mjs';
 import { localYmd } from '../src/domain/time.ts';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
-import { requireCoverage, rolloverCapacity } from './schedule-rollover.mjs';
+import { requireCoverage, requireNoShorter, rolloverCapacity } from './schedule-rollover.mjs';
 import { buildRescueSchedule } from './rescue-schedule.mjs';
+import { regionRouteIds } from './region-routes.mjs';
 // Owner confirmed 2026-11-12 (D68): in rollover-enabled mode only, a route-geometry failure
 // ships the new schedule with route distance off (never straight-line distance) instead of
 // stopping the weekly rollover; the aggregate diagnostic is printed so the cause can be fixed.
@@ -89,6 +90,9 @@ try {
     const today = localYmd(Date.now(), ds.meta.timezone);
     const coverage = requireCoverage(ds, today);
     console.log(`Rollover coverage: every service date from ${coverage.from} to ${coverage.to} has corridor trips (fewest on one date: ${coverage.minTripsPerDate}).`);
+    phase = 'rollover-end-date';
+    const ends = requireNoShorter(retained.ds, ds);
+    console.log(`Rollover end dates: live file through ${ends.currentEnd}, new file through ${ends.nextEnd}.`);
     phase = 'rollover-comparison';
     const summary = compareSchedules(retained.ds, ds, { today, days: windowDays(retained.ds, ds, today) });
     console.log(`Schedule rollover comparison (aggregate counts and dates only): ${JSON.stringify(summary)}`);
@@ -124,10 +128,20 @@ try {
   } catch {
     console.log('Wider rescue schedule could not be built; Rescue will say other routes are unavailable. The corridor schedule is unaffected.');
   }
+  phase = 'region-routes';
+  let region = null;
+  try {
+    const built = regionRouteIds(files, JSON.parse(readFileSync(new URL('../data/regions/nj-four-counties.geojson', import.meta.url), 'utf8')));
+    if (built.routeIds.length) region = { v: 1, feedVersion: ds.meta.feedVersion, counties: ['Bergen', 'Essex', 'Hudson', 'Passaic'], routeIds: built.routeIds };
+    console.log(`Raw bus region: ${region ? 'ready' : 'unavailable'}; ${JSON.stringify(built.report)}.`);
+  } catch {
+    console.log('Raw bus region: unavailable; bus raw saving stays off; rail and corridor history are unaffected.');
+  }
   phase = 'generated-files';
   mkdirSync(new URL('../worker/generated/', import.meta.url), { recursive: true });
   writeFileSync(new URL('../worker/generated/corridor.json', import.meta.url), preserve ? retained.text : JSON.stringify(ds));
   writeFileSync(new URL('../worker/generated/rescue-schedule.json', import.meta.url), JSON.stringify(rescue));
+  writeFileSync(new URL('../worker/generated/region-routes.json', import.meta.url), JSON.stringify(region));
   writeFileSync(new URL('../worker/generated/route-geometry.json', import.meta.url), JSON.stringify(geometry));
   if (rollover) writeFileSync(new URL('../worker/generated/rollover.json', import.meta.url), rolloverReceipt, { mode: 0o600 });
   if (preserve) {
