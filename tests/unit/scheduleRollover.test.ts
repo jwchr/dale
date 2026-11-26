@@ -90,6 +90,18 @@ describe('rollover capacity mirrors the Worker context admission', () => {
     expect(requireNoShorter(live, longer)).toEqual({ currentEnd: '20261210', nextEnd: '20261217' });
     expect(requireNoShorter(live, structuredClone(live))).toEqual({ currentEnd: '20261210', nextEnd: '20261210' });
   });
+  it('ignores the end date of a calendar that runs on no weekday (Neon Nov25 j)', () => {
+    const live = structuredClone(liveDataset); for (const cal of Object.values(live.calendars)) cal.end = '20261210';
+    live.calendars.HOLIDAY = { days: [false, false, false, false, false, false, false], start: '20261126', end: '20271231', added: ['20261126'], removed: [] };
+    live.trips.push({ ...live.trips[0]!, id: 'holiday-trip', serviceId: 'HOLIDAY' });
+    expect(lastServiceDate(live)).toBe('20261210');
+  });
+  it('ignores the end date of a calendar whose range is inverted (Neon Nov25 k)', () => {
+    const live = structuredClone(liveDataset); for (const cal of Object.values(live.calendars)) cal.end = '20261210';
+    live.calendars.INVERTED = { days: [true, true, true, true, true, false, false], start: '20270101', end: '20261231', added: [], removed: [] };
+    live.trips.push({ ...live.trips[0]!, id: 'inverted-trip', serviceId: 'INVERTED' });
+    expect(lastServiceDate(live)).toBe('20261210');
+  });
 });
 
 describe('rollover transition proof', () => {
