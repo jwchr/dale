@@ -12,6 +12,7 @@ import { summarizeDepartures } from './departures';
 import { HistoryJournal, historyContextKey, HISTORY_INTERVAL_MS, type HistoryStorage } from './history-journal';
 import { HistoryArchive, type HistoryBucket } from './history-archive';
 import { RawArchive, newRawArchiveState, rawBudgetPausesRail, startRailBudgetRetry, type RawArchiveState, type RawResponse } from './raw-archive';
+import { filterRegionRaw, readRegionRoutes } from './region-raw';
 import { RideAlerts, RIDE_PATH, MAX_BODY_BYTES, type RideEnv } from './ride-alerts';
 import { RailBoards, RAIL_STATIONS } from './rail';
 import { ArrivalConfidence } from './arrival-confidence';
@@ -34,8 +35,9 @@ const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
 const aged = (feed: NormalizedFeed, now: number) => ({ ...feed.feed, ...(feed.feed.timestamp && now - feed.feed.timestamp > 120_000 ? { state: 'stale' as const } : {}) });
 
 /** One private object serializes demand/alarm polling and token reuse. Collection is explicitly enabled by reviewed deployment. */
-export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, clock = Date.now) {
+export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, clock = Date.now, region: unknown = null) {
   const normalize = createNormalizer(ds);
+  const regionRoutes = readRegionRoutes(region, ds.meta.feedVersion);
   return class Feed {
     private saved: Saved = { transportVersion: 2, feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
     private pending?: Promise<void>;
@@ -46,6 +48,13 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private archive?: HistoryArchive;
     private rawArchive?: RawArchive;
     private rawSaving = false;
+    private rawStatus() {
+      if (!this.rawArchive) return undefined;
+      // A storage, budget or secret stop keeps its own reason; busRegion always shows the region state (Neon Nov25 k).
+      const status = this.rawArchive.status();
+      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'unavailable' as const,
+        ...(this.rawSaving && !regionRoutes && (status.reason === 'ready' || status.reason === 'waiting') ? { reason: 'region-unavailable' } : {}) };
+    }
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
     private rides?: RideAlerts;
@@ -308,8 +317,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try {
-            const bytes = await njtRequest(endpoint, { token }, saving ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
-            if (saving) raw.push({ feed: endpoint, bytes, receivedAt });
+            const bytes = await njtRequest(endpoint, { token }, saving && regionRoutes ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            if (saving && regionRoutes) {
+              // Filtering/decoding failure must never replace live data or interrupt corridor history.
+              try { raw.push(await filterRegionRaw({ feed: endpoint, bytes, receivedAt }, regionRoutes)); }
+              catch { saving.recordFailure(endpoint, 'invalid-response', receivedAt); }
+            }
             const feed = normalize(bytes, kind, receivedAt); if (feed.feed.state !== 'invalid') successes++; return feed;
           }
           catch (error) {
@@ -368,7 +381,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
@@ -408,7 +421,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };
