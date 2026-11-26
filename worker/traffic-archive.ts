@@ -23,11 +23,11 @@ const DROPPED_ALERT_FIELDS = ['SentBy'];
 export interface TrafficState { slot?: number }
 interface Entry { source: Source; url: string; receivedAt: number; status: 'ok' | string; text?: string; dropped?: string[] }
 
-async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<Uint8Array<ArrayBuffer>> {
+export async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs: number, headers?: Record<string, string>): Promise<Uint8Array<ArrayBuffer>> {
   const ctl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const operation = async () => {
-    const response = await fetchImpl(url, { redirect: 'manual', cache: 'no-store', signal: ctl.signal });
+    const response = await fetchImpl(url, { redirect: 'manual', cache: 'no-store', signal: ctl.signal, ...(headers && { headers }) });
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
       throw new NjtError(response.status >= 300 && response.status < 400 ? 'redirect-refused'
