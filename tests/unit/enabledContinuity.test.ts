@@ -4,7 +4,7 @@ import { liveDataset, NOW } from '../helpers/liveBus';
 import { historyContextKey } from '../../worker/history-journal';
 import { A_LIMIT, B_LIMIT, CORRIDOR_RESERVE } from '../../worker/history-archive';
 // @ts-expect-error native deployment helper
-import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, APPROVED_ARCHIVE_CLASS_A_LIMIT, APPROVED_ARCHIVE_CLASS_B_LIMIT, APPROVED_RAW_LIMITS, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
+import { canonicalIdentity, CORRIDOR_RESERVE as SCRIPT_RESERVE, APPROVED_ARCHIVE_CLASS_A_LIMIT, APPROVED_ARCHIVE_CLASS_B_LIMIT, APPROVED_RAW_LIMITS, enabledCheckpoint, preservesEnabled, preservationPins, readPreservedCanonical, readEnabledCheckpoint, ALARM_REREAD_ATTEMPTS, ALARM_REREAD_MS, waitForTransitionProgress, CODE_DEFERRAL_MS, TRANSITION_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const ds = structuredClone(liveDataset); ds.meta.feedVersion = 'abcdef123456'; ds.meta.source = 'NJ Transit GTFS BUS G2';
 const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
 const env = { HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev' };
@@ -134,6 +134,24 @@ describe('enabled collector preservation without migration or mutation', () => {
       throw new Error('Unexpected network'); };
     const receipt = await readPreservedCanonical(env, { net, clock: () => NOW });
     expect(receipt.context).toBe(context); expect(receipt.text).toBe(text); expect(calls).toHaveLength(2);
+  });
+  it('re-reads while a poll is running (alarm cleared), but never waits out any other unhealthy field', async () => {
+    const replies = (list: object[]) => { let n = 0; const net = (async () => Response.json({ collection: list[Math.min(n++, list.length - 1)] })) as unknown as typeof fetch;
+      return { net, calls: () => n }; };
+    const sleeps: number[] = [], sleep = async (ms: number) => { sleeps.push(ms); };
+    const running = { ...collection(), alarmAt: null }, past = { ...collection(), alarmAt: NOW - 1 };
+    const recovers = replies([running, past, collection()]);
+    await expect(readEnabledCheckpoint(env, ds.meta.feedVersion, { net: recovers.net, clock: () => NOW, sleep })).resolves.toMatchObject({ alarmAt: NOW + 30000 });
+    expect(recovers.calls()).toBe(3); expect(sleeps).toEqual([ALARM_REREAD_MS, ALARM_REREAD_MS]);
+    const stuck = replies([running]);
+    await expect(readEnabledCheckpoint(env, ds.meta.feedVersion, { net: stuck.net, clock: () => NOW, sleep })).rejects.toThrow();
+    expect(stuck.calls()).toBe(ALARM_REREAD_ATTEMPTS);
+    const stale = replies([{ ...collection(), stale: true }, collection()]);
+    await expect(readEnabledCheckpoint(env, ds.meta.feedVersion, { net: stale.net, clock: () => NOW, sleep })).rejects.toThrow();
+    expect(stale.calls()).toBe(1);
+    const off = replies([{ ...collection(), enabled: false, alarmAt: null }, collection()]);
+    await expect(readEnabledCheckpoint(env, ds.meta.feedVersion, { net: off.net, clock: () => NOW, sleep })).rejects.toThrow();
+    expect(off.calls()).toBe(1);
   });
 });
 

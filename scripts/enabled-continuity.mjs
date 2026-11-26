@@ -121,8 +121,19 @@ export async function readCollection(env, { net = fetch, timeoutMs = 15_000 } = 
   const url = liveApiUrl(env.DALE_WORKER_URL); if (!url) fail();
   return JSON.parse(await readBounded(url + '/v1/collection', 128_000, net, timeoutMs)).collection;
 }
-export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000 } = {}) {
-  const collection = await readCollection(env, { net, timeoutMs });
+// Cloudflare clears a Durable Object's alarm while its handler runs, so about 1 read in 10 during a
+// 30-second poll shows no next alarm (measured on the live Worker, Nov 26, 2026: 4 of 40). That is
+// a poll in progress, not a stopped collector: re-read a few times before calling it unhealthy.
+// Every other field is still checked on the read that is returned.
+export const ALARM_REREAD_ATTEMPTS = 5, ALARM_REREAD_MS = 2_000;
+const alarmInFlight = (c, now) => !!c && c.enabled === true && (c.alarmAt === null || (typeof c.alarmAt === 'number' && c.alarmAt <= now));
+export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000,
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  let collection = await readCollection(env, { net, timeoutMs });
+  for (let tries = 1; tries < ALARM_REREAD_ATTEMPTS && alarmInFlight(collection, clock()); tries++) {
+    await sleep(ALARM_REREAD_MS);
+    collection = await readCollection(env, { net, timeoutMs });
+  }
   return enabledCheckpoint(collection, feedVersion, clock());
 }
 export async function readCanonicalBytes(env, { net = fetch, expectedContext } = {}) {
