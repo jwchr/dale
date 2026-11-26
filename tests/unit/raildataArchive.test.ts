@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RailBoards, RAIL_STATIONS, type RailStorage } from '../../worker/rail';
 import { RailDataArchive, RAILDATA_REQUEST_LIMIT, newRailDataState, stationCodes } from '../../worker/raildata-archive';
 import { NJT_REQUEST_LIMIT } from '../../worker/request-budget';
@@ -10,16 +10,20 @@ const SECRET = 'synthetic-rail-token';
 function harness() {
   let now = NOW, state = newRailDataState(), saved = structuredClone(state);
   const store = new Map<string, unknown>(), calls: { method: string; fields: Record<string, string> }[] = [];
-  const answers: Record<string, () => Response> = {};
+  const answers: Record<string, () => Response | Promise<Response>> = {};
   const storage: RailStorage = { get: async <T,>(key: string) => structuredClone(store.get(key)) as T | undefined, put: async (key, value) => { store.set(key, structuredClone(value)); } };
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const method = String(url).replace('https://raildata.njtransit.com/api/TrainData/', '');
     expect(init?.redirect).toBe('manual');
     const fields = Object.fromEntries((init!.body as FormData).entries()) as Record<string, string>;
     calls.push({ method, fields });
-    if (method === 'getToken') return Response.json({ Authenticated: 'True', UserToken: SECRET });
+    if (method === 'getToken') return answers.getToken ? answers.getToken() : Response.json({ Authenticated: 'True', UserToken: SECRET });
     expect(fields.token).toBe(SECRET);
-    if (answers[method]) return answers[method]!();
+    if (answers[method]) {
+      const signal = init?.signal;
+      // Like real fetch, a call ends when its signal aborts.
+      return Promise.race([answers[method]!(), new Promise<Response>((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))]);
+    }
     if (method === 'getStationList') return Response.json(STATIONS.map(code => ({ STATION_2CHAR: code, STATIONNAME: 'Station ' + code })));
     if (method === 'getTrainSchedule') return Response.json({ STATION_2CHAR: fields.station, ITEMS: [] });
     return Response.json({ method });
@@ -68,7 +72,7 @@ describe('RailData raw archive (D84)', () => {
   });
 
   it('keeps every body exactly, never puts the token in a bundle, and returns it as a secret to refuse', async () => {
-    const h = harness(), odd = new Uint8Array([0xff, 0x00, 0x7b]);
+    const h = harness(), odd = new Uint8Array([0x7b, 0xff, 0x00]);
     h.answers.getVehicleData = () => new Response('{"A":"café \\u00e9"}');
     h.answers.getStationMSG = () => new Response(odd);
     const result = await h.run();
@@ -153,13 +157,31 @@ describe('RailData raw archive (D84)', () => {
       expect(mints).toBe(code === 'access-denied' ? 2 : 1);
     });
 
-  it.each([['an HTML page', () => new Response('<html>Maintenance</html>')], ['an empty answer', () => new Response('')]])('never saves %s as RailData', async (_, page) => {
+  it.each([['an HTML page', () => new Response('<html>Maintenance</html>')], ['an empty answer', () => new Response('')], ['a plain-text error', () => new Response('Service Unavailable')], ['an answer holding the token', () => Response.json({ echo: 'synthetic-rail-token' })]])('never saves %s as RailData', async (_, page) => {
     const h = harness();
     h.answers.getStationList = page;
     const result = await h.run();
     if (typeof result !== 'object') throw new Error('refused');
     expect(result.failures).toContainEqual(expect.objectContaining({ feed: 'raildata-getStationList', code: 'invalid-response' }));
     expect(result.responses.some(r => r.feed === 'raildata-getStationList')).toBe(false);
+  });
+
+  it('counts a slow token request against the 20-second turn, so the live bus poll is never held (Neon Nov26 g)', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      h.answers.getToken = () => new Promise<Response>(resolve => setTimeout(() => { h.time(NOW + 11_000); resolve(Response.json({ Authenticated: 'True', UserToken: SECRET })); }, 11_000));
+      h.answers.getVehicleData = () => new Promise<Response>(() => {});
+      const pending = h.run();
+      let done = false; void pending.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(19_999); expect(done).toBe(false);
+      h.time(NOW + 20_000);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      const result = await pending;
+      if (typeof result !== 'object') throw new Error('refused');
+      expect(result.failures.some(f => f.code === 'timed-out')).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it('starts nothing 12 seconds into its turn, so a slow NJ Transit cannot hold the live bus poll', async () => {

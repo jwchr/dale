@@ -401,6 +401,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // After the rail feeds, so with RailData and BUSDV2 at most five connections are open at once.
       // Weather waits for the crossings, so the two together still hold one connection, and both count
       // their time budget from this one start, so the pair ends as RailData and BUSDV2 do (Neon on #307).
+      // The crossings stop starting calls 8 seconds in, so weather always gets its turn (Neon Nov26 g, #314).
       const laneStart = clock();
       const trafficWork = traffic && trafficSlot !== undefined ? traffic.collect(trafficSlot, laneStart).catch(() => undefined) : undefined;
       const weatherWork = weather && weatherPlan ? (trafficWork ?? Promise.resolve()).then(() => weather.collect(weatherPlan, laneStart)).catch(() => undefined) : undefined;
