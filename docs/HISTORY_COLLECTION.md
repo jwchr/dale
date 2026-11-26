@@ -188,7 +188,7 @@ NJ Transit's G2 file is a rolling window of about two weeks, replaced at least w
 Preparation (`scripts/prepare-live-worker.mjs`, gates in `scripts/schedule-rollover.mjs`), all before anything changes:
 - The same enabled-preservation preflight as `preserve-enabled` (pins, bracketed Worker identity, enabled resources, served schedule equal to the pinned context, healthy collector checkpoint), before any NJ Transit request.
 - One download. An unchanged file stops at `rollover-same-schedule-file` (use `preserve-enabled`). A changed file is built fresh exactly like `enabled` (same converter options, realtime provider, stop cities, corridor validation) and must be canonical.
-- `rollover-coverage`: corridor trips on every service date from today through today + 7.
+- `rollover-coverage`: corridor trips on every service date from today through today + 5 (D82; NJ Transit's Nov 23 file ended Nov 30, six days out).
 - The same aggregate comparison as `schedule-check` (a JSON line and a `Plain summary:` line; no IDs, times or names).
 - `rollover-capacity`: the new context must fit the Worker's own admission rules (`ensureContext`): at most 16 MB, journal bytes + context within 250 MB, database bytes + context under 500 MB, and today's write reservations + context units (2 per 32,000-character part + 4) + 600 units of headroom (about ten minutes of collection while the deferred update lands) within 75,000. Only aggregate numbers are printed.
 - A private receipt `worker/generated/rollover.json` (mode 0600, at most 32,000 bytes): old context, new feed version and context, identity and checkpoint. No `preservation.json` and no rollback reference are written.

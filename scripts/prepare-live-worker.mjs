@@ -14,7 +14,7 @@ import { addStopCities } from './stop-cities.mjs';
 import { addOfficialFares, addZoneChecks } from './official-fares.mjs';
 import { localYmd } from '../src/domain/time.ts';
 import { compareSchedules, plainVerdict, windowDays } from './schedule-compare.mjs';
-import { requireCoverage, rolloverCapacity } from './schedule-rollover.mjs';
+import { requireCoverage, requireNoShorter, rolloverCapacity } from './schedule-rollover.mjs';
 import { buildRescueSchedule } from './rescue-schedule.mjs';
 // Owner confirmed 2026-11-12 (D68): in rollover-enabled mode only, a route-geometry failure
 // ships the new schedule with route distance off (never straight-line distance) instead of
@@ -89,6 +89,9 @@ try {
     const today = localYmd(Date.now(), ds.meta.timezone);
     const coverage = requireCoverage(ds, today);
     console.log(`Rollover coverage: every service date from ${coverage.from} to ${coverage.to} has corridor trips (fewest on one date: ${coverage.minTripsPerDate}).`);
+    phase = 'rollover-end-date';
+    const ends = requireNoShorter(retained.ds, ds);
+    console.log(`Rollover end dates: live file through ${ends.currentEnd}, new file through ${ends.nextEnd}.`);
     phase = 'rollover-comparison';
     const summary = compareSchedules(retained.ds, ds, { today, days: windowDays(retained.ds, ds, today) });
     console.log(`Schedule rollover comparison (aggregate counts and dates only): ${JSON.stringify(summary)}`);
