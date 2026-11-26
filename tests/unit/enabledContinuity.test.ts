@@ -49,11 +49,11 @@ describe('enabled collector preservation without migration or mutation', () => {
     // Retained batches fall when verified rows are pruned: not a reset. Observations are cumulative.
     expect(preservesEnabled(before, { ...after, batches: 0 }, NOW)).toBe(true);
     expect(() => preservesEnabled(before, { ...after, observations: before.observations - 1 })).toThrow();
-    expect(() => preservesEnabled(before, { ...after, dailyWriteReservationLimit: 999999 })).toThrow();
-    // D84: the daily write counter may rise from 75,000 to the approved 90,000 once, never elsewhere and never down.
-    expect(preservesEnabled({ ...before, dailyWriteReservationLimit: 75_000 }, { ...after, dailyWriteReservationLimit: 90_000 }, NOW)).toBe(true);
-    expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 75_000 }, { ...after, dailyWriteReservationLimit: 89_999 })).toThrow();
-    expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 90_000 }, { ...after, dailyWriteReservationLimit: 75_000 })).toThrow();
+    expect(() => preservesEnabled(before, { ...after, dailyWriteReservationLimit: 1_000_001 })).toThrow();
+    // D85: the daily write counter may rise from 90,000 to the approved 1,000,000 once, never elsewhere and never down.
+    expect(preservesEnabled({ ...before, dailyWriteReservationLimit: 90_000 }, { ...after, dailyWriteReservationLimit: 1_000_000 }, NOW)).toBe(true);
+    expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 90_000 }, { ...after, dailyWriteReservationLimit: 999_999 })).toThrow();
+    expect(() => preservesEnabled({ ...before, dailyWriteReservationLimit: 1_000_000 }, { ...after, dailyWriteReservationLimit: 90_000 })).toThrow();
     expect(() => preservesEnabled(before, { ...after, archive: { ...after.archive, reservedBytes: 0 } })).toThrow();
     // D86: the archive ceiling may rise to the approved 500 GB guard, never above it and never down.
     expect(preservesEnabled(before, { ...after, archive: { ...after.archive, byteLimit: 500_000_000_000 } }, NOW)).toBe(true);

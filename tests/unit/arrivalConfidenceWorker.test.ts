@@ -10,7 +10,7 @@ import type { ConfidenceKey } from '../../src/domain/arrivalConfidence';
 import { liveDataset as ds, NOW } from '../helpers/liveBus';
 
 // Synthetic batches only: invented trips, a fake vehicle id and fake coordinates that must never reach any output.
-const DAILY_WRITE_BUDGET = 90_000, databases: DatabaseSync[] = [];
+const DAILY_WRITE_BUDGET = 1_000_000, databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function harness() {
   const db = new DatabaseSync(':memory:'); databases.push(db);

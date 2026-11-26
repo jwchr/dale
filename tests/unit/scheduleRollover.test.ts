@@ -115,7 +115,7 @@ describe('rollover transition proof', () => {
     expect(rolloverProgress(before, undefined, NEW, boundary, at)).toBeUndefined();
     expect(() => rolloverProgress(before, { ...valid, error: true, scheduleContextStored: false }, NEW, boundary, at)).toThrow('rollover-context-admission-failed');
     expect(() => rolloverProgress(before, { ...valid, observations: 99 }, NEW, boundary, at)).toThrow('enabled-continuity-unverified');
-    expect(() => rolloverProgress(before, { ...valid, dailyWriteReservationLimit: 1e6 }, NEW, boundary, at)).toThrow();
+    expect(() => rolloverProgress(before, { ...valid, dailyWriteReservationLimit: 2e6 }, NEW, boundary, at)).toThrow();
     expect(rolloverProgress(before, valid, NEW, boundary, at)).toMatchObject({ feedVersion: NEW, observations: 101 });
     // No progress after the boundary yet: keep waiting.
     expect(rolloverProgress(before, valid, NEW, at, at)).toBeUndefined();

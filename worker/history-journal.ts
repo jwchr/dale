@@ -15,7 +15,7 @@ const MAX_BATCH_BYTES = 128_000, MAX_JOURNAL_BYTES = 250_000_000, MAX_DATABASE_B
 // not see (alarms, small state saves). Statewide raw saving gets its own share of each interval, RAW_LANE, which
 // other optional work must leave free (Jeff, Nov 26, 2026, P0: "Nothing is more important than getting this data
 // saved"; raw saving had been squeezed out of the 75,000 cap from about 8:50 AM ET).
-const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 90_000, RAW_LANE = 6;
+const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6;
 export const HISTORY_HOT_MS = 6 * 3600_000;
 export interface ArchiveReceipt { key: string; manifestKey: string; rawSHA256: string; gzipSHA256: string; rawBytes: number; gzipBytes: number; contextManifestKey?: string }
 export async function historyContextKey(ds: Dataset) {
