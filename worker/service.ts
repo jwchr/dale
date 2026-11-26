@@ -307,8 +307,6 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
       await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
-      // Runs beside the bus feeds; its answers join this poll's raw save and never touch live buses.
-      const railDataWork = railData && typeof railDataPlan === 'object' ? railData.collect(railDataPlan).catch(() => undefined) : undefined;
       const raw: RawResponse[] = [], rawSecrets = [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD];
       try {
         if (authCooldown) throw new NjtError('authentication-cooldown');
@@ -371,6 +369,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
         this.saved.vehicles = unavailable(); this.saved.updates = unavailable();
       }
+      // Starts only after live buses are set: a Worker has 6 connections at a time, so archive calls
+      // started earlier could queue the live bus fetches behind them. Runs beside the rail GTFS-RT fetch.
+      const railDataWork = railData && typeof railDataPlan === 'object' ? railData.collect(railDataPlan).catch(() => undefined) : undefined;
       if (rail && railPlan) {
         try {
           const result = await rail.collect(railPlan);
