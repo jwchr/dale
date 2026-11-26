@@ -87,6 +87,8 @@ describe('BUSDV2 private raw archive', () => {
       }
       expect(select('getBusDV')[0]!.fields).toEqual({ token: TOKEN, stop: 'PABT', direction: '', route: '', IP: '', minutesRequested: '', maxVariants: '', sortMode: '' });
       expect(select('getVehicleLocations')[0]!.fields).toEqual({ token: TOKEN, mode: 'BUS', lat: '40.2', lon: '-74.6', radius: STATEWIDE_RADIUS });
+      // 100 miles in feet: a radius of 200 returned no vehicles live (Nov 26, 2026), so the unit is likely feet.
+      expect(STATEWIDE_RADIUS).toBe('528000');
     }, 60_000);
 
   it('preserves UTF-8 including BOM, whitespace, non-UTF-8 bytes, and exact labeled daily bytes', async () => {
