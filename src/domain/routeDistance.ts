@@ -11,6 +11,8 @@ export interface RouteGeometry {
   trips: Record<string, { shapeId: string; stopIds: string[]; stopMeters: number[] }>;
 }
 export const MAX_GEOMETRY_BYTES = 4_000_000;
+/** Same cap as scripts/route-geometry.mjs. NJ Transit's Nov 25, 2026 file has 2,199 corridor trips; bytes and points stay capped. */
+export const MAX_GEOMETRY_TRIPS = 4000;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const safeId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128
   && !/[\u0000-\u001f\u007f]/.test(v) && !['__proto__', 'constructor', 'prototype'].includes(v);
@@ -40,7 +42,7 @@ export function parseRouteGeometry(raw: unknown, ds: Dataset): RouteGeometry {
     || typeof raw.sourceSHA256 !== 'string' || !/^[a-f0-9]{64}$/.test(raw.sourceSHA256)
     || raw.sourceSHA256.slice(0, 12) !== raw.feedVersion || !object(raw.shapes) || !object(raw.trips)) return fail();
   const shapes = Object.entries(raw.shapes), trips = Object.entries(raw.trips);
-  if (shapes.length > 256 || trips.length > 2000) return fail();
+  if (shapes.length > 256 || trips.length > MAX_GEOMETRY_TRIPS) return fail();
   let totalPoints = 0;
   for (const [key, shape] of shapes) {
     if (!safeId(key) || !object(shape) || !Array.isArray(shape.points) || shape.points.length < 2) return fail();
