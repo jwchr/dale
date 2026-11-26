@@ -469,6 +469,8 @@ describe('raw collection through the bus Worker', () => {
     expect(boards.every((r: { stop: string }) => ['S001', 'S002'].includes(r.stop))).toBe(true);
     expect([...h.objects.keys()].some(k => k.includes('/getVehiclePositions/'))).toBe(true);
     expect((await h.health()).rawArchive.reason).toBe('ready');
+    // The status page carries the coverage field; these synthetic answers are not vehicle lists, so it stays empty.
+    expect((await h.health()).busDvCoverage).toBeNull();
     // BUSDV2's own token is private state and never in a saved object.
     for (const bytes of h.objects.values()) expect(new TextDecoder().decode(bytes.byteLength > 2 && bytes[0] === 0x1f ? gunzipSync(bytes) : bytes)).not.toContain('synthetic-token');
   });

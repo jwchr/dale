@@ -7,7 +7,7 @@ import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFail
 import { reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
 import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
-import { BusDvArchive, newBusDvState, type BusDvState } from './busdv-archive';
+import { BusDvArchive, busDvCoverageStatus, newBusDvState, type BusDvState } from './busdv-archive';
 import { TrafficArchive, type TrafficState } from './traffic-archive';
 import { WeatherArchive, type WeatherState } from './weather-archive';
 import { createNormalizer, type NormalizedFeed } from './normalize';
@@ -445,7 +445,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
@@ -485,7 +485,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };

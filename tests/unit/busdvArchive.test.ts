@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BusDvArchive, BUSDV_FEEDS, BUSDV_REQUEST_LIMIT, STATEWIDE_RADIUS, VEHICLE_MODES,
-  busDvLocationCodes, newBusDvState, type BusDvPlan, type BusDvState } from '../../worker/busdv-archive';
+  busDvCoverage, busDvCoverageStatus, busDvLocationCodes, newBusDvState, type BusDvPlan, type BusDvState } from '../../worker/busdv-archive';
 import { HISTORY_INTERVAL_MS } from '../../worker/history-journal';
 
 // Acceptance evidence: the day simulations check every mode, board gap (including the start/end
@@ -405,5 +405,48 @@ describe('BUSDV2 private raw archive', () => {
       expect(r.failures.length).toBe(entries(r).length);
       expect(r.failures.every(f => f.code === 'timed-out')).toBe(true);
     } finally { vi.useRealTimers(); }
+  });
+
+  describe('vehicle coverage on the status page (statewide radius check)', () => {
+    const rows = (...r: unknown[]) => encode(JSON.stringify(r));
+    it('counts vehicles and rounds the extents outward, from string or number fields', () => {
+      expect(busDvCoverage(rows(
+        { VehicleID: 'SYN1', VehicleLat: '40.7581', VehicleLong: '-73.9912', VehicleDistanceMiles: '30.2' },
+        { VehicleID: 'SYN2', VehicleLat: 39.3611, VehicleLong: -74.4417, VehicleDistanceMiles: 75 },
+        { VehicleID: 'SYN3', VehicleLat: 'x', VehicleLong: '-74.1', VehicleDistanceMiles: '' },
+        'not a row', null,
+      ))).toEqual({ vehicles: 5, maxMiles: 75, lat: [39.3, 40.8], lon: [-74.5, -73.9] });
+    });
+    it('reports an empty list as zero vehicles, and refuses anything that is not a JSON array', () => {
+      expect(busDvCoverage(encode('\ufeff[]'))).toEqual({ vehicles: 0, maxMiles: null, lat: null, lon: null });
+      for (const text of ['{"synthetic":1}', '<html></html>', '', '[1,']) expect(busDvCoverage(encode(text))).toBeUndefined();
+      expect(busDvCoverage(new Uint8Array([0xff, 0x5b, 0x5d]))).toBeUndefined();
+    });
+    it('rejects out-of-range coordinates instead of widening the extents', () => {
+      expect(busDvCoverage(rows({ VehicleLat: 400, VehicleLong: -74, VehicleDistanceMiles: -3 }, { VehicleLat: '40.0', VehicleLong: '-74.0' })))
+        .toEqual({ vehicles: 2, maxMiles: null, lat: [40, 40], lon: [-74, -74] });
+    });
+    it('keeps each mode\'s last good answer, and the public copy has no token, IDs or exact positions', async () => {
+      const h = harness();
+      h.answers.getVehicleLocations = c => c.fields.mode === 'BUS'
+        ? Response.json([{ VehicleID: 'SYN-BUS-7', VehicleLat: '40.8912', VehicleLong: '-74.0431', VehicleDistanceMiles: '52.4' }])
+        : c.fields.mode === 'RL' ? new Response('<html>maintenance</html>') : Response.json([]);
+      result(await h.run());
+      const first = busDvCoverageStatus(h.state)!;
+      expect(first.BUS).toEqual({ at: NOW, vehicles: 1, maxMiles: 53, lat: [40.8, 40.9], lon: [-74.1, -74] });
+      expect(first.NLR).toEqual({ at: NOW, vehicles: 0, maxMiles: null, lat: null, lon: null });
+      expect(first.RL).toBeUndefined();
+      const published = JSON.stringify(first);
+      for (const secret of [TOKEN, 'SYN-BUS-7', '40.8912', '-74.0431']) expect(published).not.toContain(secret);
+      // A later failed answer keeps the last good coverage and its time.
+      h.time(NOW + HISTORY_INTERVAL_MS);
+      h.answers.getVehicleLocations = () => new Response('busy', { status: 500 });
+      result(await h.run());
+      expect(busDvCoverageStatus(h.state)!.BUS).toEqual(first.BUS);
+      // The copy is detached from the private state.
+      busDvCoverageStatus(h.state)!.BUS!.vehicles = 99;
+      expect(h.state.coverage!.BUS!.vehicles).toBe(1);
+      expect(busDvCoverageStatus(newBusDvState())).toBeNull();
+    });
   });
 });
