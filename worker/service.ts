@@ -81,7 +81,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           if (stored.transportVersion === undefined && !stored.token && stored.failures?.authentication?.code === 'network-error') this.saved.authAt = 0;
           if (stored.transportVersion !== 2) await ctx.storage.put('state-v1', this.saved);
         }
-        this.gates = new GateCollector(ds, ctx.storage, env, (count, now) => this.reserveNjt('gate', count, now), fetchImpl, clock, () => this.gateWrites(3, clock()));
+        this.gates = new GateCollector(ds, ctx.storage, env, (count) => this.reserveNjt('gate', count), fetchImpl, clock, () => this.gateWrites(3, clock()));
         await this.gates.load();
         if (ctx.storage.sql && ctx.storage.transactionSync && ctx.storage.getAlarm && ctx.storage.setAlarm && ctx.storage.deleteAlarm) {
           // Locked-phone stop alerts (#176 step C) keep their short-lived rides in the same SQLite storage.
@@ -120,7 +120,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
               this.rawArchive = new RawArchive(this.saved.rawArchive, this.archive, env.HISTORY_ARCHIVE,
                 () => ctx.storage.put('state-v1', this.saved));
             }
-            if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() === null ? await ctx.storage.getAlarm() : this.saved.historyAt ?? null;
+            // With gates on, the alarm may be a gate alarm, so the history time comes from the journal (arm below sets it).
+            if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null
+              : env.LIVE_GATES === 'enabled' ? null : await ctx.storage.getAlarm();
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
@@ -196,7 +198,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // History runs (collection, archive flush, prune) only at their own due time, exactly as with no ride:
       // an alarm that fired for a ride leaves them alone, and a ride never makes them later. With no ride the
       // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
-      const collect = collecting && (rideAt === null || !this.journal || this.historyAt === null || this.historyAt <= clock());
+      // With gates on, the alarm also fires every minute for gates, so history waits for its own time (Neon review #296).
+      const onlyHistory = rideAt === null && this.env.LIVE_GATES !== 'enabled';
+      const collect = collecting && (onlyHistory || !this.journal || this.historyAt === null || this.historyAt <= clock());
       // Gates run beside history, so a slow DepartureVision board never delays a history poll; gate failures
       // never interrupt the G2 collector or archive. Reads never invoke this.
       const gatesRun = this.gates.poll().catch(() => { /* the next paced alarm retries */ });
@@ -214,18 +218,20 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         }
       }
       finally {
-        await gatesRun;
-        // Ride checks never throw into collection; they piggyback on the poll above when it ran. The next
-        // history run is fixed first, so the time a ride's pushes take never moves it, and the rides stop
-        // starting new checks once it is due (the rest are checked first at the next alarm).
-        if (rideAt !== null) {
-          let deadline: number | null = null;
-          try { deadline = await this.planHistory(rideAt); } catch { /* arm below retries and throws if storage is failing */ }
-          await this.watchRides(deadline);
-        }
-        // Normal feed failures are persisted gaps. Unexpected storage/alarm errors
-        // still throw so the platform's bounded retries remain available.
-        await this.arm(rideAt !== null);
+        try {
+          // Ride checks never throw into collection; they piggyback on the poll above when it ran. The next
+          // history run is fixed first, so the time a ride's pushes take never moves it, and the rides stop
+          // starting new checks once it is due (the rest are checked first at the next alarm).
+          if (rideAt !== null) {
+            let deadline: number | null = null;
+            try { deadline = await this.planHistory(rideAt); } catch { /* arm below retries and throws if storage is failing */ }
+            await this.watchRides(deadline);
+          }
+          // Normal feed failures are persisted gaps. Unexpected storage/alarm errors
+          // still throw so the platform's bounded retries remain available.
+          await this.arm(rideAt !== null);
+          // Gates are awaited last, so a slow board never delays ride alerts or the next alarm (CodeRabbit #296).
+        } finally { await gatesRun; }
       }
     }
     private async watchRides(deadline: number | null) {
@@ -276,21 +282,30 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         predictions: update?.predictions ?? [], skippedStops: update?.skippedStops ?? [],
       };
     }
+    /** alarmAt is the history alarm: with collection off an alarm never runs history (gates or rides only), so
+     * the stop and restore checks still prove no history alarm remains (CodeRabbit #296). wakeAt is the raw alarm. */
+    private async alarms() {
+      const wakeAt = await this.ctx.storage.getAlarm?.() ?? null;
+      return { alarmAt: this.env.HISTORY_COLLECTION === 'enabled' ? wakeAt : null, wakeAt };
+    }
     private gateWrites(units: number, now: number): boolean {
       return !this.journal || (this.env.HISTORY_COLLECTION === 'enabled'
         ? this.journal.reserveSpareWrites(units, now) : this.journal.reserveReadWrites(units, now));
     }
     /** Shared rolling bus + DV ceiling, serialized and persisted before either API performs I/O. */
-    private reserveNjt(api: 'bus' | 'gate', count: number, now: number): Promise<boolean> {
+    private reserveNjt(api: 'bus' | 'gate', count: number): Promise<boolean> {
       const work = this.budgetPending.then(async () => {
+        // The time is read in turn, so a caller that waited behind the other API never looks like a backwards clock (Neon review #296).
+        const now = clock();
         const bus = structuredClone(this.saved.busBudget ?? { hours: {} });
         const gate = structuredClone(this.saved.gateBudget ?? { hours: {} });
         const combined: RequestBudget = { hours: {}, lastAt: Math.max(bus.lastAt ?? 0, gate.lastAt ?? 0) };
         for (const b of [bus, gate]) for (const [hour, used] of Object.entries(b.hours)) combined.hours[hour] = (combined.hours[hour] ?? 0) + used;
         if (!reserveRequests(combined, count, now) || !reserveRequests(api === 'bus' ? bus : gate, count, now, api === 'gate' ? 6500 : 40_000)) return false;
         if (api === 'gate' && !this.gateWrites(3, now)) throw new NjtError('sql-write-budget');
+        // Memory changes only after the write, so a failed write never spends requests later (Neon review #296).
+        await this.ctx.storage.put('state-v1', { ...this.saved, busBudget: bus, gateBudget: gate });
         this.saved.busBudget = bus; this.saved.gateBudget = gate;
-        await this.ctx.storage.put('state-v1', this.saved);
         return true;
       });
       this.budgetPending = work.catch(() => {}); return work;
@@ -312,7 +327,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       }
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
       const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
-      const busAllowed = !authCooldown && await this.reserveNjt('bus', needsAuth ? 3 : 2, now);
+      const busAllowed = !authCooldown && await this.reserveNjt('bus', needsAuth ? 3 : 2);
       // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests. An allowed
       // reservation already saved it; one write per poll, not two (Flash review #296).
       if (!busAllowed) await this.ctx.storage.put('state-v1', this.saved);
@@ -405,7 +420,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          ...await this.alarms(), rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, gates: this.gates.health(), rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
@@ -445,7 +460,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            ...await this.alarms(), rawArchive: this.rawArchive && { ...this.rawArchive.status(), saving: this.rawSaving }, archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };

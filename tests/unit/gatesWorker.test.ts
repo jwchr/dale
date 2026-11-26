@@ -156,6 +156,25 @@ describe('gates in the existing corridor alarm', () => {
     }
     const budget = { hours: {} }; for (let i = 0; i < 6500; i++) expect(reserveRequests(budget, 1, NOW, 6500)).toBe(true); expect(reserveRequests(budget, 1, NOW, 6500)).toBe(false);
   });
+  const gateTotal = (h: ReturnType<typeof harness>) => Object.values((h.saved.get('state-v1') as { gateBudget?: { hours: Record<string, number> } } | undefined)?.gateBudget?.hours ?? {}).reduce((a, b) => a + b, 0);
+  it('a failed token save starts no one-hour cooldown; the next minute authenticates (Neon review #296)', async () => {
+    const h = harness(); await h.read(); const put = h.ctx.storage.put; let fail = true;
+    h.ctx.storage.put = async (k, v) => { if (k === 'gates-v1' && fail) throw new Error('synthetic storage failure'); return put(k, v); };
+    await h.object.alarm(); expect(h.calls).toEqual([]);
+    fail = false; h.setTime(NOW + 60_000); await h.object.alarm();
+    expect(h.calls.map(c => c.url.split('/').pop())).toEqual(['authenticateUser', 'getBusDV']);
+  });
+  it('a failed budget save leaves no unspent lease behind for the next save (Neon review #296)', async () => {
+    const h = harness(); await h.read(); const put = h.ctx.storage.put; let fail = true;
+    h.ctx.storage.put = async (k, v) => { if (k === 'state-v1' && fail) throw new Error('synthetic storage failure'); return put(k, v); };
+    await h.object.alarm(); expect(h.calls).toEqual([]);
+    fail = false; h.setTime(NOW + 60_000); await h.object.alarm();
+    expect(h.calls).toHaveLength(2); expect(gateTotal(h)).toBe(40);
+  });
+  it('drops lease credit after an hour and reserves again, so every request stays in the ceiling (CodeRabbit #296)', async () => {
+    const h = harness({ ds: fourRoutes() }); await h.object.alarm(); expect(gateTotal(h)).toBe(40);
+    h.setTime(NOW + 3600_000); await h.object.alarm(); expect(gateTotal(h)).toBe(80);
+  });
   it('makes no upstream call when durable storage fails', async () => {
     const h = harness({ failStore: true }); await h.object.alarm(); expect(h.calls).toEqual([]);
   });

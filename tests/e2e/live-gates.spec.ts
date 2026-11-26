@@ -3,6 +3,10 @@ import { dataset, NOW } from '../helpers/gates';
 import { strings } from '../../src/ui/i18n';
 const API = 'https://dale-live.test.workers.dev';
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+// The page clock keeps running after the posting loads, so a slow runner can show a few more seconds.
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const sourceAge = (t: (typeof strings)['en']) =>
+  new RegExp(`^NJ Transit · (${Array.from({ length: 20 }, (_, i) => esc(t.gateReceiptAge(40_000 + i * 1000))).join('|')})$`);
 async function setup(page: Page, lang: 'en' | 'es', ageMs = 40_000) {
   let calls = 0, fail = false;
   await page.clock.install({ time: NOW });
@@ -27,7 +31,7 @@ for (const lang of ['en', 'es'] as const) test(`source and receipt age on home, 
   const state = await setup(page, lang), t = strings[lang];
   const row = page.locator('.dep-gate[data-status="posted"]').first();
   await expect(row.locator('.gate-posted')).toHaveText(t.gatePosted('222', '3'));
-  await expect(row.locator('.gate-row-source')).toHaveText(`NJ Transit · ${t.gateReceiptAge(40_000)}`);
+  await expect(row.locator('.gate-row-source')).toHaveText(sourceAge(t));
   // "NJ Transit" never splits across lines, even at 200% text.
   await expect(row.locator('.gate-row-source .nowrap').first()).toHaveCSS('white-space', 'nowrap');
   await page.screenshot({ path: info.outputPath(`home-${lang}.png`), fullPage: true });
@@ -36,7 +40,7 @@ for (const lang of ['en', 'es'] as const) test(`source and receipt age on home, 
   await page.screenshot({ path: info.outputPath(`gates-${lang}.png`), fullPage: true });
   await page.locator('.gate-row').first().click();
   await expect(page.locator('.gate-big')).toHaveText(t.gatePosted('222', '3'));
-  await expect(page.locator('.gate-source')).toHaveText(`NJ Transit · ${t.gateReceiptAge(40_000)}`);
+  await expect(page.locator('.gate-source')).toHaveText(sourceAge(t));
   await page.screenshot({ path: info.outputPath(`trip-${lang}.png`), fullPage: true });
   await page.addStyleTag({ content: 'html { font-size: 125% !important; }' });
   await page.getByRole('button').first().focus();

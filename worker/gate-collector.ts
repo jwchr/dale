@@ -15,6 +15,8 @@ export class GateCollector {
   private routes: Record<string, RouteState> = {};
   private auth: GateAuthState = {};
   private credit = 0;
+  /** When the unspent credit was reserved. The rolling ceiling forgets a reservation after 24 hours, so old credit is dropped. */
+  private creditAt = 0;
   private pending?: Promise<void>;
   constructor(private ds: Dataset, private storage: GateStorage, private env: Credentials & { LIVE_GATES?: string },
     private reserve: (count: number, now: number) => Promise<boolean>, private fetchImpl: typeof fetch, private clock: () => number,
@@ -23,17 +25,21 @@ export class GateCollector {
     const saved = await this.storage.get<GateAuthState>('gates-v1');
     if (saved) this.auth = { token: saved.token, authAt: saved.authAt };
   }
-  private async saveAuth() {
+  private async saveAuth(state: GateAuthState = this.auth) {
     if (!this.spare()) throw new NjtError('sql-write-budget');
-    await this.storage.put('gates-v1', this.auth);
+    await this.storage.put('gates-v1', state);
   }
   /** Spend reserved credit; reserve a lease (or just what is needed, near the ceiling) before any network I/O. */
   private async take(count: number, now: number): Promise<boolean> {
+    // Credit older than an hour (or from a clock that moved back) is dropped, long before its reservation
+    // leaves the 24-hour window, so every request stays counted in the shared ceiling (CodeRabbit #296).
+    if (now < this.creditAt || now - this.creditAt >= 3600_000) this.credit = 0;
     if (this.credit < count) {
       const lease = Math.max(count, LEASE);
-      if (await this.reserve(lease, now)) this.credit += lease;
-      else if (lease > count && await this.reserve(count, now)) this.credit += count;
+      if (await this.reserve(lease, now)) this.credit = lease;
+      else if (lease > count && await this.reserve(count, now)) this.credit = count;
       else return false;
+      this.creditAt = now;
     }
     this.credit -= count;
     return true;
@@ -59,7 +65,8 @@ export class GateCollector {
         if (!await this.take(needsAuth ? 2 : 1, now)) throw new NjtError('request-ceiling');
         if (needsAuth) {
           // The cooldown is durable before the attempt, so a restart cannot retry authentication sooner.
-          this.auth.authAt = now; await this.saveAuth();
+          // Memory takes the cooldown only after it is saved, so a failed write never blocks for an hour (Neon review #296).
+          await this.saveAuth({ ...this.auth, authAt: now }); this.auth.authAt = now;
           this.auth.token = { value: await authenticateBusDv(this.env, this.fetchImpl), expiresAt: now + 20 * 3600_000 };
           // Slow authentication must not shorten this route's next board-request interval.
           r.lastAttemptAt = this.clock();

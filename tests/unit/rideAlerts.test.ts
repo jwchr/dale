@@ -42,7 +42,7 @@ const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 interface FeedState { stop: number | null; lonShift: number; age: number; vehicleId: string; second?: number; skipped: string[]; prediction?: { stopId: string; at: number; age?: number } }
-async function harness(options: { collection?: boolean; archive?: boolean; keys?: Partial<Awaited<ReturnType<typeof secrets>>> | null; sql?: boolean } = {}) {
+async function harness(options: { collection?: boolean; archive?: boolean; gates?: boolean; keys?: Partial<Awaited<ReturnType<typeof secrets>>> | null; sql?: boolean } = {}) {
   const db = new DatabaseSync(':memory:'); databases.push(db);
   let now = NOW, alarmAt: number | null = null, full = false, rideWrites = 0;
   const saved = new Map<string, unknown>(), calls: { endpoint: string; at: number }[] = [], pushes: { url: string; headers: Headers; bytes: number; at: number }[] = [];
@@ -92,7 +92,7 @@ async function harness(options: { collection?: boolean; archive?: boolean; keys?
   const Feed = createFeedClass(ds, net, () => now);
   const env = { NJT_API_USERNAME: 'synthetic', NJT_API_PASSWORD: 'synthetic', HISTORY_COLLECTION: options.collection ? 'enabled' : 'disabled',
     VAPID_PRIVATE_KEY: keys.VAPID_PRIVATE_KEY, HOUSEHOLD_CODE_HASH: keys.HOUSEHOLD_CODE_HASH, FEED: { idFromName: () => 'one', get: () => h.object },
-    ...(options.archive ? { HISTORY_ARCHIVE: {} as never } : {}) };
+    ...(options.archive ? { HISTORY_ARCHIVE: {} as never } : {}), ...(options.gates ? { LIVE_GATES: 'enabled' } : {}) };
   const router = createRouter(ds);
   const h = {
     object: new Feed(ctx, env), Feed, ctx, env, db, calls, pushes, feed, keys,
@@ -690,6 +690,41 @@ describe('history collection with rides', () => {
         expect(riding.polls).toBe(plain.polls);
       }
     });
+
+  it.each([['collecting normally', false, 20 * 60_000], ['waiting at the storage limit', true, 150 * 60_000]] as const)(
+    'gate alarms every minute leave history attempts, archive flush and prune at their own times (%s)', async (_, full, span) => {
+      // Neon review #296: with gates on, the alarm fires each minute; history must still wait for its own due time.
+      async function timing(gates: boolean) {
+        const flushes: number[] = [], prunes: number[] = [], attempts: number[] = [];
+        const begin = HistoryJournal.prototype.beginAttempt;
+        vi.spyOn(HistoryArchive.prototype, 'flush').mockImplementation(async (now: number) => { flushes.push(now); });
+        vi.spyOn(HistoryJournal.prototype, 'pruneVerified').mockImplementation((now: number) => { prunes.push(now); });
+        vi.spyOn(HistoryJournal.prototype, 'beginAttempt').mockImplementation(function (this: HistoryJournal, now: number) {
+          const attempt = begin.call(this, now); if (attempt !== undefined) attempts.push(attempt); return attempt;
+        });
+        try {
+          const h = await harness({ collection: true, archive: true, gates });
+          await h.api('/v1/collection');
+          h.setFull(full);
+          let alarms = 0;
+          const end = h.now() + span;
+          while (h.now() < end) { h.advance(5000); if (h.alarmAt() !== null && h.alarmAt()! <= h.now()) { alarms++; await h.alarm(); } }
+          return { flushes, prunes, attempts, alarms };
+        } finally { vi.restoreAllMocks(); }
+      }
+      const plain = await timing(false), gated = await timing(true);
+      expect(gated.flushes).toEqual(plain.flushes);
+      expect(gated.prunes).toEqual(plain.prunes);
+      expect(gated.attempts).toEqual(plain.attempts);
+      if (full) { expect(plain.flushes.length).toBe(3); expect(gated.alarms).toBeGreaterThan(100); }
+    });
+
+  it('with collection off and gates on, health reports no history alarm and the gate alarm apart (CodeRabbit #296)', async () => {
+    const h = await harness({ collection: false, gates: true });
+    const collection = (await (await h.api('/v1/collection')).json()).collection;
+    expect(h.alarmAt()).not.toBeNull();
+    expect(collection).toMatchObject({ enabled: false, reason: 'disabled', alarmAt: null, wakeAt: h.alarmAt() });
+  });
 
   it('keeps the same upstream pacing, journal and alarm when collection is enabled', async () => {
     const plain = await run(false), riding = await run(true);
