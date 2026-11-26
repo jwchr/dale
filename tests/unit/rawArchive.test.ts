@@ -332,7 +332,7 @@ describe('private as-received raw archives', () => {
 
 describe('raw collection through the bus Worker', () => {
   const regionAsset = { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: ['10'] };
-  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[], railData = false) {
+  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[], railData = false, busDv = false) {
     const dependency = arguments.length >= 4 ? region : regionAsset;
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '', malformed = '', echo = false;
@@ -348,6 +348,10 @@ describe('raw collection through the bus Worker', () => {
       if (String(url).includes('/TrainData/') && endpoint !== 'getToken') {
         if (!railData) throw new Error('No background RailData calls');
         return Response.json({ synthetic: endpoint });
+      }
+      if (String(url).includes('/BUSDV2/') && endpoint !== 'authenticateUser') {
+        if (!busDv) throw new Error('No background BUSDV2 calls');
+        return Response.json(endpoint === 'getLocations' ? [{ bus_terminal_code: 'S001' }, { bus_terminal_code: 'S002' }] : { synthetic: endpoint });
       }
       if (authFailure && endpoint === 'authenticateUser') return new Response('', { status: 401 });
       if (endpoint === 'authenticateUser' || endpoint === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
@@ -368,7 +372,7 @@ describe('raw collection through the bus Worker', () => {
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
     const Feed = createFeedClass(ds, fetchImpl, () => now, dependency), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
-    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined, RAILDATA_RAW: railData ? 'enabled' : undefined,
+    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined, RAILDATA_RAW: railData ? 'enabled' : undefined, BUSDV_RAW: busDv ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
@@ -432,6 +436,34 @@ describe('raw collection through the bus Worker', () => {
   it('makes no RailData calls while raw saving itself is off, even with RAILDATA_RAW on', async () => {
     const h = await service(true, true, false, null, undefined, true); await h.poll();
     expect(h.urls.some(u => u.includes('/TrainData/'))).toBe(false);
+  });
+  it('saves one BUSDV2 bundle per poll and each daily list with its mode when BUSDV_RAW is on (D84)', async () => {
+    const h = await service(true, true, true, null, undefined, false, true); await h.poll();
+    const key = [...h.objects.keys()].find(k => k.includes('/busdv-poll/') && k.endsWith('.json.gz'))!;
+    const saved = JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(key)!)));
+    const methods = new Set(saved.responses.map((r: { method: string }) => r.method));
+    // Until the first stop list arrives, the board falls back to the Port Authority Bus Terminal.
+    expect(methods).toEqual(new Set(['getVehicleLocations', 'getBusDV']));
+    expect(saved.responses.filter((r: { method: string }) => r.method === 'getVehicleLocations').map((r: { mode: string }) => r.mode).sort()).toEqual(['BUS', 'HBLR', 'NLR', 'RL']);
+    expect(saved.responses.every((r: { status: string; text: string }) => r.status === 'ok' && JSON.parse(r.text).synthetic)).toBe(true);
+    const labels = (feed: string) => [...h.objects.keys()].filter(k => k.includes(`/${feed}/`) && k.endsWith('.manifest.json'))
+      .map(k => JSON.parse(new TextDecoder().decode(h.objects.get(k))).label).sort();
+    expect(labels('busdv-getLocations')).toEqual(['BUS', 'HBLR', 'NLR', 'RL']);
+    expect(labels('busdv-getBusRoutes')).toEqual(['BUS', 'HBLR', 'NLR', 'RL']);
+    // The second poll reads the boards of the stops the first poll's list found.
+    h.time(NOW + 45_000); await h.poll();
+    const boards = [...h.objects.keys()].filter(k => k.includes('/busdv-poll/') && k.endsWith('.json.gz') && k !== key)
+      .flatMap(k => JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(k)!))).responses).filter((r: { method: string }) => r.method === 'getBusDV');
+    expect(boards.length).toBeGreaterThan(0);
+    expect(boards.every((r: { stop: string }) => ['S001', 'S002'].includes(r.stop))).toBe(true);
+    expect([...h.objects.keys()].some(k => k.includes('/getVehiclePositions/'))).toBe(true);
+    expect((await h.health()).rawArchive.reason).toBe('ready');
+    // BUSDV2's own token is private state and never in a saved object.
+    for (const bytes of h.objects.values()) expect(new TextDecoder().decode(bytes.byteLength > 2 && bytes[0] === 0x1f ? gunzipSync(bytes) : bytes)).not.toContain('synthetic-token');
+  });
+  it('makes no BUSDV2 calls while raw saving itself is off, even with BUSDV_RAW on', async () => {
+    const h = await service(true, true, false, null, undefined, false, true); await h.poll();
+    expect(h.urls.some(u => u.includes('/BUSDV2/'))).toBe(false);
   });
   it('counts bus protobuf decode failure without interrupting the other feed or rail', async () => {
     const h = await service(); h.malformed('getVehiclePositions'); await h.poll();

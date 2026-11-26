@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { readActiveWorkerIdentity, workerContentIdentity, workerProofError, workerContentComparison } from './worker-content-identity.mjs';
 // Statewide raw saving switches (D78; Jeff, Nov 24, 2026: "turn it on"). Each is either absent or the plain variable 'enabled';
 // the uploaded Worker must carry exactly what worker/wrangler.jsonc declares, so a deploy can turn one on or off but never change it silently.
-export const RAW_SWITCHES = ['RAW_ARCHIVE', 'RAIL_GTFSRT_RAW', 'RAILDATA_RAW'];
+export const RAW_SWITCHES = ['RAW_ARCHIVE', 'RAIL_GTFSRT_RAW', 'RAILDATA_RAW', 'BUSDV_RAW'];
 export const rawSwitchesOk = (bindings, vars) => RAW_SWITCHES.every(name => {
   const found = bindings.filter(b => b.name === name);
   if (vars === undefined) return found.every(b => b.type === 'plain_text' && b.text === 'enabled') && found.length <= 1;

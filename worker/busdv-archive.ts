@@ -1,0 +1,284 @@
+import { HISTORY_INTERVAL_MS } from './history-journal';
+import { NjtError, type Credentials } from './njt-client';
+import { reserveRequests, type RequestBudget } from './request-budget';
+import type { RawResponse } from './raw-archive';
+import { ARCHIVE_CONNECTIONS, inPool } from './pool';
+
+const HOUR = 3_600_000, DAY = 24 * HOUR;
+export const BUSDV_REQUEST_LIMIT = 30_000;
+export const VEHICLE_MODES = ['BUS', 'NLR', 'HBLR', 'RL'] as const;
+export const STATEWIDE_RADIUS = '200'; // unit not checked; statewide coverage not checked against live data.
+export const BUSDV_FEEDS = ['busdv-poll', 'busdv-getLocations', 'busdv-getBusRoutes'] as const;
+const BOARD_TARGET_MS = 15 * 60_000, TOKEN_AGE_MS = 23 * HOUR;
+const BOARD_MAX_BYTES = 2 * 1024 * 1024, OTHER_MAX_BYTES = 8 * 1024 * 1024;
+const ERROR_MAX_BYTES = 16 * 1024;
+type Mode = typeof VEHICLE_MODES[number];
+type Method = 'authenticateUser' | 'getVehicleLocations' | 'getBusDV' | 'getLocations' | 'getBusRoutes';
+type DailyMethod = 'getLocations' | 'getBusRoutes';
+type DailyKey = `${DailyMethod}:${Mode}`;
+export type BusDvFailureCode = 'configuration-missing' | 'token-limit' | 'access-denied' | 'rate-limited'
+  | 'http-error' | 'response-too-large' | 'timed-out' | 'network-error' | 'invalid-response' | 'request-ceiling';
+const CODES: readonly string[] = ['configuration-missing', 'token-limit', 'access-denied', 'rate-limited',
+  'http-error', 'response-too-large', 'timed-out', 'network-error', 'invalid-response', 'request-ceiling'];
+const failureCode = (error: unknown): BusDvFailureCode => error instanceof NjtError && CODES.includes(error.code)
+  ? error.code as BusDvFailureCode : 'network-error';
+
+export interface BusDvState {
+  budget: RequestBudget; cursor: number; locations?: string[];
+  tried: Partial<Record<DailyKey, number>>; ok: Partial<Record<DailyKey, number>>;
+  lastPollAt?: number; boardFraction: number; mints: number[]; pauseUntil?: number;
+  /** Private caller checkpoint only. Never pass this state to the raw archive or a public endpoint. */
+  token?: { value: string; mintedAt: number };
+  sequence: number; pending?: number; reason?: string;
+}
+export const newBusDvState = (): BusDvState => ({ budget: { hours: {} }, cursor: 0,
+  tried: {}, ok: {}, boardFraction: 0, mints: [], sequence: 0 });
+interface Request { method: Exclude<Method, 'authenticateUser'>; mode?: Mode; stop?: string }
+export interface BusDvPlan { id: number; at: number; mint: boolean; requests: Request[]; refusal?: BusDvFailureCode }
+export interface BusDvFailure {
+  feed: `busdv-${Method}` | 'busdv-poll'; code: BusDvFailureCode; at: number; mode?: Mode; stop?: string;
+}
+type LocalResponse = Omit<RawResponse, 'feed'> & { feed: typeof BUSDV_FEEDS[number]; label?: Mode };
+/** RawFeed integration is deliberately confined to the return boundary until its union is extended. */
+export type BusDvResponse = RawResponse;
+interface Entry extends Request { receivedAt: number; status: 'ok' | BusDvFailureCode; text?: string; base64?: string }
+const encode = (text: string) => new TextEncoder().encode(text);
+
+/** A bad or partially malformed list must not silently remove previously discovered boards. */
+export function busDvLocationCodes(bytes: Uint8Array): string[] | undefined {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!Array.isArray(value) || !value.length) return;
+    const codes: string[] = [];
+    for (const row of value) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return;
+      const code: unknown = (row as Record<string, unknown>).bus_terminal_code;
+      // The swagger defines a string, with no documented alphabet or length restriction.
+      if (typeof code !== 'string' || !code.trim()) return;
+      codes.push(code.trim());
+    }
+    return [...new Set(codes)].sort();
+  } catch { return; }
+}
+
+function preserve(bytes: Uint8Array): Pick<Entry, 'text' | 'base64'> {
+  // ignoreBOM retains an initial UTF-8 BOM, allowing exact byte reconstruction.
+  try { return { text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }; }
+  catch {
+    let binary = '';
+    for (let at = 0; at < bytes.length; at += 8192) binary += String.fromCharCode(...bytes.subarray(at, at + 8192));
+    return { base64: btoa(binary) };
+  }
+}
+
+function containsSecret(bytes: Uint8Array, secrets: string[]): boolean {
+  return secrets.filter(Boolean).some(secret => [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]
+    .some(value => {
+      const needle = encode(value);
+      for (let at = bytes.indexOf(needle[0]!); at >= 0 && at + needle.length <= bytes.length; at = bytes.indexOf(needle[0]!, at + 1)) {
+        if (needle.every((n, i) => bytes[at + i] === n)) return true;
+      }
+      return false;
+    }));
+}
+
+/** Error envelopes are small JSON objects/strings, not legitimate board message objects or arrays. */
+function errorBody(bytes: Uint8Array): BusDvFailureCode | undefined {
+  if (bytes.length > ERROR_MAX_BYTES) return;
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { return; }
+  if (Array.isArray(value) || value === null) return;
+  const row = typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  const message = typeof value === 'string' ? value : row
+    ? [row.errorMessage, row.ErrorMessage, row.error, row.Error, row.message, row.Message].filter(v => typeof v === 'string').join(' ') : '';
+  if (/rate.?limit|usage.?limit|daily.?limit|too many requests|quota|40000/i.test(message)) return 'rate-limited';
+  if (/invalid\s+token|token.*expir|expir.*token|access.?denied|unauthori[sz]ed|invalid.*credential/i.test(message)) return 'access-denied';
+  if (row && ['errorMessage', 'ErrorMessage', 'error', 'Error'].some(key => key in row)) return 'access-denied';
+}
+
+/** Only the official BUSDV2 host and statically enumerated methods can be reached. */
+async function request(method: Method, fields: Record<string, string>, maxBytes: number,
+  fetchImpl: typeof fetch, timeoutMs: number): Promise<Uint8Array<ArrayBuffer>> {
+  const ctl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = async () => {
+    const body = new FormData();
+    for (const [key, value] of Object.entries(fields)) body.set(key, value);
+    const response = await fetchImpl(`https://pcsdata.njtransit.com/api/BUSDV2/${method}`, {
+      method: 'POST', body, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
+    });
+    if (ctl.signal.aborted) {
+      void response.body?.cancel().catch(() => {});
+      throw new NjtError('timed-out');
+    }
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      throw new NjtError(response.status === 401 || response.status === 403 ? 'access-denied'
+        : response.status === 429 ? 'rate-limited' : 'http-error');
+    }
+    if (!response.body) throw new NjtError('invalid-response');
+    const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+    const cancel = () => { void reader.cancel().catch(() => {}); };
+    ctl.signal.addEventListener('abort', cancel, { once: true });
+    let size = 0;
+    try {
+      while (true) {
+        if (ctl.signal.aborted) throw new NjtError('timed-out');
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) { cancel(); throw new NjtError('response-too-large'); }
+        chunks.push(value);
+      }
+    } finally { ctl.signal.removeEventListener('abort', cancel); reader.releaseLock(); }
+    if (ctl.signal.aborted) throw new NjtError('timed-out');
+    if (!size) throw new NjtError('invalid-response');
+    const bytes = new Uint8Array(size); let at = 0;
+    for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
+    const code = errorBody(bytes);
+    if (code) throw new NjtError(code);
+    return bytes;
+  };
+  try {
+    // The race also bounds injected fetches/readers that ignore AbortSignal.
+    return await Promise.race([operation(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { ctl.abort(); reject(new NjtError('timed-out')); }, timeoutMs);
+    })]);
+  } catch (error) {
+    throw error instanceof NjtError ? error : new NjtError(ctl.signal.aborted ? 'timed-out' : 'network-error');
+  } finally { clearTimeout(timer); ctl.abort(); }
+}
+
+export class BusDvArchive {
+  private collecting = false;
+  constructor(private state: BusDvState, private credentials: Credentials,
+    private fetchImpl: typeof fetch = fetch, private clock = Date.now, private timeoutMs = 20_000) {}
+
+  /** No I/O here. Persist the private state after prepare and before collect. Requests, token
+   * attempts, daily retries and cursor movement are spent even if the process dies before I/O. */
+  prepare(now: number): BusDvPlan | 'request-ceiling' | undefined {
+    const s = this.state;
+    if (!Number.isFinite(now) || now < 0 || now < (s.lastPollAt ?? -Infinity) || this.collecting) return;
+    const refusal = (code: BusDvFailureCode): BusDvPlan => {
+      s.reason = code;
+      return { id: s.pending = ++s.sequence, at: now, mint: false, requests: [], refusal: code };
+    };
+    if (now < (s.pauseUntil ?? 0)) return refusal('rate-limited');
+    if (!this.credentials.NJT_API_USERNAME?.trim() || !this.credentials.NJT_API_PASSWORD?.trim()) return refusal('configuration-missing');
+    if (now - (s.lastPollAt ?? -Infinity) < HISTORY_INTERVAL_MS) return;
+    const mint = !s.token || now - s.token.mintedAt >= TOKEN_AGE_MS || now < s.token.mintedAt;
+    s.mints = s.mints.filter(at => at > now - DAY);
+    if (mint && s.mints.length >= 3) return refusal('token-limit');
+
+    const hour = Math.floor(now / HOUR), oldest = Math.floor((now - DAY) / HOUR);
+    for (const key of Object.keys(s.budget.hours)) if (Number(key) < oldest) delete s.budget.hours[key];
+    const counts = Object.values(s.budget.hours);
+    if (counts.some(n => !Number.isSafeInteger(n) || n < 0)) return s.reason = 'request-ceiling';
+    const remaining = BUSDV_REQUEST_LIMIT - counts.reduce((a, b) => a + b, 0);
+    const requests: Request[] = VEHICLE_MODES.map(mode => ({ method: 'getVehicleLocations', mode }));
+    for (const method of ['getLocations', 'getBusRoutes'] as const) for (const mode of VEHICLE_MODES) {
+      const key: DailyKey = `${method}:${mode}`;
+      if (now - (s.ok[key] ?? -Infinity) >= DAY && now - (s.tried[key] ?? -Infinity) >= HOUR) requests.push({ method, mode });
+    }
+    const mandatory = requests.length + Number(mint);
+    if (remaining < mandatory) return s.reason = 'request-ceiling';
+
+    // reserveRequests retains the entire oldest hour. Pace to its actual expiry, up to 25 h,
+    // rather than midnight. Hold vehicles at the fastest legal cadence, hourly daily-call
+    // retries, and three mints ahead of boards. The remainder determines the board share.
+    const firstHour = Math.min(hour, ...Object.keys(s.budget.hours).map(Number));
+    const horizon = Math.max(HISTORY_INTERVAL_MS, (firstHour + 25) * HOUR - now);
+    const futureVehicles = VEHICLE_MODES.length * Math.ceil(horizon / HISTORY_INTERVAL_MS);
+    const futureDaily = 2 * VEHICLE_MODES.length * Math.ceil(horizon / HOUR);
+    const boardShare = Math.max(0, remaining - futureVehicles - futureDaily - 3);
+    const spacing = Math.min(45_000, Math.max(HISTORY_INTERVAL_MS, now - (s.lastPollAt ?? now - HISTORY_INTERVAL_MS)));
+    const credit = boardShare * spacing / horizon + s.boardFraction;
+    const locations = s.locations?.length ? s.locations : ['PABT'];
+    const boardCount = Math.min(locations.length, Math.ceil(locations.length * spacing / BOARD_TARGET_MS),
+      Math.floor(credit), remaining - mandatory);
+    const cursor = s.cursor % locations.length;
+    for (let n = 0; n < boardCount; n++) requests.push({ method: 'getBusDV', stop: locations[(cursor + n) % locations.length]! });
+    // The existing helper has a fixed 40,000 ceiling; the stricter check above is local.
+    if (!reserveRequests(s.budget, requests.length + Number(mint), now)) return s.reason = 'request-ceiling';
+    s.boardFraction = credit - Math.floor(credit);
+    s.cursor = (cursor + boardCount) % locations.length;
+    s.lastPollAt = now;
+    if (mint) s.mints.push(now);
+    for (const r of requests) if (r.method === 'getLocations' || r.method === 'getBusRoutes') s.tried[`${r.method}:${r.mode!}`] = now;
+    return { id: s.pending = ++s.sequence, at: now, mint, requests };
+  }
+
+  async collect(plan: BusDvPlan): Promise<{ responses: BusDvResponse[]; failures: BusDvFailure[]; secrets: string[] }> {
+    const s = this.state, responses: LocalResponse[] = [], failures: BusDvFailure[] = [], entries: Entry[] = [];
+    const secrets = new Set([this.credentials.NJT_API_USERNAME, this.credentials.NJT_API_PASSWORD, s.token?.value ?? ''].filter(Boolean));
+    const finish = () => ({ responses: responses as unknown as BusDvResponse[], failures, secrets: [...secrets] });
+    const fail = (r: Request | undefined, code: BusDvFailureCode, updateState = true) => {
+      failures.push({ feed: r ? `busdv-${r.method}` : 'busdv-poll', code, at: this.clock(),
+        ...(r?.mode ? { mode: r.mode } : {}), ...(r?.stop ? { stop: r.stop } : {}) });
+      if (r) entries.push({ ...r, receivedAt: this.clock(), status: code });
+      if (updateState && code === 'access-denied') delete s.token;
+      if (updateState && code === 'rate-limited') s.pauseUntil = Math.max(s.pauseUntil ?? 0, this.clock() + HOUR);
+    };
+    if (s.pending !== plan.id || this.collecting) { fail(undefined, 'invalid-response'); return finish(); }
+    delete s.pending;
+    if (plan.refusal) { fail(undefined, plan.refusal, false); return finish(); }
+    if (this.clock() < (s.pauseUntil ?? 0)) { fail(undefined, 'rate-limited', false); return finish(); }
+    this.collecting = true;
+    try {
+      let authFailure: BusDvFailureCode | undefined;
+      if (plan.mint) {
+        delete s.token;
+        try {
+          const bytes = await request('authenticateUser', { username: this.credentials.NJT_API_USERNAME,
+            password: this.credentials.NJT_API_PASSWORD }, ERROR_MAX_BYTES, this.fetchImpl, this.timeoutMs);
+          let value: { Authenticated?: unknown; UserToken?: unknown };
+          try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+          catch { throw new NjtError('invalid-response'); }
+          if (!value || String(value.Authenticated).toLowerCase() !== 'true') throw new NjtError('access-denied');
+          if (typeof value.UserToken !== 'string' || !value.UserToken.trim()) throw new NjtError('invalid-response');
+          s.token = { value: value.UserToken, mintedAt: this.clock() };
+          secrets.add(value.UserToken);
+        } catch (error) { authFailure = failureCode(error); fail(undefined, authFailure); }
+      }
+      const token = s.token?.value;
+      if (!token && !authFailure) authFailure = 'access-denied';
+      // All data calls use the same captured token. In-flight siblings still finish on a refusal;
+      // nothing retries inside this poll, and a rate limit blocks every subsequent poll for 1 h.
+      // Two at a time: RailData takes two more, leaving rail GTFS-RT and R2 the rest of the Worker's 6.
+      await inPool(plan.requests, ARCHIVE_CONNECTIONS, async r => {
+        if (authFailure || !token) { fail(r, authFailure ?? 'access-denied'); return; }
+        const fields: Record<string, string> = { token };
+        if (r.mode) fields.mode = r.mode;
+        if (r.method === 'getVehicleLocations') Object.assign(fields, { lat: '40.2', lon: '-74.6', radius: STATEWIDE_RADIUS });
+        // Blank means all; not checked against a live answer.
+        if (r.method === 'getBusDV') Object.assign(fields, { stop: r.stop!, direction: '', route: '', IP: '', minutesRequested: '', maxVariants: '', sortMode: '' });
+        try {
+          const bytes = await request(r.method, fields, r.method === 'getBusDV' ? BOARD_MAX_BYTES : OTHER_MAX_BYTES, this.fetchImpl, this.timeoutMs);
+          if (containsSecret(bytes, [...secrets])) throw new NjtError('invalid-response');
+          const receivedAt = this.clock();
+          if (r.method === 'getLocations' || r.method === 'getBusRoutes') {
+            responses.push({ feed: `busdv-${r.method}`, label: r.mode!, bytes, receivedAt });
+            let valid = true;
+            if (r.method === 'getLocations' && r.mode === 'BUS') {
+              const codes = busDvLocationCodes(bytes);
+              if (codes) s.locations = codes;
+              else {
+                valid = false;
+                failures.push({ feed: 'busdv-getLocations', mode: 'BUS', code: 'invalid-response', at: receivedAt });
+              }
+            }
+            if (valid) s.ok[`${r.method}:${r.mode!}`] = receivedAt;
+          } else entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
+        } catch (error) { fail(r, failureCode(error)); }
+      });
+      if (entries.length) {
+        entries.sort((a, b) => a.method.localeCompare(b.method) || (a.mode ?? a.stop ?? '').localeCompare(b.mode ?? b.stop ?? ''));
+        const bytes = encode(JSON.stringify({ v: 1, source: 'NJ Transit BUSDV2', responses: entries }));
+        if (containsSecret(bytes, [...secrets])) fail(undefined, 'invalid-response');
+        else responses.push({ feed: 'busdv-poll', receivedAt: Math.max(...entries.map(e => e.receivedAt)), bytes });
+      }
+      s.reason = failures[0]?.code ?? 'ready';
+      return finish();
+    } finally { this.collecting = false; }
+  }
+}

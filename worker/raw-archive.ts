@@ -6,22 +6,27 @@ import type { RegionFilter } from './region-raw';
 export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts'
   // RailData (D84): one JSON bundle per poll, the two daily answers whole, and per-method names for failures only.
   | 'raildata-poll' | 'raildata-getStationList' | 'raildata-getStationSchedule'
-  | 'raildata-getVehicleData' | 'raildata-getTrainSchedule' | 'raildata-getStationMSG';
-const isJson = (feed: RawFeed) => feed.startsWith('raildata-');
+  | 'raildata-getVehicleData' | 'raildata-getTrainSchedule' | 'raildata-getStationMSG'
+  | 'busdv-poll' | 'busdv-getLocations' | 'busdv-getBusRoutes'
+  | 'busdv-authenticateUser' | 'busdv-getVehicleLocations' | 'busdv-getBusDV';
+const isJson = (feed: RawFeed) => feed.startsWith('raildata-') || feed.startsWith('busdv-');
 export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number;
   /** Original bus bytes are checked for secrets but never saved after filtering. */
-  sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter }
+  sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter;
+  /** Which variant of a daily answer this is (BUSDV2 mode: BUS, NLR, HBLR, RL). */
+  label?: string }
 interface Counts { count: number; rawBytes: number; gzipBytes: number; identical: number }
 interface Manifest extends Counts {
   v: 1; feed: RawFeed; receivedAt: number; sha256: string; gzipSHA256: string;
   upstreamHeaderTimestamp: number | null;
-  filtered?: RegionFilter;
+  filtered?: RegionFilter; label?: string;
 }
 interface Pending { key: string; manifest: Manifest }
 interface Ledger { hour: string; feeds: Partial<Record<RawFeed, Counts>>; events?: Partial<Record<RawFeed, Record<string, number>>> }
 export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
-  last: Partial<Record<RawFeed, string>>; lastAt: Partial<Record<RawFeed, number>>; ledgers: Record<string, Ledger>;
+  /** Keyed by feed, or feed:label for BUSDV2 modes. */
+  last: Partial<Record<string, string>>; lastAt: Partial<Record<string, number>>; ledgers: Record<string, Ledger>;
   pending: Pending[]; reason: string; failures: number; missing: number; blockedSecrets: number;
   /** When a storage, operation or SQL guard last refused raw saving (absent in older checkpoints). */
   budgetAt?: number;
@@ -154,19 +159,23 @@ export class RawArchive {
     // Prepare bounded originals independently; a bad/failed feed never prevents the other.
     const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer> }[] = [];
     for (const response of responses) {
-      if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt)) continue;
+      // A label (BUSDV2 mode) makes answers received in the same millisecond distinct responses.
+      if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt && p.manifest.label === response.label)) continue;
       if (this.state.pending.filter(p => p.manifest.feed === response.feed).length >= 8) { this.state.missing++; continue; }
       if (containsSecret(response.sourceBytes ?? response.bytes, secrets)) { this.state.blockedSecrets++; this.state.reason = 'secret-response-rejected'; continue; }
       try {
         const gzip = new Uint8Array(await new Response(new Blob([response.bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
         const sha256 = await hash(response.bytes);
-        if (lastAt[response.feed] === response.receivedAt && last[response.feed] === sha256) continue;
+        // Each BUSDV2 mode is its own stream, compared only with its own last answer (Flash, #304).
+        const stream = response.label ? `${response.feed}:${response.label}` : response.feed;
+        if (lastAt[stream] === response.receivedAt && last[stream] === sha256) continue;
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
-          identical: last[response.feed] === sha256 ? 1 : 0,
-          upstreamHeaderTimestamp: isJson(response.feed) ? null : headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}) };
-        last[response.feed] = sha256; lastAt[response.feed] = response.receivedAt;
-        prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
+          identical: last[stream] === sha256 ? 1 : 0,
+          upstreamHeaderTimestamp: isJson(response.feed) ? null : headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}),
+          ...(response.label ? { label: response.label } : {}) };
+        last[stream] = sha256; lastAt[stream] = response.receivedAt;
+        prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
     // Recovery runs first and buys no new bytes: each original's manifest was reserved when it
