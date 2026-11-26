@@ -1,4 +1,5 @@
 import { NjtError, safeNjtFailure } from './njt-client';
+import { ARCHIVE_START_MS, ARCHIVE_TURN_MS } from './pool';
 import type { RawFeed, RawResponse } from './raw-archive';
 
 /** D84 and Jeff, Nov 24 and 26, 2026 ("I want to start logging that data too, port authority crossings";
@@ -8,8 +9,6 @@ import type { RawFeed, RawResponse } from './raw-archive';
  *  looks. All are free public government feeds with no account (checked Nov 26, 2026); none keep history. */
 const MINUTE = 60_000, MAX_BYTES = 4 * 1024 * 1024;
 export const TRAFFIC_TIMEOUT_MS = 10_000;
-/** A slow site must not hold the poll: no new request starts after this much of one minute's turn. */
-export const TRAFFIC_LANE_MS = 25_000;
 const PANYNJ = 'https://www.panynj.gov/bin/portauthority/', NJT = 'https://www.njtransit.com/rss/', NJ511 = 'https://511nj.org/client/rest/rss/';
 /** Eastern calendar date as MM/DD/YYYY, the alerts feed's own date format. */
 export const easternDate = (at: number) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' }).format(at);
@@ -90,6 +89,8 @@ export async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs
 }
 
 /** Exact text for the expected shape, or a fixed failure code. Error pages are never saved as data. */
+/** JSON.parse refuses a leading byte-order mark, which some servers send. The saved text keeps it as sent. */
+export const withoutBom = (text: string) => text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'> {
   let text: string;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw new NjtError('invalid-response'); }
@@ -98,7 +99,7 @@ function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'
     return { text };
   }
   let value: unknown;
-  try { value = JSON.parse(text); } catch { throw new NjtError('invalid-response'); }
+  try { value = JSON.parse(withoutBom(text)); } catch { throw new NjtError('invalid-response'); }
   if (shape.kind === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray((value as Record<string, unknown>)[shape.list])) throw new NjtError('invalid-response');
     return { text };
@@ -106,14 +107,17 @@ function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'
   if (!Array.isArray(value)) throw new NjtError('invalid-response');
   if (!shape.drop) return { text };
   // The same records, minus the staff name. Unparseable records are refused, never saved raw.
-  const drop = shape.drop;
+  // The name is removed at any depth and in any letter case, so a renamed or nested copy is never saved either.
+  const drop = shape.drop, names = new Set(drop.map(key => key.toLowerCase()));
   if (value.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new NjtError('invalid-response');
-  const cleaned = value.map(row => Object.fromEntries(Object.entries(row as Record<string, unknown>).filter(([key]) => !drop.includes(key))));
-  return { text: JSON.stringify(cleaned), dropped: drop };
+  const strip = (v: unknown): unknown => Array.isArray(v) ? v.map(strip)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([key]) => !names.has(key.toLowerCase())).map(([key, x]) => [key, strip(x)]))
+    : v;
+  return { text: JSON.stringify(value.map(strip)), dropped: drop };
 }
 
 export class TrafficArchive {
-  constructor(private state: TrafficState, private fetchImpl: typeof fetch = fetch, private clock = Date.now, private timeoutMs = TRAFFIC_TIMEOUT_MS, private laneMs = TRAFFIC_LANE_MS) {}
+  constructor(private state: TrafficState, private fetchImpl: typeof fetch = fetch, private clock = Date.now, private timeoutMs = TRAFFIC_TIMEOUT_MS) {}
 
   /** One reading per UTC minute slot, from the slot's start, never from when a poll happens to run.
    *  The caller persists the state before any I/O, so an eviction or retry never fetches a slot twice. */
@@ -125,15 +129,18 @@ export class TrafficArchive {
   }
 
   /** One request at a time: it runs after the rail feeds, beside RailData and BUSDV2's two each,
-   *  so a Worker's 6 connections never queue these behind other fetches. */
-  async collect(slot: number): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
+   *  so a Worker's 6 connections never queue these behind other fetches. A rider's request waits for the
+   *  whole poll, so the turn shares RailData and BUSDV2's budget (Neon on #307): no new request starts
+   *  ARCHIVE_START_MS after `started`, and each one ends by ARCHIVE_TURN_MS. Weather, which follows, gets
+   *  the same `started`, so the two together still end by then. */
+  async collect(slot: number, started = this.clock()): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
     const entries: Entry[] = [], failures: { feed: RawFeed; code: string; at: number }[] = [];
-    const started = this.clock();
     for (const source of dueSources(slot)) {
       const { feed, url: build, shape } = TRAFFIC_SOURCES[source] as Source, url = build(slot);
       try {
-        if (this.clock() - started >= this.laneMs) throw new NjtError('timed-out');
-        const bytes = await boundedGet(url, this.fetchImpl, this.timeoutMs);
+        const elapsed = this.clock() - started;
+        if (elapsed >= ARCHIVE_START_MS) throw new NjtError('timed-out');
+        const bytes = await boundedGet(url, this.fetchImpl, Math.min(this.timeoutMs, ARCHIVE_TURN_MS - elapsed));
         entries.push({ source, url, receivedAt: this.clock(), status: 'ok', ...accept(shape, bytes) });
       } catch (error) {
         const code = safeNjtFailure(error), at = this.clock();

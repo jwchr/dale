@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TRAFFIC_SOURCES, TrafficArchive, dueSources, easternDate, type TrafficState } from '../../worker/traffic-archive';
 
 // 22:15 UTC is a quarter hour: the every-minute feeds plus the two five-minute feeds with offset 0 are due.
@@ -63,6 +63,19 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(saved.responses[7]).toMatchObject({ source: 'njtBusAdvisories', status: 'ok', text: RSS, url: 'https://www.njtransit.com/rss/BusAdvisories_feed.xml' });
     expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
   });
+  it('drops the staff name at any depth and in any letter case', async () => {
+    const nested = [{ messageid: 1, sentby: 'Synthetic Staff', detail: { SENTBY: 'Synthetic Staff', notes: [{ SentBy: 'Synthetic Staff', note: 'kept' }] } }];
+    const { saved } = await bundle(archive(url => url.includes('crossingtimesalert') ? Response.json(nested) : ok(url)));
+    expect(JSON.parse(saved.responses[1].text)).toEqual([{ messageid: 1, detail: { notes: [{ note: 'kept' }] } }]);
+    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+  });
+  it('reads JSON that starts with a byte-order mark and saves it exactly as sent', async () => {
+    const withBom = '\uFEFF[{"routeTravelTime":7}]', everbridge = '\uFEFF' + EVERBRIDGE;
+    const { saved, failures } = await bundle(archive(url => url.includes('crossingtimesapi') ? new Response(withBom)
+      : url.includes('everbridge') ? new Response(everbridge) : ok(url)));
+    expect(failures).toEqual([]);
+    expect(saved.responses[0].text).toBe(withBom); expect(saved.responses[3].text).toBe(everbridge);
+  });
   it('uses the Eastern date for alerts, not the UTC date', () => {
     expect(easternDate(Date.UTC(2026, 10, 27, 3, 0))).toBe('11/26/2026');
     expect(easternDate(Date.UTC(2026, 10, 27, 5, 0))).toBe('11/27/2026');
@@ -103,15 +116,31 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(status(saved, 'crossingTimes')).toBe('timed-out');
     expect(status(saved, 'crossingAlerts')).toBe('ok');
   });
-  it('starts no new request once 25 seconds of the turn are spent, and keeps what it already has', async () => {
+  it('starts no new request once 12 seconds of the turn are spent, and keeps what it already has', async () => {
     let now = SLOT + 1_000;
     const urls: string[] = [];
-    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 26_000; return ok(url); }, {}, 10_000, () => now);
+    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 12_000; return ok(url); }, {}, 10_000, () => now);
     const { saved, failures } = await bundle(a);
     expect(urls).toHaveLength(3);
     expect(saved.responses.slice(0, 3).map((r: { status: string }) => r.status)).toEqual(['ok', 'ok', 'ok']);
     expect(saved.responses.slice(3).every((r: { status: string; text?: string }) => r.status === 'timed-out' && r.text === undefined)).toBe(true);
     expect(failures).toHaveLength(DUE.length - 3);
+  });
+  it('counts the budget from the start it is given, and ends a hung request by 20 seconds', async () => {
+    let now = SLOT + 1_000;
+    const urls: string[] = [];
+    const late = archive(url => { urls.push(url); return ok(url); }, {}, 10_000, () => now);
+    const skipped = await late.collect(SLOT, now - 12_000);
+    expect(urls).toHaveLength(0); expect(skipped.responses).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      const hung = archive(url => url.includes('crossingtimesapi') ? new Promise<Response>(() => {}) : ok(url), {}, 60_000, () => now);
+      const done = hung.collect(SLOT, now - 11_000);
+      await vi.advanceTimersByTimeAsync(9_000); now += 9_000;
+      const result = await done;
+      expect(result.failures[0]).toMatchObject({ feed: 'panynj-crossingTimes', code: 'timed-out' });
+      expect(result.failures.every(f => f.code === 'timed-out')).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
   it('saves nothing when every source fails, and fetches one at a time', async () => {
     let open = 0, most = 0;

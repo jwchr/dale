@@ -59,6 +59,11 @@ describe('National Weather Service data, saved raw once a minute', () => {
     expect(calls).toHaveLength(4);
     for (const c of calls) expect(c.headers?.['user-agent']).toMatch(/^Dale transit app/);
   });
+  it('reads an answer that starts with a byte-order mark and saves it exactly as sent', async () => {
+    const withBom = '\uFEFF' + ALERT_TEXT;
+    const { saved, failures } = await run(archive(url => url.includes('/alerts/') ? new Response(withBom) : ok(url)));
+    expect(failures).toEqual([]); expect(saved.responses[0].text).toBe(withBom);
+  });
   it.each([
     ['an error page', () => new Response('<html>Service unavailable</html>'), 'invalid-response'],
     ['JSON that is not GeoJSON', () => Response.json({ hello: 1 }), 'invalid-response'],
@@ -71,6 +76,13 @@ describe('National Weather Service data, saved raw once a minute', () => {
     expect(failures).toEqual([{ feed: 'nws-alerts', code, at: SLOT + 1_000 }]);
     expect(saved.responses[0]).toEqual({ kind: 'alerts', id: 'NJ,NY', url: ALERTS.url, receivedAt: SLOT + 1_000, status: code });
     expect(saved.responses.slice(1).every((r: { status: string }) => r.status === 'ok')).toBe(true);
+  });
+  it('shares the crossings\' turn budget: nothing starts 12 seconds after the start it is given', async () => {
+    const urls: string[] = [];
+    const a = archive(url => { urls.push(url); return ok(url); });
+    const plan = a.prepare(SLOT)!, result = await a.collect(plan, SLOT + 1_000 - 12_000);
+    expect(urls).toHaveLength(0); expect(result.responses).toEqual([]);
+    expect(result.failures.map(f => f.code)).toEqual(['timed-out', 'timed-out', 'timed-out', 'timed-out']);
   });
   it('times out a hung station and moves on', async () => {
     const { saved, failures } = await run(archive(url => url.includes('KACY') ? new Promise<Response>(() => {}) : ok(url), {}, 20));

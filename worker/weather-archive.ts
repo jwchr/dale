@@ -1,6 +1,7 @@
 import { NjtError, safeNjtFailure } from './njt-client';
 import type { RawFeed, RawResponse } from './raw-archive';
-import { boundedGet } from './traffic-archive';
+import { ARCHIVE_START_MS, ARCHIVE_TURN_MS } from './pool';
+import { boundedGet, withoutBom } from './traffic-archive';
 
 /** D84 and Jeff, Nov 26, 2026 ("P0 recording all data sources!! ... weather.. everything!!"):
  *  National Weather Service data for New Jersey and New York City, saved privately whether or not
@@ -39,7 +40,7 @@ interface Entry { kind: Kind; id: string; url: string; receivedAt: number; statu
 /** Exact text of a GeoJSON answer, or a fixed failure code. Error pages are never saved as data. */
 function accept(bytes: Uint8Array): string {
   let text: string, value: unknown;
-  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); value = JSON.parse(text); }
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); value = JSON.parse(withoutBom(text)); }
   catch { throw new NjtError('invalid-response'); }
   if (!value || typeof value !== 'object' || Array.isArray(value) || !('features' in value || 'properties' in value)) throw new NjtError('invalid-response');
   return text;
@@ -61,12 +62,15 @@ export class WeatherArchive {
     return { slot, items };
   }
 
-  /** One request at a time, after the crossings, so it never adds a connection beside them. */
-  async collect(plan: { slot: number; items: Item[] }): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
+  /** One request at a time, after the crossings, so it never adds a connection beside them. `started` is
+   *  the crossings' own start, so both together keep the shared turn budget (Neon on #307). */
+  async collect(plan: { slot: number; items: Item[] }, started = this.clock()): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
     const entries: Entry[] = [], failures: { feed: RawFeed; code: string; at: number }[] = [];
     for (const { kind, id, feed, url } of plan.items) {
       try {
-        const text = accept(await boundedGet(url, this.fetchImpl, this.timeoutMs, HEADERS));
+        const elapsed = this.clock() - started;
+        if (elapsed >= ARCHIVE_START_MS) throw new NjtError('timed-out');
+        const text = accept(await boundedGet(url, this.fetchImpl, Math.min(this.timeoutMs, ARCHIVE_TURN_MS - elapsed), HEADERS));
         entries.push({ kind, id, url, receivedAt: this.clock(), status: 'ok', text });
       } catch (error) {
         const code = safeNjtFailure(error), at = this.clock();
