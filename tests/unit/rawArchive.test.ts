@@ -72,6 +72,21 @@ describe('private as-received raw archives', () => {
       gzipBytes: compressed.length, sha256: sha(bytes), gzipSHA256: sha(compressed), upstreamHeaderTimestamp: NOW / 1000 - 10 });
     expect(key).toBe(`raw/v1/${new Date(NOW).toISOString().slice(0, 10)}/getVehiclePositions/${NOW}-${sha(bytes)}.pb.gz`);
   });
+  it('shows how many records each stream last saved, so an empty source reads 0 instead of passing on saves', async () => {
+    const h = await harness(), empty = new Uint8Array(binaryFeed([]));
+    const bundle = new TextEncoder().encode(JSON.stringify({ v: 1, responses: [
+      { method: 'getVehicleLocations', mode: 'BUS', status: 'ok', text: '[]' },
+      { method: 'getVehicleLocations', mode: 'RL', status: 'ok', text: '[{"a":1},{"a":2}]' },
+      { method: 'getBusDV', mode: 'BUS', status: 'timed-out' }] })) as Uint8Array<ArrayBuffer>;
+    await h.raw.capture([input(NOW, original()), { feed: 'getTripUpdates', receivedAt: NOW, bytes: empty }, { feed: 'busdv-poll', receivedAt: NOW, bytes: bundle }], NOW, []);
+    expect(h.raw.status().records).toEqual({
+      getVehiclePositions: { at: NOW, records: 1 }, getTripUpdates: { at: NOW, records: 0 },
+      'busdv-poll/getVehicleLocations:BUS': { at: NOW, records: 0, answers: 1, failed: 0 },
+      'busdv-poll/getVehicleLocations:RL': { at: NOW, records: 2, answers: 1, failed: 0 },
+      'busdv-poll/getBusDV:BUS': { at: NOW, records: null, answers: 1, failed: 1 } });
+    // Counts survive a restart with the rest of the checkpoint.
+    h.restart(); expect(h.raw.status().records['getTripUpdates']).toEqual({ at: NOW, records: 0 });
+  });
   it('preserves successful response bodies even when the protobuf cannot normalize, with an unknown header time', async () => {
     const h = await harness(), bytes = new Uint8Array([255, 0, 64, 201, 17]);
     await h.raw.capture([input(NOW, bytes)], NOW, []);
