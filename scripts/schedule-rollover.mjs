@@ -26,16 +26,41 @@ export function contextPartCount(body) {
   return parts;
 }
 
-/** Corridor trips active on each service date from today through today + days; throws on any empty date. */
+/**
+ * Last regular end date of any corridor trip's calendar. One-off added dates (a holiday run) are left out:
+ * they say nothing about whether the regular week is covered.
+ */
+export function lastServiceDate(ds) {
+  let last = '';
+  for (const t of ds.trips) {
+    const end = ds.calendars[t.serviceId]?.end;
+    if (end && end > last) last = end;
+  }
+  return last;
+}
+
+/**
+ * Corridor trips active on each service date from today through today + days; throws on any empty date.
+ * A file that reaches a full week out is checked on all seven weekdays (Neon Nov24 h): five days ahead
+ * alone skips Sunday when run on Monday, and Saturday when run on Sunday.
+ */
 export function requireCoverage(ds, today, days = ROLLOVER_COVERAGE_DAYS) {
   if (!/^\d{8}$/.test(today ?? '')) throw new Error('rollover-coverage-date');
+  const span = Math.max(days, lastServiceDate(ds) >= addDays(today, 6) ? 6 : days);
   const perDate = [];
-  for (let i = 0; i <= days; i++) {
+  for (let i = 0; i <= span; i++) {
     const date = addDays(today, i);
     perDate.push(ds.trips.filter(t => isServiceActive(ds.calendars[t.serviceId], date)).length);
   }
   if (perDate.some(n => n <= 0)) throw new Error('rollover-coverage-gap');
-  return { from: today, to: addDays(today, days), minTripsPerDate: Math.min(...perDate) };
+  return { from: today, to: addDays(today, span), minTripsPerDate: Math.min(...perDate) };
+}
+
+/** Refuses a new file that ends before the live one (Neon Nov24 h): the live file stays, and the next daily run retries. */
+export function requireNoShorter(current, next) {
+  const currentEnd = lastServiceDate(current), nextEnd = lastServiceDate(next);
+  if (nextEnd < currentEnd) throw new Error('rollover-would-shorten');
+  return { currentEnd, nextEnd };
 }
 
 /**

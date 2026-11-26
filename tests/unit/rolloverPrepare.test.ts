@@ -9,6 +9,8 @@ const entry = new URL('../../scripts/prepare-live-worker.mjs', import.meta.url).
 const zip = (input: Record<string, string>) => zipSync(Object.fromEntries(Object.entries(input).map(([k, v]) => [k, strToU8(v)])));
 function rollover(scenario: string) {
   const files: Record<string, string> = { ...miniFiles,
+    // The live file is NJ Transit's earlier rolling window, so it ends before the next one does.
+    'calendar.txt': 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,1,1,1,1,1,1,1,20261101,20261127\n',
     'trips.txt': 'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id\n' + Array.from({ length: 12 }, (_, i) => `${i === 11 ? '11' : '10'},WK,T${i},${i === 11 ? '165T' : '165'} NEW YORK,0,s\n`).join(''),
     'stop_times.txt': 'trip_id,arrival_time,departure_time,stop_id,stop_sequence,shape_dist_traveled\n' + Array.from({ length: 12 }, (_, i) => `T${i},07:00:00,07:00:00,1,1,0\nT${i},07:20:00,07:20:00,2,2,10\nT${i},07:40:00,07:40:00,3,3,20\n`).join(''),
     'shapes.txt': 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\ns,40.88,-74.045,1,0\ns,40.87,-74.04,2,10\ns,40.757,-73.991,3,20\n',
@@ -19,7 +21,7 @@ function rollover(scenario: string) {
   const text = JSON.stringify(ds), context = ds.meta.feedVersion + ':' + createHash('sha256').update(text).digest('hex');
   // NJ Transit's next rolling window: every day through Nov 30 and one retimed trip.
   const next: Record<string, string> = { ...files,
-    'calendar.txt': 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,1,1,1,1,1,1,1,20261101,' + (scenario === 'coverage-gap' ? '20261106' : '20261130') + '\n',
+    'calendar.txt': 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWK,1,1,1,1,1,1,1,20261101,' + (scenario === 'coverage-gap' ? '20261106' : scenario === 'shorter' ? '20261120' : '20261130') + '\n',
     'stop_times.txt': files['stop_times.txt']!.replace('T0,07:40:00,07:40:00', 'T0,07:45:00,07:45:00') };
   if (scenario === 'no-geometry') next['shapes.txt'] = '';
   const downloaded = scenario === 'unchanged' ? source : zip(next);
@@ -90,7 +92,8 @@ it('prepares a changed NJ Transit file as a fresh canonical schedule with an agg
   expect(summary.deployed.feedVersion).toBe(feed); expect(summary.candidate.feedVersion).toBe(nextFeed);
   expect(summary.trips).toMatchObject({ common: 12, coreChanged: 1 });
   expect(r.stdout).toMatch(/^Plain summary: Trips on Dale's routes first differ on /m);
-  expect(r.stdout).toContain('Rollover coverage: every service date from 20261104 to 20261109 has corridor trips');
+  expect(r.stdout).toContain('Rollover coverage: every service date from 20261104 to 20261110 has corridor trips');
+  expect(r.stdout).toContain('Rollover end dates: live file through 20261127, new file through 20261130.');
   const capacity = JSON.parse(r.stdout.split('Rollover capacity (aggregate only): ')[1]!.split('\n')[0]!);
   expect(capacity).toMatchObject({ contextParts: 1, contextWriteUnits: 6, reservedWrites: 100, writeHeadroom: 600, databaseBytes: 2000 });
   // Aggregate only: no trip IDs, stop names or times reach the public log.
@@ -98,7 +101,7 @@ it('prepares a changed NJ Transit file as a fresh canonical schedule with an agg
   expect(r.stdout).toContain('Official G2 corridor prepared');
 });
 it.each([
-  ['unchanged', 'rollover-same-schedule-file'], ['coverage-gap', 'rollover-coverage'],
+  ['unchanged', 'rollover-same-schedule-file'], ['coverage-gap', 'rollover-coverage'], ['shorter', 'rollover-end-date'],
   ['capacity-bytes', 'rollover-capacity'], ['capacity-writes', 'rollover-capacity'],
   ['changed-canonical', 'enabled-preservation-preflight'], ['wrong-version', 'enabled-preservation-preflight'],
 ])('refuses %s at %s without writing anything', (scenario, phase) => {

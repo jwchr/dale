@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { liveDataset, NOW } from '../helpers/liveBus';
 // @ts-expect-error native deployment helper
-import { contextPartCount, requireCoverage, ROLLOVER_COVERAGE_DAYS, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM, ROLLOVER_DATABASE_FACTOR, ROLLOVER_DATABASE_MARGIN_BYTES } from '../../scripts/schedule-rollover.mjs';
+import { contextPartCount, lastServiceDate, requireCoverage, requireNoShorter, ROLLOVER_COVERAGE_DAYS, rolloverCapacity, CONTEXT_MAX_BYTES, CONTEXT_PART_CHARS, ROLLOVER_WRITE_HEADROOM, ROLLOVER_DATABASE_FACTOR, ROLLOVER_DATABASE_MARGIN_BYTES } from '../../scripts/schedule-rollover.mjs';
 // @ts-expect-error native deployment helper
 import { enabledCheckpoint, preservesEnabled, rolloverProgress, waitForRolloverProgress, waitForServedContext, CODE_DEFERRAL_MS, ROLLOVER_PROOF_MS } from '../../scripts/enabled-continuity.mjs';
 const databases: DatabaseSync[] = [];
@@ -61,18 +61,34 @@ describe('rollover capacity mirrors the Worker context admission', () => {
     expect(() => rolloverCapacity({ ...c, reservedWrites: undefined }, text)).toThrow();
     expect(Object.values(rolloverCapacity(c, text).summary).every(v => v === null || Number.isSafeInteger(v))).toBe(true);
   });
-  it('requires corridor trips on every service date from today through today + 5', () => {
+  it('requires corridor trips on every service date from today through today + 5, or + 6 when the file reaches that far', () => {
     expect(ROLLOVER_COVERAGE_DAYS).toBe(5);
     // The fixture runs weekdays only, so the coming weekend fails; an all-days copy passes.
     expect(() => requireCoverage(liveDataset, '20261104')).toThrow('rollover-coverage-gap');
     const daily = structuredClone(liveDataset); for (const cal of Object.values(daily.calendars)) cal.days = [true, true, true, true, true, true, true];
-    expect(requireCoverage(daily, '20261104')).toMatchObject({ from: '20261104', to: '20261109' });
+    expect(requireCoverage(daily, '20261104')).toMatchObject({ from: '20261104', to: '20261110' });
     expect(() => requireCoverage(daily, '20261104', 7 + 200)).toThrow('rollover-coverage-gap');
     // A file ending six days out (NJ Transit's Nov 23 file: Nov 23 to Nov 30) passes on its second day, and fails once only four days remain.
     const ending = structuredClone(daily); for (const cal of Object.values(ending.calendars)) cal.end = '20261110';
-    expect(requireCoverage(ending, '20261104')).toMatchObject({ to: '20261109' });
+    expect(requireCoverage(ending, '20261104')).toMatchObject({ to: '20261110' });
     expect(requireCoverage(ending, '20261105')).toMatchObject({ to: '20261110' });
     expect(() => requireCoverage(ending, '20261106')).toThrow('rollover-coverage-gap');
+  });
+  it('checks all seven weekdays when the file reaches a week out (Neon Nov24 h)', () => {
+    const daily = structuredClone(liveDataset); for (const cal of Object.values(daily.calendars)) { cal.days = [true, true, true, true, true, true, true]; cal.end = '20261130'; }
+    // Monday Nov 9: five days ahead stops at Saturday Nov 14; a file missing Sunday Nov 15 must still fail.
+    const noSunday = structuredClone(daily); for (const cal of Object.values(noSunday.calendars)) cal.removed = [...cal.removed, '20261115'];
+    expect(requireCoverage(daily, '20261109')).toMatchObject({ to: '20261115' });
+    expect(() => requireCoverage(noSunday, '20261109')).toThrow('rollover-coverage-gap');
+  });
+  it('refuses a new file that ends before the live one (Neon Nov24 h)', () => {
+    const live = structuredClone(liveDataset); for (const cal of Object.values(live.calendars)) cal.end = '20261210';
+    const shorter = structuredClone(live); for (const cal of Object.values(shorter.calendars)) cal.end = '20261206';
+    const longer = structuredClone(live); for (const cal of Object.values(longer.calendars)) cal.end = '20261217';
+    expect(lastServiceDate(live)).toBe('20261210');
+    expect(() => requireNoShorter(live, shorter)).toThrow('rollover-would-shorten');
+    expect(requireNoShorter(live, longer)).toEqual({ currentEnd: '20261210', nextEnd: '20261217' });
+    expect(requireNoShorter(live, structuredClone(live))).toEqual({ currentEnd: '20261210', nextEnd: '20261210' });
   });
 });
 
