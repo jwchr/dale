@@ -29,6 +29,8 @@ interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T
 interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+/** Raw-only bus alerts give up sooner than the live feeds' 15 seconds (Neon Nov26 e, #301 P2). */
+const ALERTS_TIMEOUT_MS = 8_000;
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
@@ -286,11 +288,16 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const railPlan = rail?.prepare(now);
       const railReason = this.saved.railGtfsrt?.reason;
       if (rail && !railPlan && railReason && ['request-ceiling', 'token-limit', 'configuration-missing'].includes(railReason)) {
-        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) saving?.recordFailure(feed, railReason, now);
+        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates', 'rail-getAlerts'] as const) saving?.recordFailure(feed, railReason, now);
       }
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
+      // Bus alerts are saved whole, raw only, while statewide saving is on (no region file).
+      const busAlerts = !!saving && !regionRoutes;
       const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
-      const busAllowed = !authCooldown && reserveRequests(this.saved.busBudget ??= { hours: {} }, needsAuth ? 3 : 2, now);
+      // Live buses reserve first; alerts take one more request only if it still fits (Neon Nov26 e, #301 P2).
+      const busBudget = this.saved.busBudget ??= { hours: {} };
+      const busAllowed = !authCooldown && reserveRequests(busBudget, needsAuth ? 3 : 2, now);
+      const alertsAllowed = busAllowed && busAlerts && reserveRequests(busBudget, 1, now);
       // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
       await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
@@ -333,11 +340,24 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             return unavailable();
           }
         };
+        // Raw only: an alerts failure is recorded for saving and never touches live buses or the shared token.
+        const saveAlerts = async () => {
+          try {
+            // Its own shorter limit, so a slow alerts answer never holds a poll for the bus feeds' 15 seconds.
+            const bytes = await njtRequest('getAlerts', { token }, RAW_RESPONSE_MAX_BYTES, fetchImpl, ALERTS_TIMEOUT_MS), receivedAt = clock();
+            if (bytes.byteLength <= 16_384 && new TextDecoder().decode(bytes.subarray(0, 32)).trimStart().startsWith('{')) throw new NjtError('invalid-response');
+            raw.push({ feed: 'getAlerts', bytes, receivedAt });
+          } catch (error) { saving?.recordFailure('getAlerts', safeNjtFailure(error), clock()); }
+        };
+        if (busAlerts && !alertsAllowed) saving?.recordFailure('getAlerts', 'request-ceiling', now);
+        const alerts = alertsAllowed ? saveAlerts() : undefined;
         const [vehicles, updates] = await Promise.all([fetchFeed('getVehiclePositions', 'vehicles'), fetchFeed('getTripUpdates', 'updates')]);
         if (denials > 0 && successes === 0) this.saved.token = undefined;
+        // Live buses are set before the alerts answer is awaited, so alerts never delay them.
         this.saved.vehicles = vehicles; this.saved.updates = updates;
+        await alerts;
       } catch (error) {
-        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
+        for (const feed of busAlerts ? ['getVehiclePositions', 'getTripUpdates', 'getAlerts'] as const : ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
