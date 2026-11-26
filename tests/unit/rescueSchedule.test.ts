@@ -118,7 +118,8 @@ describe('size: the phone first load stays the corridor schedule', () => {
     const r = buildRescueSchedule(many, corridorOf(many), { builtAt: '2026-11-19T10:00:00Z' });
     expect(r.schedule).toBeNull();
     expect(r.report.state).toBe('too_large');
-  });
+    // It builds a 7,000-trip feed on purpose; 30 seconds keeps a busy Mac from failing it (timed out twice Nov 24, 2026).
+  }, 30_000);
 });
 
 describe('Worker serving', () => {
@@ -146,7 +147,7 @@ describe('Worker serving', () => {
     expect((await router.fetch(new Request(`${base}/v1/live?trip=${encodeURIComponent(widerTrip)}&date=20261119`), env)).status).toBe(400);
     // The production entry hands only the corridor schedule to the poller and collector.
     const entry = readFileSync(new URL('../../worker/index.ts', import.meta.url), 'utf8');
-    expect(entry).toContain('createFeedClass(ds)');
+    expect(entry).toContain('createFeedClass(ds, undefined, undefined, region)');
     expect(entry).not.toMatch(/createFeedClass\([^)]*rescue/);
   });
 });

@@ -1,12 +1,16 @@
 import bindings from 'gtfs-realtime-bindings';
 import type { HistoryArchive, HistoryBucket } from './history-archive';
+import type { RegionFilter } from './region-raw';
 
 export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'rail-getVehiclePositions' | 'rail-getTripUpdates';
-export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number }
+export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number;
+  /** Original bus bytes are checked for secrets but never saved after filtering. */
+  sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter }
 interface Counts { count: number; rawBytes: number; gzipBytes: number; identical: number }
 interface Manifest extends Counts {
   v: 1; feed: RawFeed; receivedAt: number; sha256: string; gzipSHA256: string;
   upstreamHeaderTimestamp: number | null;
+  filtered?: RegionFilter;
 }
 interface Pending { key: string; manifest: Manifest }
 interface Ledger { hour: string; feeds: Partial<Record<RawFeed, Counts>>; events?: Partial<Record<RawFeed, Record<string, number>>> }
@@ -147,7 +151,7 @@ export class RawArchive {
     for (const response of responses) {
       if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt)) continue;
       if (this.state.pending.filter(p => p.manifest.feed === response.feed).length >= 8) { this.state.missing++; continue; }
-      if (containsSecret(response.bytes, secrets)) { this.state.blockedSecrets++; this.state.reason = 'secret-response-rejected'; continue; }
+      if (containsSecret(response.sourceBytes ?? response.bytes, secrets)) { this.state.blockedSecrets++; this.state.reason = 'secret-response-rejected'; continue; }
       try {
         const gzip = new Uint8Array(await new Response(new Blob([response.bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
         const sha256 = await hash(response.bytes);
@@ -155,7 +159,7 @@ export class RawArchive {
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
           identical: last[response.feed] === sha256 ? 1 : 0,
-          upstreamHeaderTimestamp: headerTimestamp(response.bytes) };
+          upstreamHeaderTimestamp: headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}) };
         last[response.feed] = sha256; lastAt[response.feed] = response.receivedAt;
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.pb.gz`, manifest }, gzip });
       } catch { this.state.failures++; }

@@ -32,3 +32,12 @@ if (previousRescue !== 'null') {
   const temporary = new URL(`../worker/generated/rescue-${process.pid}.tmp`, import.meta.url);
   writeFileSync(temporary, 'null'); renameSync(temporary, rescueOutput);
 }
+
+// No region asset in a synthetic bundle: bus raw saving must fail closed.
+const regionOutput = new URL('../worker/generated/region-routes.json', import.meta.url);
+let previousRegion;
+try { previousRegion = readFileSync(regionOutput, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+if (previousRegion !== 'null') {
+  const temporary = new URL(`../worker/generated/region-${process.pid}.tmp`, import.meta.url);
+  writeFileSync(temporary, 'null'); renameSync(temporary, regionOutput);
+}
