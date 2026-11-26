@@ -7,7 +7,11 @@ import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool, looksLi
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 export const BUSDV_REQUEST_LIMIT = 30_000;
 export const VEHICLE_MODES = ['BUS', 'NLR', 'HBLR', 'RL'] as const;
-export const STATEWIDE_RADIUS = '200'; // unit not checked; statewide coverage not checked against live data.
+// NJ Transit does not say what unit the radius is in. Live on Nov 26, 2026 (6:43 pm Eastern) a radius of 200
+// returned 0 vehicles in every mode while service was running, so it is likely feet. 528,000 is 100 miles in
+// feet and reaches Cape May (about 89 miles) and High Point (about 77 miles) from the center; read as meters,
+// miles or km it reaches even farther. /v1/collection busDvCoverage shows whether it really covers the state.
+export const STATEWIDE_RADIUS = '528000';
 export const BUSDV_FEEDS = ['busdv-poll', 'busdv-getLocations', 'busdv-getBusRoutes'] as const;
 const BOARD_TARGET_MS = 15 * 60_000, TOKEN_AGE_MS = 23 * HOUR;
 const BOARD_MAX_BYTES = 2 * 1024 * 1024, OTHER_MAX_BYTES = 8 * 1024 * 1024;
