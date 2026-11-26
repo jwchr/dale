@@ -408,7 +408,7 @@ describe('BUSDV2 private raw archive', () => {
   });
 
   describe('vehicle coverage on the status page (statewide radius check)', () => {
-    const rows = (...r: object[]) => encode(JSON.stringify(r));
+    const rows = (...r: unknown[]) => encode(JSON.stringify(r));
     it('counts vehicles and rounds the extents outward, from string or number fields', () => {
       expect(busDvCoverage(rows(
         { VehicleID: 'SYN1', VehicleLat: '40.7581', VehicleLong: '-73.9912', VehicleDistanceMiles: '30.2' },
