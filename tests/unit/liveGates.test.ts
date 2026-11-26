@@ -85,6 +85,9 @@ describe('phone monotonic gate freshness', () => {
     expect(gateFor('t@20261126', 'out', 0, 'weekday', p, [], undefined, undefined, 0).status).toBe('posted');
     expect(gateFor('t@20261126', 'out', 0, 'weekday', [{ ...p[0]!, observedAt: Date.now() + skew, ageMs: 120_000 }], [], undefined, undefined, 0).status).toBe('unknown');
     expect(gateFor('t@20261126', 'out', 0, 'weekday', p, [], undefined, undefined, 1).status).toBe('unknown');
+    // The freshest posting wins, whatever its observedAt (Flash review #296).
+    const pair = [{ ...p[0]!, gate: '111', observedAt: 0, ageMs: 50_000 }, { ...p[0]!, gate: '333', observedAt: 0, ageMs: 10_000 }];
+    expect(gateFor('t@20261126', 'out', 0, 'weekday', pair, [], undefined, undefined, 0)).toMatchObject({ status: 'posted', gate: '333' });
   });
   it('counts the whole request duration and fails closed on a backwards monotonic clock', () => {
     const receipt = parseLiveGates(packet(110_000), dataset, 20_000, 500);

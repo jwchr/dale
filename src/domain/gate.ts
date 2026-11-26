@@ -58,7 +58,7 @@ export function gateFor(
 ): GateAnswer {
   const posted = postings
     .filter((p) => p.tripInstanceId === tripId && p.boardingIndex === boardingIndex && Number.isFinite(p.ageMs) && p.ageMs >= 0 && p.ageMs < 120_000)
-    .sort((a, b) => b.observedAt - a.observedAt)[0];
+    .sort((a, b) => a.ageMs - b.ageMs || (b.observedAt ?? 0) - (a.observedAt ?? 0))[0];
   if (posted) return { status: 'posted', gate: posted.gate, door: posted.door, observedAt: posted.observedAt, ageMs: posted.ageMs, source: posted.source };
   const u = usual
     .filter((x) => x.patternId === patternId && x.dayType === dayType && localMinutes >= x.fromMin && localMinutes <= x.toMin)

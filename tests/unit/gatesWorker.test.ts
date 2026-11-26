@@ -8,7 +8,7 @@ import type { Dataset } from '../../src/domain/types';
 function harness(options: { ds?: Dataset; enabled?: boolean; authFail?: boolean; failStore?: boolean } = {}) {
   let now = NOW, alarm: number | null = null;
   const ds = options.ds ?? structuredClone(dataset), saved = new Map<string, unknown>(), calls: { url: string; route: string | null; at: number }[] = [];
-  const routeBodies = new Map<string, unknown>(); const routeFailures = new Set<string>();
+  const routeBodies = new Map<string, unknown>(); const routeFailures = new Set<string>(); const deniedRoutes = new Set<string>();
   let blocked: Promise<void> | undefined;
   const storage = { get: async <T,>(key: string) => structuredClone(saved.get(key)) as T | undefined,
     put: async (key: string, value: unknown) => { if (options.failStore) throw new Error('synthetic storage failure'); saved.set(key, structuredClone(value)); },
@@ -24,6 +24,7 @@ function harness(options: { ds?: Dataset; enabled?: boolean; authFail?: boolean;
     if (!endpoint.endsWith('getBusDV')) return new Response(new Uint8Array());
     expect(fields.get('stop')).toBe('PABT'); expect(fields.get('minutesRequested')).toBe('60'); expect(fields.get('direction')).toBe(''); expect(route).toBeTruthy();
     if (blocked) await blocked;
+    if (deniedRoutes.has(route!)) return new Response('denied', { status: 401 });
     return routeFailures.has(route!) ? new Response('unavailable', { status: 503 }) : Response.json(routeBodies.get(route!) ?? { DVTrip: [row({ public_route: route })] });
   }) as typeof fetch;
   const Feed = createFeedClass(ds, net, () => now);
@@ -31,7 +32,7 @@ function harness(options: { ds?: Dataset; enabled?: boolean; authFail?: boolean;
   const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', LIVE_GATES: options.enabled === false ? 'off' : 'enabled', FEED: { idFromName: (n: string) => n, get: () => object } };
   object = new Feed(ctx, env);
   const request = (path = '/v1/gates') => new Request('https://dale.test' + path);
-  return { ds, saved, calls, env, ctx, Feed, request, routeBodies, routeFailures,
+  return { ds, saved, calls, env, ctx, Feed, request, routeBodies, routeFailures, deniedRoutes,
     get object() { return object; }, setTime: (at: number) => { now = at; }, block: (p?: Promise<void>) => { blocked = p; },
     read: async () => (await object.fetch(request())).json(), cold: (newDs = ds) => { object = new (createFeedClass(newDs, net, () => now))(ctx, env); return object; } };
 }
@@ -49,6 +50,12 @@ describe('gates in the existing corridor alarm', () => {
     const ds = structuredClone(dataset); ds.trips = [];
     const idle = harness({ ds }); await idle.object.alarm(); expect(idle.calls).toEqual([]);
     const on = harness(); await on.read(); await on.read(); expect(on.calls).toEqual([]);
+  });
+  it('a rejected board token is forgotten in durable storage too', async () => {
+    const h = harness(); await h.object.alarm();
+    expect((h.saved.get('gates-v1') as { token?: unknown }).token).toBeDefined();
+    h.deniedRoutes.add('165'); h.setTime(NOW + 60_000); await h.object.alarm();
+    expect((h.saved.get('gates-v1') as { token?: unknown }).token).toBeUndefined();
   });
   it('collects once per minute, keeps its own token across a cold start, and leases requests in one write', async () => {
     const h = harness(); let puts = 0; const put = h.ctx.storage.put; h.ctx.storage.put = async (k, v) => { puts++; return put(k, v); };

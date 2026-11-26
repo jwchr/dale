@@ -313,8 +313,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
       const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
       const busAllowed = !authCooldown && await this.reserveNjt('bus', needsAuth ? 3 : 2, now);
-      // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
-      await this.ctx.storage.put('state-v1', this.saved);
+      // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests. An allowed
+      // reservation already saved it; one write per poll, not two (Flash review #296).
+      if (!busAllowed) await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
       const raw: RawResponse[] = [], rawSecrets = [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD];
       try {

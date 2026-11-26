@@ -73,7 +73,11 @@ export class GateCollector {
         r.postings = postings; r.lastSuccessAt = receivedAt; r.state = postings.length ? 'ready' : 'empty'; delete r.reason;
       } catch (error) {
         r.reason = safeNjtFailure(error); r.state = r.reason === 'request-ceiling' ? 'quota-paused' : 'unavailable';
-        if (r.reason === 'access-denied') this.auth.token = undefined;
+        if (r.reason === 'access-denied' && this.auth.token) {
+          // Forget the rejected token durably too, so a restart does not reuse it (Flash review #296).
+          this.auth.token = undefined;
+          try { await this.saveAuth(); } catch { /* memory is already clear; a restart spends one rejected call at most */ }
+        }
       }
     }
   }
