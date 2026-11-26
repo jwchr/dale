@@ -12,7 +12,7 @@ Household tool for Jeff and one other household rider. Bergen County corridor to
 | UX-03 | Stop search by name or code; wrong-side-of-street guard | M1 ✅ demo, ✅ printed route 165: town-first search, every reachable stop, guard through named twins, reverse from across the street |
 | UX-04 | All-day timetable, 7 days, holidays, after-midnight trips, DST-safe, 12-hour times | M1 ✅ demo, ✅ printed route 165 (after-midnight, DST as printed with notes, holiday warning: the print has no holiday times), M2 real |
 | BUS-01/02 | Exact-bus lock keyed to trip + service date + boarding stop; signal age/history, explicit estimates, waiting reports and foreground screen wake (`docs/BUS_LOCK.md`) | Local UI/domain slice; M3 live + shared reports |
-| GATE-01/03 | Port Authority gate and door per departure from NJ Transit DepartureVision; usual gate before posting; gate-change push | M1 ✅ logic, M3 live |
+| GATE-01/03 | Port Authority gate and door per departure from NJ Transit DepartureVision; usual gate before posting; gate-change push | GATE-01 slice 1 built, waiting on deploy; GATE-03 later |
 | UX-10 | Stop alerts 3, 2 and 1 stops before getting off, sent by the server from the locked bus (Web Push) | M3 |
 | UX-09 | Ticket-before-boarding warning at Port Authority; Tap & Ride guidance in NJ; zone count only from a real fare table | M1 ✅ PABT warning, M4 ✅ printed route 165 cash fare and zone count, ✅ Tap & Ride steps in the guide |
 | UX-07 | First-time-rider guide, English and Spanish | M1 ✅ languages, M4 ✅ route 165 first-ride guide |

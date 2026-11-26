@@ -1,5 +1,5 @@
 // Port Authority gate for one exact departure. Sources, best first:
-//   posted  - NJ Transit DepartureVision assignment for this trip instance (lanegate / manual_lane_gate)
+//   posted  - NJ Transit DepartureVision assignment for this trip instance (getBusDV.lanegate)
 //   usual   - the gate this route pattern used at this time on comparable days, learned from history
 //   published - NJ Transit's own printed gate rule for this service type and time (a rule, not this trip's assignment)
 //   unknown - nothing reliable; the UI says "Gate not confirmed" and links to the official board
@@ -9,6 +9,8 @@ import type { PublishedGates, TripInstanceId } from './types';
 
 export interface GatePosting {
   tripInstanceId: TripInstanceId;
+  boardingIndex: number;
+  ageMs: number;
   gate: string;
   door?: string;
   observedAt: number;
@@ -28,17 +30,17 @@ export interface UsualGate {
 }
 
 export type GateAnswer =
-  | { status: 'posted'; gate: string; door?: string; observedAt: number; source: GatePosting['source'] }
+  | { status: 'posted'; gate: string; door?: string; observedAt: number; ageMs?: number; source: GatePosting['source'] }
   | { status: 'usual'; gate: string; door?: string; samples: number }
   | { status: 'published'; gate: string; door?: string; source: string; effective: string }
   | { status: 'unknown' };
 
-/** Parse NJ Transit's lane/gate string. Inbound buses report "..", which means no gate. */
+/** Only bounded numeric gate/door forms are usable; other agency text is not a gate. */
 export function parseLaneGate(raw: string | undefined | null): { gate: string; door?: string } | null {
-  const s = (raw ?? '').trim();
-  if (!s || /^\.+$/.test(s)) return null;
+  if (typeof raw !== 'string' || raw.length > 8 || !raw) return null;
+  const s = raw;
   const m = /^(\d{1,3})(?:\s*[-/]\s*(\d{1,2}))?$/.exec(s);
-  if (!m) return { gate: s };
+  if (!m) return null;
   return m[2] ? { gate: m[1]!, door: m[2] } : { gate: m[1]! };
 }
 
@@ -52,11 +54,12 @@ export function gateFor(
   published?: PublishedGates,
   /** Pattern variant (T, P, R, RF...) for published rules; omit for unmarked local trips. */
   variant?: string,
+  boardingIndex = 0,
 ): GateAnswer {
   const posted = postings
-    .filter((p) => p.tripInstanceId === tripId)
+    .filter((p) => p.tripInstanceId === tripId && p.boardingIndex === boardingIndex && Number.isFinite(p.ageMs) && p.ageMs >= 0 && p.ageMs < 120_000)
     .sort((a, b) => b.observedAt - a.observedAt)[0];
-  if (posted) return { status: 'posted', gate: posted.gate, door: posted.door, observedAt: posted.observedAt, source: posted.source };
+  if (posted) return { status: 'posted', gate: posted.gate, door: posted.door, observedAt: posted.observedAt, ageMs: posted.ageMs, source: posted.source };
   const u = usual
     .filter((x) => x.patternId === patternId && x.dayType === dayType && localMinutes >= x.fromMin && localMinutes <= x.toMin)
     .sort((a, b) => b.samples - a.samples)[0];

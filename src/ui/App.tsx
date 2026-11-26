@@ -24,7 +24,7 @@ import { ARRIVE_BY_WINDOW_MS, arriveByDeadline, arriveByPick, canWalkTo, earlies
 import { nextExpress } from '../domain/nextExpress';
 import { fareBetween } from '../domain/fare';
 import { dropIndex, samePlace } from '../domain/place';
-import { gateFor, type GateAnswer } from '../domain/gate';
+import { gateFor, type GateAnswer, type GatePosting } from '../domain/gate';
 import { isNjtHoliday } from '../domain/holidays';
 import { createBusSession, reduceBusSession, type BusSession, type BusSessionEvent } from '../domain/busLock';
 import { forgetLock, loadLock, saveLock, type SavedLock } from '../domain/lockStore';
@@ -58,6 +58,7 @@ import { loadLiveSchedule } from '../data/liveSchedule';
 import { useLiveBus } from './useLiveBus';
 import { LiveBusStatus } from './LiveBusStatus';
 import { MyBusFallback } from './MyBusFallback';
+import { useLiveGates } from './useLiveGates';
 import { useLiveDepartures } from './useLiveDepartures';
 import { departureEvidence, departureKey, requestFor, type DepartureEvidence } from '../domain/liveDepartures';
 import { upcomingCandidates, selectUpcoming, type UpcomingSet } from '../domain/upcoming';
@@ -448,7 +449,14 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
 
   // Never show a stop's internal code: a stop this dataset doesn't have reads as "a stop not in this schedule".
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? t.unknownStop;
-  const ctx: Ctx = { ds, tz, now, t, lang: settings.lang, stopName, fromCache, savedAt };
+  const hasPabt = (id: string) => ds.stops.some(s => s.id === id && s.terminal === 'PABT');
+  const hasGateDepartures = (leg: Leg | undefined) => !!leg && hasPabt(leg.fromStopId) && nextDepartures(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, 1).length > 0;
+  const gateDemand = useMemo(() => screen.name === 'home' ? favorites.some(f => hasGateDepartures(legFor(ds, f, reversedIds.has(f.id))))
+    : screen.name === 'gates' ? favorites.some(f => [false, true].some(rev => hasGateDepartures(legFor(ds, f, rev))))
+      : screen.name === 'departure' || screen.name === 'boarding' ? hasPabt(screen.dep.pattern.stopIds[screen.dep.stopIndex]!)
+        : screen.name === 'rescue' ? hasPabt(screen.fromStopId) : false, [screen, favorites, reversedIds, ds, now]);
+  const liveGatePostings = useLiveGates(ds, LIVE_API, gateDemand);
+  const ctx: Ctx = { ds, tz, now, t, lang: settings.lang, stopName, fromCache, savedAt, gates: liveGatePostings };
 
   const toolbar = <div className="home-toolbar"><TravelModeSelector
     mode={screen.name === 'penn' ? 'train' : 'bus'} t={t} onChange={(mode) => {
@@ -558,11 +566,11 @@ function Main({ ds, fromCache, savedAt, checkedAt, journey }: { ds: Dataset; fro
         {screen.name === 'guide' && <RiderGuide t={t} />}
         {screen.name === 'boarding' && (
           <BoardingCheck ds={ds} dep={screen.dep} toStopId={screen.leg.toStopId} t={t} lang={settings.lang}
-            gate={(() => { const g = departureGate(ds, screen.dep); return g && gateLine(t, g); })()} />
+            gate={(() => { const g = departureGate(ds, screen.dep, ctx.gates); return g && gateLine(t, g); })()} />
         )}
         {screen.name === 'rescue' && (
           <Rescue ds={ds} t={t} lang={settings.lang} now={now} fromStopId={screen.fromStopId} homeStopId={screen.homeStopId} usualRouteId={screen.usualRouteId} label={screen.label}
-            gateText={(o) => { const g = departureGate(ds, o.dep); return g && gateLine(t, g); }}
+            gateText={(o) => { const g = departureGate(ds, o.dep, ctx.gates); return g && gateLine(t, g); }}
             badge={(routeId) => <RouteBadge ds={ds} routeId={routeId} />}
             onOpen={(o) => setScreen({ name: 'departure', dep: o.dep, leg: { fromStopId: o.boardStopId, toStopId: o.alightStopId, routeIds: [] } })} />
         )}
@@ -587,7 +595,7 @@ const money = (c: { min: number; max: number }) => {
   return c.min === c.max ? d(c.min) : `${d(c.min)}–${d(c.max)}`;
 };
 
-interface Ctx { ds: Dataset; tz: string; now: number; t: Strings; lang: Lang; stopName: (id: string) => string; fromCache?: boolean | undefined; savedAt?: number | undefined }
+interface Ctx { gates: GatePosting[]; ds: Dataset; tz: string; now: number; t: Strings; lang: Lang; stopName: (id: string) => string; fromCache?: boolean | undefined; savedAt?: number | undefined }
 
 /** Offline state and schedule validity, so a stale or expired feed is never mistaken for "no buses". */
 function FeedStatus({ ctx }: { ctx: Ctx }) {
@@ -878,7 +886,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
           {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
           {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
-          {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
         </span>
       </button>
       {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
@@ -911,7 +919,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
           {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
           {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
-          {(() => { const g = departureGate(ds, d); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
         </span>
       </button>
       {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
@@ -1155,7 +1163,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
     const routes = leg.routeIds.map(id => routeLabel(ds.routes.find(r => r.id === id)?.shortName ?? id, t.gateTurnpikeExpress)).join(', ');
     return [{ key, leg, title: `${stopName(leg.fromStopId)} → ${stopName(leg.toStopId)}${routes ? ` (${routes})` : ''}`, deps: upcomingCandidates(ds, { stopId: leg.fromStopId, toStopId: leg.toStopId, routeIds: leg.routeIds }, now, count).ahead.slice(0, count) }];
   }));
-  const anyGate = legs.some(l => l.deps.some(dep => { const g = departureGate(ds, dep); return !!g && g.status !== 'unknown'; }));
+  const anyGate = legs.some(l => l.deps.some(dep => { const g = departureGate(ds, dep, ctx.gates); return !!g && g.status !== 'unknown'; }));
   return <>
   <GateGuide t={t} anyGate={anyGate} onGuide={onGuide} />
   <section className="card tab-screen" aria-labelledby="gates-title">
@@ -1164,7 +1172,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
     {!legs.length && <p className="muted">{d.gatesNone}</p>}
     {legs.map(l => <section key={l.key} className="gate-trip">
       <h3>{l.title}</h3>
-      {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep); return <li key={dep.tripInstanceId}>
+      {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep, ctx.gates); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
           <span><span className="gate-service">{isTurnpikeExpress(dep.route.shortName, dep.pattern.headsign) ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
@@ -1376,21 +1384,23 @@ function Timetable({ ctx, leg, title, date: chosen, onDate, onDeparture }: { ctx
 }
 
 /** The Port Authority gate answer for a departure boarding there (same answer on home and the trip screen); undefined elsewhere. */
-function departureGate(ds: Dataset, dep: Departure): GateAnswer | undefined {
+function departureGate(ds: Dataset, dep: Departure, postings: GatePosting[]): GateAnswer | undefined {
   const boardStop = ds.stops.find((s) => s.id === dep.pattern.stopIds[dep.stopIndex]);
   if (boardStop?.terminal !== 'PABT') return undefined;
   // Usual-gate windows use service-day minutes (a 24:00 trip is 1440, not 0) and the service date's day type.
   const localMin = Math.round((ds.trips.find((x) => x.id === dep.tripId)?.times[dep.stopIndex] ?? 0) / 60);
   const wd = weekdayIndex(dep.serviceDate);
-  return gateFor(dep.tripInstanceId, dep.pattern.id, localMin, wd === 5 ? 'saturday' : wd === 6 ? 'sunday' : 'weekday', [], ds.meta.demo ? demoUsualGates : [], ds.publishedGates, dep.pattern.variant);
+  return gateFor(dep.tripInstanceId, dep.pattern.id, localMin, wd === 5 ? 'saturday' : wd === 6 ? 'sunday' : 'weekday', ds.meta.demo ? [] : postings, ds.meta.demo ? demoUsualGates : [], ds.publishedGates, dep.pattern.variant, dep.stopIndex);
 }
 
+/** Source and receipt age of a posted gate, with the latency notice past one minute. */
+const gateSource = (t: Strings, ageMs = 0) => `NJ Transit · ${t.gateReceiptAge(ageMs)}${ageMs > 60_000 ? ` · ${t.gateLatencyNotice}` : ''}`;
 /**
- * One-line gate for a home departure row, always saying what kind of answer it is. Postings are always
- * empty until M3; when DepartureVision is wired in, the posted line must also say how old the posting is.
+ * Every gate surface uses the same source-qualified receipt age and latency notice.
+ * Published and unknown fallback lines retain their existing wording.
  */
 const gateLine = (t: Strings, g: GateAnswer) =>
-  g.status === 'posted' ? t.gatePosted(g.gate, g.door)
+  g.status === 'posted' ? `${t.gatePosted(g.gate, g.door)} · ${gateSource(t, g.ageMs)}`
     : g.status === 'usual' ? t.gateUsual(g.gate, g.door)
       : g.status === 'published' ? `${t.gatePublished(g.gate, g.door)} · ${t.gateRuleTag}`
         : t.gateUnknown;
@@ -1416,7 +1426,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
   const alightNote = alightStop?.noteId && (alightStop.noteId !== 'parkride-request' || ['P', 'FP'].includes(dep.pattern.variant ?? '')) ? t.stopNotes[alightStop.noteId] : undefined;
   const atPabt = boardStop?.terminal === 'PABT';
   const fare = boardStop && alightStop ? fareBetween(ds, dep.pattern.routeId, boardStop.id, alightStop.id) : undefined;
-  const gate = departureGate(ds, dep);
+  const gate = departureGate(ds, dep, ctx.gates);
   // From the trip's first stop (read as printed) to where the rider gets off: a change before boarding
   // still shifts the rider's times, a change after getting off does not.
   const rideEnd = times[alightIndex > dep.stopIndex ? alightIndex : times.length - 1];
@@ -1441,7 +1451,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
       })()}
       {busSession && <BusLockPanel ds={ds} session={busSession} alightIndex={alightIndex} now={lockNow} t={t} lang={ctx.lang}
         keepAwake={keepAwake} onKeepAwake={onKeepAwake} onEvent={onLockEvent} onAdvanceDemo={onAdvanceDemo} onUnlock={onUnlock}
-        gateText={(o) => { const g = departureGate(ds, o.dep); return g && gateLine(t, g); }}
+        gateText={(o) => { const g = departureGate(ds, o.dep, ctx.gates); return g && gateLine(t, g); }}
         badge={(routeId) => <RouteBadge ds={ds} routeId={routeId} />} onOpenBackup={onOpenBackup} onAlternatives={onRescue} onPenn={onPenn} />}
       <EarlierBuses ds={ds} stop={dep.pattern.stopIds[dep.stopIndex]!} direction={dep.pattern.directionId} routeIds={[dep.route.id]} lang={ctx.lang} now={ctx.now} api={LIVE_API} />
       {busSession && <HowSure ds={ds} dep={busSession.departure} lang={ctx.lang} api={LIVE_API} />}
@@ -1481,7 +1491,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
       {gate && (
         <div className="card gate-card" data-status={gate.status}>
           <h2>{t.gateTitle}</h2>
-          {gate.status === 'posted' && <p className="gate-big">{t.gatePosted(gate.gate, gate.door)}</p>}
+          {gate.status === 'posted' && <><p className="gate-big">{t.gatePosted(gate.gate, gate.door)}</p><p className="muted small gate-source">{gateSource(t, gate.ageMs)}</p></>}
           {gate.status === 'usual' && <><p className="gate-big">{t.gateUsual(gate.gate, gate.door)}</p><p className="muted small">{t.gateUsualNote(gate.samples)}</p></>}
           {gate.status === 'published' && <><p className="gate-big">{t.gatePublished(gate.gate, gate.door)}</p><p className="muted small">{t.gatePublishedNote(fmtYmd(gate.effective, ctx.lang))}</p></>}
           {gate.status === 'unknown' && <p className="gate-big">{t.gateUnknown}</p>}
