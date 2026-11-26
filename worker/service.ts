@@ -6,6 +6,7 @@ import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } f
 import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
 import { reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
+import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
 import { createNormalizer, type NormalizedFeed } from './normalize';
 import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
@@ -26,9 +27,9 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 /** Raw-only bus alerts give up sooner than the live feeds' 15 seconds (Neon Nov26 e, #301 P2). */
 const ALERTS_TIMEOUT_MS = 8_000;
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -280,7 +281,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // Only a switched-on archive saves or counts new responses; a draining one just finishes old work.
       const saving = this.rawSaving ? this.rawArchive : undefined;
       const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
-      if (railDue) startRailBudgetRetry(this.saved.rawArchive, now);
+      // D84: RailData (train positions, every station's board, messages, schedules) is a separate switch.
+      const railDataDue = !!saving && this.env.RAILDATA_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      if (railDue || railDataDue) startRailBudgetRetry(this.saved.rawArchive, now);
+      const railData = railDataDue ? new RailDataArchive(this.saved.railData ??= newRailDataState(), this.rail, clock) : undefined;
+      const railDataPlan = railData?.prepare(now);
+      if (railDataPlan === 'request-ceiling') saving?.recordFailure('raildata-poll', 'request-ceiling', now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
         if (!this.journal?.reserveRawWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
@@ -363,12 +369,23 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
         this.saved.vehicles = unavailable(); this.saved.updates = unavailable();
       }
+      // Starts only after live buses are set: a Worker has 6 connections at a time, so archive calls
+      // started earlier could queue the live bus fetches behind them. Runs beside the rail GTFS-RT fetch.
+      const railDataWork = railData && typeof railDataPlan === 'object' ? railData.collect(railDataPlan).catch(() => undefined) : undefined;
       if (rail && railPlan) {
         try {
           const result = await rail.collect(railPlan);
           raw.push(...result.responses); rawSecrets.push(...result.secrets);
           for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
         } catch { this.saved.rawArchive!.failures++; }
+      }
+      if (railDataWork) {
+        const result = await railDataWork;
+        if (!result) this.saved.rawArchive!.failures++;
+        else {
+          raw.push(...result.responses); rawSecrets.push(...result.secrets);
+          for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
+        }
       }
       if (this.rawArchive) {
         // Raw writes cannot interrupt live buses or normalized corridor evidence.

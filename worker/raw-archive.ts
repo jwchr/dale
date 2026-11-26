@@ -3,7 +3,11 @@ import type { HistoryArchive, HistoryBucket } from './history-archive';
 import type { RegionFilter } from './region-raw';
 
 // Alerts are saved raw only (D84: "All the data, save all the data."); nothing in Dale reads them yet.
-export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts';
+export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts'
+  // RailData (D84): one JSON bundle per poll, the two daily answers whole, and per-method names for failures only.
+  | 'raildata-poll' | 'raildata-getStationList' | 'raildata-getStationSchedule'
+  | 'raildata-getVehicleData' | 'raildata-getTrainSchedule' | 'raildata-getStationMSG';
+const isJson = (feed: RawFeed) => feed.startsWith('raildata-');
 export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number;
   /** Original bus bytes are checked for secrets but never saved after filtering. */
   sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter }
@@ -160,9 +164,9 @@ export class RawArchive {
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
           identical: last[response.feed] === sha256 ? 1 : 0,
-          upstreamHeaderTimestamp: headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}) };
+          upstreamHeaderTimestamp: isJson(response.feed) ? null : headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}) };
         last[response.feed] = sha256; lastAt[response.feed] = response.receivedAt;
-        prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.pb.gz`, manifest }, gzip });
+        prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
     // Recovery runs first and buys no new bytes: each original's manifest was reserved when it

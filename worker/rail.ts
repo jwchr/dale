@@ -119,7 +119,19 @@ export function normalizeRailBoard(value: unknown, station: string, receivedAt: 
 
 /** POST a multipart form to one fixed RailData method. Bodies, headers and messages never leave this function. */
 async function railRequest(method: string, fields: Record<string, string>, fetchImpl: typeof fetch): Promise<unknown> {
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  return (await railFetch(method, fields, fetchImpl)).value;
+}
+
+/** RailData failure codes the raw archive may record; anything else is an unreadable answer or a lost connection. */
+export function railArchiveFailure(error: unknown): string {
+  if (!(error instanceof RailError)) return 'network-error';
+  const known = ['configuration-missing', 'token-limit', 'access-denied', 'rate-limited', 'http-error', 'response-too-large', 'timed-out', 'network-error'];
+  return known.includes(error.code) ? error.code : 'invalid-response';
+}
+
+/** The exact bytes and their parsed JSON. An error body or refusal throws, so it is never archived as data. */
+async function railFetch(method: string, fields: Record<string, string>, fetchImpl: typeof fetch, maxBytes = MAX_BYTES, timeoutMs = TIMEOUT_MS, raw = false): Promise<{ bytes: Uint8Array<ArrayBuffer>; value: unknown }> {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const body = new FormData();
     for (const [key, value] of Object.entries(fields)) body.set(key, value);
@@ -136,26 +148,32 @@ async function railRequest(method: string, fields: Record<string, string>, fetch
       while (true) {
         const { done, value } = await reader.read(); if (done) break;
         size += value.byteLength;
-        if (size > MAX_BYTES) { void reader.cancel().catch(() => {}); throw new RailError('response-too-large'); }
+        if (size > maxBytes) { void reader.cancel().catch(() => {}); throw new RailError('response-too-large'); }
         chunks.push(value);
       }
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(size); let at = 0;
     for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
     let value: unknown;
-    try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError(statusFailure ?? 'unexpected-response'); }
+    if (raw) {
+      // Archive mode keeps the exact bytes and only reads small bodies, where NJ Transit's error answers fit:
+      // parsing a multi-megabyte schedule would double its memory. Malformed data is kept as received.
+      if (statusFailure) throw new RailError(statusFailure);
+      if (size <= 16_384) try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* kept as received */ }
+    } else try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError(statusFailure ?? 'unexpected-response'); }
     // NJ Transit's guide shows "Invalid token." as a body without naming an HTTP status, so the body decides.
     if (object(value) && typeof value.errorMessage === 'string') {
       throw new RailError(/invalid token/i.test(value.errorMessage) ? 'access-denied' : /daily usage limit/i.test(value.errorMessage) ? 'rate-limited' : statusFailure ?? 'api-error');
     }
     if (statusFailure) throw new RailError(statusFailure);
-    return value;
+    return { bytes, value };
   } catch (error) {
     if (error instanceof RailError) throw error;
     throw new RailError(ctl.signal.aborted ? 'timed-out' : 'network-error');
   } finally { clearTimeout(timer); ctl.abort(); }
 }
 
+export type RailArchiveMethod = 'getVehicleData' | 'getTrainSchedule' | 'getStationMSG' | 'getStationList' | 'getStationSchedule';
 export interface RailStorage { get<T>(key: string): Promise<T | undefined>; put(key: string, value: unknown): Promise<void> }
 interface RailSaved { token?: { value: string; at: number }; mints: number[]; pausedUntil?: number }
 const RAIL_KEY = 'rail-v1';
@@ -218,13 +236,24 @@ export class RailBoards {
     const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
     try {
       return normalizeRailBoard(await railRequest('getTrainSchedule19Rec', { token, station, line: RAIL_STATIONS[station]! }, this.fetchImpl), station, this.clock());
-    } catch (error) {
-      // Only while it is still the stored token, so a newer one from another station is kept.
-      if (error instanceof RailError && error.code === 'access-denied' && saved.token?.value === token) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
-      // A rate limit pauses every station, and survives a restart. The token is kept: replacing it would spend the daily allowance.
-      if (error instanceof RailError && error.code === 'rate-limited') { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
-      throw error;
-    }
+    } catch (error) { await this.refused(error, token, saved); throw error; }
+  }
+
+  /** One raw RailData answer for the private archive (D84), sharing this object's token, mint limit and
+   *  rate-limit pause with the Train screen. Returns the token too, so the archive can refuse any body containing it. */
+  async archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }> {
+    const saved = await this.state();
+    if (this.clock() < (saved.pausedUntil ?? 0)) throw new RailError('rate-limited');
+    const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
+    try { return { bytes: (await railFetch(method, { token, ...fields }, this.fetchImpl, maxBytes, 30_000, true)).bytes, token }; }
+    catch (error) { await this.refused(error, token, saved); throw error; }
+  }
+
+  private async refused(error: unknown, token: string, saved: RailSaved) {
+    // Only while it is still the stored token, so a newer one from another station is kept.
+    if (error instanceof RailError && error.code === 'access-denied' && saved.token?.value === token) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
+    // A rate limit pauses every station, and survives a restart. The token is kept: replacing it would spend the daily allowance.
+    if (error instanceof RailError && error.code === 'rate-limited') { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
   }
 
   /** A new token, shared by concurrent callers. Never more than RAIL_MINTS_PER_DAY a day or one an hour. */
