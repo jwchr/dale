@@ -29,6 +29,19 @@ export function stopLabel(name: string): { town: string; detail: string } {
   return i > 0 ? { town: plain.slice(0, i), detail: plain.slice(i + 3) } : { town: plain, detail: '' };
 }
 
+/**
+ * The times one strip stop shows: a reached stop its reach time; a stop ahead of a bus running off
+ * schedule (shift != 0) the time at that pace, always an estimate, with the timetable time under it;
+ * otherwise the timetable time. A timetable time Dale estimated keeps its estimate mark in both places.
+ */
+export function stripTimes(stop: { at: number; estimated: boolean }, shift: number, reachedAt?: number): {
+  time: { at: number; estimated: boolean }; sched?: { at: number; estimated: boolean };
+} {
+  if (reachedAt !== undefined) return { time: { at: reachedAt, estimated: false } };
+  if (shift) return { time: { at: stop.at + shift, estimated: true }, sched: { at: stop.at, estimated: stop.estimated } };
+  return { time: { at: stop.at, estimated: stop.estimated } };
+}
+
 export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Dataset; session: BusSession; alightIndex: number; now: number; t: Strings; lang: Lang }) {
   const p = t.progress;
   const dep = session.departure;
@@ -135,14 +148,26 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
             const passed = i <= progress.reachedIndex || (live && i < progress.position - 0.05);
             const stopState = i === alightIndex ? 'alight' : i === nextIndex && !atEnd ? 'next' : passed ? 'passed' : 'ahead';
             const reached = state.milestones.find((m) => m.index === i);
+            // A stop still ahead while the bus runs off schedule: the time at this pace, with the timetable's time under it.
+            const shift = !reached && !passed && delay && progress.alight.projected !== undefined ? progress.alight.projected - progress.alight.scheduled : 0;
             return (
               <li key={`${id}-${i}`} data-i={i} data-state={stopState} data-reached={passed || undefined} data-current={i === currentIndex || undefined}>
                 {/* The visible words are the button's name; the hidden ones only join them into a sentence. */}
                 <button className="strip-stop" onClick={() => tap(i)}>
                   <span className="strip-name">{i === currentIndex && <span>{p.at} · </span>}{label.town}{label.detail && <small><span className="sr-only">, </span>{label.detail}</small>}</span>
-                  <span className="sr-only">{reached ? p.srReached : p.srScheduled}</span>
+                  <span className="sr-only">{reached ? p.srReached : shift ? p.srExpected : p.srScheduled}</span>
                   <span className="strip-dot" aria-hidden="true" />
-                  <span className="strip-time">{reached ? clock(reached.at) : clock(stopTimes[i]!.at, stopTimes[i]!.estimated)}</span>
+                  {(() => {
+                    const shown = stripTimes(stopTimes[i]!, shift, reached?.at);
+                    return <>
+                      <span className="strip-time">{clock(shown.time.at, shown.time.estimated)}</span>
+                      {shown.sched && <>
+                        {/* "Sched."/"Prog." is for the eye; a screen reader hears the full word (Neon Nov24 h). */}
+                        <span className="strip-sched" aria-hidden="true">{p.schedShort(clock(shown.sched.at, shown.sched.estimated))}</span>
+                        <span className="sr-only">{p.srScheduled}{clock(shown.sched.at, shown.sched.estimated)}</span>
+                      </>}
+                    </>;
+                  })()}
                   <span className="sr-only">{i === alightIndex ? p.srYours : ''}{p.srTap}</span>
                 </button>
               </li>
