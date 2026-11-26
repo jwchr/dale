@@ -2,6 +2,7 @@ import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
 import { RAIL_STATIONS, railArchiveFailure, type RailArchiveMethod } from './rail';
 import type { RawFeed, RawResponse } from './raw-archive';
+import { ARCHIVE_CONNECTIONS, inPool } from './pool';
 
 /** D84 ("save all the data"): every RailData answer NJ Transit serves statewide, saved raw and private.
  *  Cadence follows the approved statewide plan: train positions every poll, every station's departure
@@ -96,14 +97,16 @@ export class RailDataArchive {
       this.state.ok[step] = this.clock();
       if (method === 'getStationList') { const codes = stationCodes(bytes); if (codes) this.state.stations = codes; }
     };
-    await Promise.all([
-      plan.vehicles ? bundled('getVehicleData', {}, 'vehicles') : undefined,
-      ...plan.boards.map(station => bundled('getTrainSchedule', { station }, 'boards', station)),
+    // Two at a time, so queued calls never spend their timeout waiting for one of the Worker's 6 connections.
+    const tasks: (undefined | (() => Promise<void>))[] = [
+      plan.vehicles ? () => bundled('getVehicleData', {}, 'vehicles') : undefined,
+      ...plan.boards.map(station => () => bundled('getTrainSchedule', { station }, 'boards', station)),
       // Blank station and line ask for every station's messages (not checked against a live answer yet).
-      plan.messages ? bundled('getStationMSG', { station: '', line: '' }, 'messages') : undefined,
-      plan.list ? whole('getStationList', {}, 'list') : undefined,
-      plan.schedule ? whole('getStationSchedule', { station: '', NJTOnly: 'false' }, 'schedule') : undefined,
-    ]);
+      plan.messages ? () => bundled('getStationMSG', { station: '', line: '' }, 'messages') : undefined,
+      plan.list ? () => whole('getStationList', {}, 'list') : undefined,
+      plan.schedule ? () => whole('getStationSchedule', { station: '', NJTOnly: 'false' }, 'schedule') : undefined,
+    ];
+    await inPool(tasks.filter(task => task !== undefined), ARCHIVE_CONNECTIONS, task => task());
     // One saved object per poll instead of one per answer keeps R2 operations near the bus feeds' rate.
     // Failed requests stay in the bundle as fixed codes, so a gap is visible inside the evidence too.
     if (entries.some(e => e.status === 'ok')) {

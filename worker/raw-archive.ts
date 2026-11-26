@@ -25,7 +25,8 @@ interface Pending { key: string; manifest: Manifest }
 interface Ledger { hour: string; feeds: Partial<Record<RawFeed, Counts>>; events?: Partial<Record<RawFeed, Record<string, number>>> }
 export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
-  last: Partial<Record<RawFeed, string>>; lastAt: Partial<Record<RawFeed, number>>; ledgers: Record<string, Ledger>;
+  /** Keyed by feed, or feed:label for BUSDV2 modes. */
+  last: Partial<Record<string, string>>; lastAt: Partial<Record<string, number>>; ledgers: Record<string, Ledger>;
   pending: Pending[]; reason: string; failures: number; missing: number; blockedSecrets: number;
   /** When a storage, operation or SQL guard last refused raw saving (absent in older checkpoints). */
   budgetAt?: number;
@@ -165,13 +166,15 @@ export class RawArchive {
       try {
         const gzip = new Uint8Array(await new Response(new Blob([response.bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
         const sha256 = await hash(response.bytes);
-        if (!response.label && lastAt[response.feed] === response.receivedAt && last[response.feed] === sha256) continue;
+        // Each BUSDV2 mode is its own stream, compared only with its own last answer (Flash, #304).
+        const stream = response.label ? `${response.feed}:${response.label}` : response.feed;
+        if (lastAt[stream] === response.receivedAt && last[stream] === sha256) continue;
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
-          identical: last[response.feed] === sha256 ? 1 : 0,
+          identical: last[stream] === sha256 ? 1 : 0,
           upstreamHeaderTimestamp: isJson(response.feed) ? null : headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}),
           ...(response.label ? { label: response.label } : {}) };
-        last[response.feed] = sha256; lastAt[response.feed] = response.receivedAt;
+        last[stream] = sha256; lastAt[stream] = response.receivedAt;
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }

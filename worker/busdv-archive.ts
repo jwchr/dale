@@ -2,6 +2,7 @@ import { HISTORY_INTERVAL_MS } from './history-journal';
 import { NjtError, type Credentials } from './njt-client';
 import { reserveRequests, type RequestBudget } from './request-budget';
 import type { RawResponse } from './raw-archive';
+import { ARCHIVE_CONNECTIONS, inPool } from './pool';
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 export const BUSDV_REQUEST_LIMIT = 30_000;
@@ -243,7 +244,8 @@ export class BusDvArchive {
       if (!token && !authFailure) authFailure = 'access-denied';
       // All data calls use the same captured token. In-flight siblings still finish on a refusal;
       // nothing retries inside this poll, and a rate limit blocks every subsequent poll for 1 h.
-      await Promise.all(plan.requests.map(async r => {
+      // Two at a time: RailData takes two more, leaving rail GTFS-RT and R2 the rest of the Worker's 6.
+      await inPool(plan.requests, ARCHIVE_CONNECTIONS, async r => {
         if (authFailure || !token) { fail(r, authFailure ?? 'access-denied'); return; }
         const fields: Record<string, string> = { token };
         if (r.mode) fields.mode = r.mode;
@@ -268,7 +270,7 @@ export class BusDvArchive {
             if (valid) s.ok[`${r.method}:${r.mode!}`] = receivedAt;
           } else entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
         } catch (error) { fail(r, failureCode(error)); }
-      }));
+      });
       if (entries.length) {
         entries.sort((a, b) => a.method.localeCompare(b.method) || (a.mode ?? a.stop ?? '').localeCompare(b.mode ?? b.stop ?? ''));
         const bytes = encode(JSON.stringify({ v: 1, source: 'NJ Transit BUSDV2', responses: entries }));
