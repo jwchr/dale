@@ -5,7 +5,7 @@
 // does not parse is dropped and counted. See docs/RAIL_LIVE.md.
 import { tzOffsetMinutes } from '../src/domain/time';
 import type { Credentials } from './njt-client';
-import { looksLikeMarkup } from './pool';
+import { looksLikeJson } from './pool';
 
 export const RAIL_HOST = 'https://raildata.njtransit.com';
 export const RAIL_SOURCE = 'NJ Transit RailData';
@@ -160,9 +160,9 @@ async function railFetch(method: string, fields: Record<string, string>, fetchIm
       // Archive mode keeps the exact bytes and only reads small bodies, where NJ Transit's error answers fit:
       // parsing a multi-megabyte schedule would double its memory. Malformed data is kept as received.
       // The body is read before the status, so a 400 or 500 saying "Invalid token." still drops the token
-      // and "Daily usage limit" still pauses (Neon, #303). An HTML or XML page is never saved as data.
+      // and "Daily usage limit" still pauses (Neon, #303). An HTML or XML page, or any other answer that is not JSON, is never saved as data.
       if (size <= 16_384) try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* kept as received */ }
-      if (!statusFailure && (!size || looksLikeMarkup(bytes))) throw new RailError('unexpected-response');
+      if (!statusFailure && !looksLikeJson(bytes)) throw new RailError('unexpected-response');
     } else try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError(statusFailure ?? 'unexpected-response'); }
     // NJ Transit's guide shows "Invalid token." as a body without naming an HTTP status, so the body decides.
     if (object(value) && typeof value.errorMessage === 'string') {
@@ -247,8 +247,16 @@ export class RailBoards {
   async archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number, timeoutMs = 30_000): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }> {
     const saved = await this.state();
     if (this.clock() < (saved.pausedUntil ?? 0)) throw new RailError('rate-limited');
-    const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
-    try { return { bytes: (await railFetch(method, { token, ...fields }, this.fetchImpl, maxBytes, timeoutMs, true)).bytes, token }; }
+    // A token mint counts against the same limit, so mint and call together end by `timeoutMs` (Neon Nov26 g, #311).
+    // A mint still running at the limit finishes on its own and is kept for the next call.
+    const began = this.clock();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const token = saved.token && began - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value
+      : await Promise.race([this.token(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new RailError('timed-out')), timeoutMs); })])
+        .finally(() => clearTimeout(timer));
+    const left = timeoutMs - (this.clock() - began);
+    if (left <= 0) throw new RailError('timed-out');
+    try { return { bytes: (await railFetch(method, { token, ...fields }, this.fetchImpl, maxBytes, left, true)).bytes, token }; }
     catch (error) { await this.refused(error, token, saved); throw error; }
   }
 

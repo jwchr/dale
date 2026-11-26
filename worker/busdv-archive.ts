@@ -2,7 +2,7 @@ import { HISTORY_INTERVAL_MS } from './history-journal';
 import { NjtError, type Credentials } from './njt-client';
 import { reserveRequests, type RequestBudget } from './request-budget';
 import type { RawResponse } from './raw-archive';
-import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool, looksLikeMarkup } from './pool';
+import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool, looksLikeJson } from './pool';
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 export const BUSDV_REQUEST_LIMIT = 30_000;
@@ -174,7 +174,7 @@ async function request(method: Method, fields: Record<string, string>, maxBytes:
     for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
     const code = errorBody(bytes);
     if (code) throw new NjtError(code);
-    if (looksLikeMarkup(bytes)) throw new NjtError('invalid-response');
+    if (!looksLikeJson(bytes)) throw new NjtError('invalid-response');
     return bytes;
   };
   try {

@@ -90,7 +90,7 @@ describe('BUSDV2 private raw archive', () => {
     }, 60_000);
 
   it('preserves UTF-8 including BOM, whitespace, non-UTF-8 bytes, and exact labeled daily bytes', async () => {
-    const h = harness(), text = '\ufeff {"value":"café \\u00e9"}\r\n', odd = new Uint8Array([0xff, 0, 0x7b]);
+    const h = harness(), text = '\ufeff {"value":"café \\u00e9"}\r\n', odd = new Uint8Array([0x7b, 0xff, 0]);
     const daily = encode(' [ {"bus_terminal_code":"S001"} ] \r\n');
     h.answers.getVehicleLocations = c => new Response(c.fields.mode === 'BUS' ? encode(text) : odd);
     h.answers.getLocations = () => new Response(daily);
@@ -360,7 +360,7 @@ describe('BUSDV2 private raw archive', () => {
     expect(h.calls.filter(c => c.method === 'authenticateUser')).toHaveLength(1);
   });
 
-  it.each(['<html><body>Service unavailable</body></html>', '﻿  <?xml version="1.0"?><error/>'])('never saves a markup page as data, and retries a daily call an hour later (%s)', async page => {
+  it.each(['<html><body>Service unavailable</body></html>', '﻿  <?xml version="1.0"?><error/>', 'Service Unavailable'])('never saves a markup page as data, and retries a daily call an hour later (%s)', async page => {
     const h = harness(); h.answers.getBusRoutes = () => new Response(page);
     const r = result(await h.run());
     expect(r.failures.filter(f => f.feed === 'busdv-getBusRoutes').map(f => f.code)).toEqual(VEHICLE_MODES.map(() => 'invalid-response'));

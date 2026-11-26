@@ -70,24 +70,51 @@ describe('National Weather Service data, saved raw once a minute', () => {
     ['a list', () => Response.json([]), 'invalid-response'],
     ['a server error', () => new Response('{"status":500}', { status: 500 }), 'http-error'],
     ['a redirect', () => new Response(null, { status: 301, headers: { location: 'https://example.invalid/' } }), 'redirect-refused'],
-    ['rate limiting', () => new Response('', { status: 429 }), 'rate-limited'],
   ])('refuses %s from one source without saving its text, and still saves the rest', async (_, bad, code) => {
     const { saved, failures } = await run(archive(url => url.includes('/alerts/') ? bad() : ok(url)));
     expect(failures).toEqual([{ feed: 'nws-alerts', code, at: SLOT + 1_000 }]);
     expect(saved.responses[0]).toEqual({ kind: 'alerts', id: 'NJ,NY', url: ALERTS.url, receivedAt: SLOT + 1_000, status: code });
     expect(saved.responses.slice(1).every((r: { status: string }) => r.status === 'ok')).toBe(true);
   });
-  it('shares the crossings\' turn budget: nothing starts 12 seconds after the start it is given', async () => {
+  it('shares the crossings\' turn budget: nothing starts 16 seconds after the start it is given', async () => {
     const urls: string[] = [];
     const a = archive(url => { urls.push(url); return ok(url); });
-    const plan = a.prepare(SLOT)!, result = await a.collect(plan, SLOT + 1_000 - 12_000);
+    const plan = a.prepare(SLOT)!, result = await a.collect(plan, SLOT + 1_000 - 16_000);
     expect(urls).toHaveLength(0); expect(result.responses).toEqual([]);
     expect(result.failures.map(f => f.code)).toEqual(['timed-out', 'timed-out', 'timed-out', 'timed-out']);
   });
-  it('times out a hung station and moves on', async () => {
-    const { saved, failures } = await run(archive(url => url.includes('KACY') ? new Promise<Response>(() => {}) : ok(url), {}, 20));
-    expect(failures).toEqual([{ feed: 'nws-observation', code: 'timed-out', at: SLOT + 1_000 }]);
-    expect(saved.responses.map((r: { status: string }) => r.status)).toEqual(['ok', 'timed-out', 'ok', 'ok']);
+  it('still gets its turn after the crossings used their full 8 seconds plus a 5-second call (Neon Nov26 g)', async () => {
+    const urls: string[] = [];
+    const a = archive(url => { urls.push(url); return ok(url); });
+    const plan = a.prepare(SLOT)!, result = await a.collect(plan, SLOT + 1_000 - 13_000);
+    expect(urls).toHaveLength(4); expect(result.failures).toEqual([]);
+  });
+  it('times out a hung station and sends nothing more to NWS that minute', async () => {
+    const calls: Call[] = [];
+    const { saved, failures } = await run(archive(url => url.includes(ROTATION[0]!.id) ? new Promise<Response>(() => {}) : ok(url), {}, 20, calls));
+    expect(calls).toHaveLength(2);
+    expect(failures.map(f => f.code)).toEqual(['timed-out', 'timed-out', 'timed-out']);
+    expect(saved.responses.map((r: { status: string }) => r.status)).toEqual(['ok', 'timed-out', 'timed-out', 'timed-out']);
+  });
+  it('stops at an NWS rate limit and backs off 1, 2, 4 minutes in a row up to 15, until a success', async () => {
+    const state: WeatherState = {}, calls: Call[] = [];
+    let limited = true;
+    const a = archive(url => limited && url.includes('/alerts/') ? new Response('', { status: 429 }) : ok(url), state, 10_000, calls);
+    const first = await run(a);
+    expect(calls).toHaveLength(1);
+    expect(first.failures.map(f => f.code)).toEqual(['rate-limited', 'rate-limited', 'rate-limited', 'rate-limited']);
+    expect(first.responses).toEqual([]);
+    expect(state.pauseUntil).toBe(SLOT + 1_000 + 60_000);
+    // The pause skips the next minute's slot and keeps the station turn where it was.
+    const cursor = state.cursor;
+    expect(a.prepare(SLOT + 60_000)).toBeUndefined();
+    expect(state.cursor).toBe(cursor);
+    const pauses = [];
+    for (let n = 2; n <= 6; n++) { await a.collect(a.prepare(SLOT + n * 3_600_000)!); pauses.push(state.pauseUntil! - (SLOT + 1_000)); }
+    expect(pauses).toEqual([120_000, 240_000, 480_000, 900_000, 900_000]);
+    limited = false;
+    await a.collect(a.prepare(SLOT + 9 * 3_600_000)!);
+    expect(state.limits).toBeUndefined(); expect(state.pauseUntil).toBeUndefined();
   });
   it('saves nothing when every source fails, and fetches one at a time', async () => {
     let open = 0, most = 0;

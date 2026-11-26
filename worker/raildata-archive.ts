@@ -1,5 +1,6 @@
 import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
+import { containsSecret } from './busdv-archive';
 import { RAIL_STATIONS, RailError, railArchiveFailure, type RailArchiveMethod } from './rail';
 import type { RawFeed, RawResponse } from './raw-archive';
 import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool } from './pool';
@@ -82,6 +83,9 @@ export class RailDataArchive {
         if (elapsed >= ARCHIVE_START_MS) throw new RailError('timed-out');
         const { bytes, token } = await this.source.archiveRequest(method, fields, max, ARCHIVE_TURN_MS - elapsed);
         secrets.add(token);
+        // Checked on the exact answer, before preserve() may turn it into base64 the bundle's own scan
+        // could not read (Neon, #303 and Nov26 g). An answer holding the token is never saved.
+        if (containsSecret(bytes, [token])) throw new RailError('unexpected-response');
         return bytes;
       } catch (error) {
         const code = railArchiveFailure(error), at = this.clock();

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TRAFFIC_SOURCES, TrafficArchive, dueSources, easternDate, type TrafficState } from '../../worker/traffic-archive';
+import { TRAFFIC_SOURCES, TRAFFIC_TIMEOUT_MS, TrafficArchive, dueSources, easternDate, type TrafficState } from '../../worker/traffic-archive';
 
 // 22:15 UTC is a quarter hour: the every-minute feeds plus the two five-minute feeds with offset 0 are due.
 const SLOT = Date.UTC(2026, 10, 26, 22, 15);
@@ -69,6 +69,35 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(JSON.parse(saved.responses[1].text)).toEqual([{ messageid: 1, detail: { notes: [{ note: 'kept' }] } }]);
     expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
   });
+  it('drops other staff-name spellings from every JSON feed, and keeps an answer without them exactly as sent', async () => {
+    const times = [{ routeTravelTime: 7, sent_by: 'Synthetic Staff' }];
+    const incidents = { status: 'Success', data: [{ incidentMessage: { subject: 'kept', CreatedBy: 'Synthetic Staff', 'Updated-By': 'Synthetic Staff' }, CreatedDate: 1 }] };
+    const path = { results: [{ label: 'kept', ModifiedBy: 'Synthetic Staff', messages: [{ Author: 'Synthetic Staff', PostedBy: 'Synthetic Staff' }] }] };
+    const { saved } = await bundle(archive(url => url.includes('crossingtimesapi') ? Response.json(times)
+      : url.includes('department=BTT') ? Response.json(incidents) : url.includes('ridepath') ? Response.json(path) : ok(url)));
+    expect(saved.responses[0]).toMatchObject({ source: 'crossingTimes', status: 'ok', dropped: ['sent_by'] });
+    expect(JSON.parse(saved.responses[0].text)).toEqual([{ routeTravelTime: 7 }]);
+    expect(saved.responses[3]).toMatchObject({ source: 'crossingIncidents', status: 'ok', dropped: ['CreatedBy', 'Updated-By'] });
+    expect(JSON.parse(saved.responses[3].text)).toEqual({ status: 'Success', data: [{ incidentMessage: { subject: 'kept' }, CreatedDate: 1 }] });
+    expect(saved.responses[5]).toMatchObject({ source: 'pathArrivals', status: 'ok', dropped: ['Author', 'ModifiedBy', 'PostedBy'] });
+    expect(JSON.parse(saved.responses[5].text)).toEqual({ results: [{ label: 'kept', messages: [{}] }] });
+    // The terminal incidents answered the usual way: no staff field, so the exact text and no `dropped`.
+    expect(saved.responses[4]).toEqual(expect.objectContaining({ source: 'terminalIncidents', text: EVERBRIDGE }));
+    expect(saved.responses[4].dropped).toBeUndefined();
+    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+  });
+  it('drops the RSS tags that name a person, and refuses an RSS answer cut off before </rss>', async () => {
+    const named = '<?xml version="1.0"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><managingEditor>Synthetic Staff</managingEditor>'
+      + '<webMaster>Synthetic Staff</webMaster><item><title>kept</title><author>Synthetic Staff</author><dc:creator><![CDATA[Synthetic Staff]]></dc:creator><author/></item></channel></rss>\n';
+    const cut = RSS.slice(0, -12);
+    const { saved, failures } = await bundle(archive(url => url.includes('RSSAllNJ') ? new Response(named) : url.includes('BusAdvisories') ? new Response(cut) : ok(url)));
+    expect(saved.responses[2]).toMatchObject({ source: 'incidents', status: 'ok', dropped: ['author', 'dc:creator', 'managingEditor', 'webMaster'] });
+    expect(saved.responses[2].text).toBe('<?xml version="1.0"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item><title>kept</title></item></channel></rss>\n');
+    expect(failures).toEqual([{ feed: 'njt-rss', code: 'invalid-response', at: SLOT + 1_000 }]);
+    expect(status(saved, 'njtBusAdvisories')).toBe('invalid-response');
+    expect(saved.responses[7].text).toBeUndefined();
+    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+  });
   it('reads JSON that starts with a byte-order mark and saves it exactly as sent', async () => {
     const withBom = '\uFEFF[{"routeTravelTime":7}]', everbridge = '\uFEFF' + EVERBRIDGE;
     const { saved, failures } = await bundle(archive(url => url.includes('crossingtimesapi') ? new Response(withBom)
@@ -110,16 +139,20 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(failures).toEqual([{ feed: '511nj-events', code: 'response-too-large', at: SLOT + 1_000 }]);
     expect(sent).toBeLessThanOrEqual(6);
   });
-  it('times out a hung source and moves on', async () => {
-    const { saved, failures } = await bundle(archive(url => url.includes('crossingtimesapi') ? new Promise<Response>(() => {}) : ok(url), {}, 20));
-    expect(failures).toEqual([{ feed: 'panynj-crossingTimes', code: 'timed-out', at: SLOT + 1_000 }]);
-    expect(status(saved, 'crossingTimes')).toBe('timed-out');
-    expect(status(saved, 'crossingAlerts')).toBe('ok');
+  it('times out a hung server, skips its other feeds that minute and moves on to the other servers', async () => {
+    const urls: string[] = [];
+    const { saved, failures } = await bundle(archive(url => { urls.push(url); return url.includes('crossingtimesapi') ? new Promise<Response>(() => {}) : ok(url); }, {}, 20));
+    const panynj = DUE.filter(s => TRAFFIC_SOURCES[s].url(SLOT).includes('panynj.gov'));
+    expect(panynj).toHaveLength(6);
+    expect(urls.filter(u => u.includes('panynj.gov'))).toHaveLength(1);
+    expect(failures.map(f => f.code)).toEqual(panynj.map(() => 'timed-out'));
+    for (const source of DUE) expect([source, status(saved, source)]).toEqual([source, panynj.includes(source) ? 'timed-out' : 'ok']);
   });
-  it('starts no new request once 12 seconds of the turn are spent, and keeps what it already has', async () => {
+  it('waits at most 5 seconds for one answer', () => expect(TRAFFIC_TIMEOUT_MS).toBe(5_000));
+  it('starts no new request once 8 seconds of the turn are spent, and keeps what it already has', async () => {
     let now = SLOT + 1_000;
     const urls: string[] = [];
-    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 12_000; return ok(url); }, {}, 10_000, () => now);
+    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 8_000; return ok(url); }, {}, 10_000, () => now);
     const { saved, failures } = await bundle(a);
     expect(urls).toHaveLength(3);
     expect(saved.responses.slice(0, 3).map((r: { status: string }) => r.status)).toEqual(['ok', 'ok', 'ok']);
@@ -130,13 +163,13 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     let now = SLOT + 1_000;
     const urls: string[] = [];
     const late = archive(url => { urls.push(url); return ok(url); }, {}, 10_000, () => now);
-    const skipped = await late.collect(SLOT, now - 12_000);
+    const skipped = await late.collect(SLOT, now - 8_000);
     expect(urls).toHaveLength(0); expect(skipped.responses).toEqual([]);
     vi.useFakeTimers();
     try {
       const hung = archive(url => url.includes('crossingtimesapi') ? new Promise<Response>(() => {}) : ok(url), {}, 60_000, () => now);
-      const done = hung.collect(SLOT, now - 11_000);
-      await vi.advanceTimersByTimeAsync(9_000); now += 9_000;
+      const done = hung.collect(SLOT, now - 7_000);
+      await vi.advanceTimersByTimeAsync(13_000); now += 13_000;
       const result = await done;
       expect(result.failures[0]).toMatchObject({ feed: 'panynj-crossingTimes', code: 'timed-out' });
       expect(result.failures.every(f => f.code === 'timed-out')).toBe(true);
