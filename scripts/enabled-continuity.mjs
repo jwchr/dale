@@ -77,8 +77,8 @@ export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 3_000_000;
 const archiveClassALimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_A_LIMIT);
 export const APPROVED_ARCHIVE_CLASS_B_LIMIT = 9_000_000;
 const archiveClassBLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_B_LIMIT);
-// D84: the daily SQL write counter may rise only to this fixed value, under Cloudflare Free's 100,000 rows a day.
-export const APPROVED_DAILY_WRITE_LIMIT = 90_000;
+// D85: the daily SQL write counter may rise only to this fixed value; 31 days of it stay inside Workers Paid's 50 million included rows a month.
+export const APPROVED_DAILY_WRITE_LIMIT = 1_000_000;
 const dailyWriteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_DAILY_WRITE_LIMIT);
 // D86: the one approved set of raw limits a live Worker may move to (each guard minus the corridor reserve).
 export const APPROVED_RAW_LIMITS = { rawByteLimit: 498_000_000_000, rawClassALimit32Days: 2_850_000, rawClassBLimit32Days: 8_850_000 };

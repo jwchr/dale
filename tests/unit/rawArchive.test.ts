@@ -150,7 +150,7 @@ describe('private as-received raw archives', () => {
     expect(h.journal.status(NOW).reservedWrites).toBe(reserved);
     expect(h.checkpoints).toBe(2);
     const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-    state.reservedWrites = 74_900; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    state.reservedWrites = 984_900; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     expect(h.archive.reserveRaw(0, 64, 64, 128, NOW)).toBe('sql-write-budget');
     expect(h.journal.beginAttempt(NOW)).toBe(NOW);
   });
@@ -276,7 +276,7 @@ describe('private as-received raw archives', () => {
     const h = await harness();
     if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 499_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
     else if (guard === 'sql') {
-      const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 90_000;
+      const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 1_000_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
     } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 3_000_000 : 0, guard === 'classB' ? 9_000_000 : 0);
     await h.raw.capture([input()], NOW, []);

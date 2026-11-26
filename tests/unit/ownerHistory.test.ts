@@ -234,7 +234,7 @@ it.each(['list', 'object'] as const)('serves owner archive %s reads while paused
   expect(journal.reserveSpareWrites(1, NOW)).toBe(false);
   expect([network, alarms]).toEqual([0, 0]);
   const state = JSON.parse(String(db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-  state.reservedWrites = 90000;
+  state.reservedWrites = 1_000_000;
   db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
   expect((await object.fetch(request(secret, q))).status).toBe(503);
   expect(archiveReads).toBe(1);

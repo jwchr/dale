@@ -91,7 +91,7 @@ describe('collector and existing relay lifecycle', () => {
   it('pauses background polling on the journal budget without disabling ordinary live reads', async () => {
     const h = harness(); await h.health();
     const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-    state.reservedWrites = 90_000; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    state.reservedWrites = 1_000_000; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     await h.alarm(); expect(h.calls).toEqual([]);
     expect(await h.health()).toMatchObject({ enabled: true, reason: 'quota-paused', observations: 0, alarmAt: Date.parse('2026-11-05T00:00:00Z') });
     await h.object.fetch(new Request('https://test/v1/status')); expect(h.calls).toHaveLength(3);
