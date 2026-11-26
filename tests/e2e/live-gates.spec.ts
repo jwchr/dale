@@ -25,7 +25,11 @@ async function setup(page: Page, lang: 'en' | 'es', ageMs = 40_000) {
 }
 for (const lang of ['en', 'es'] as const) test(`source and receipt age on home, Gates and trip (${lang})`, async ({ page }, info) => {
   const state = await setup(page, lang), t = strings[lang];
-  await expect(page.locator('.dep-gate[data-status="posted"]').first()).toContainText(`${t.gatePosted('222', '3')} · NJ Transit · ${t.gateReceiptAge(40_000)}`);
+  const row = page.locator('.dep-gate[data-status="posted"]').first();
+  await expect(row.locator('.gate-posted')).toHaveText(t.gatePosted('222', '3'));
+  await expect(row.locator('.gate-row-source')).toHaveText(`NJ Transit · ${t.gateReceiptAge(40_000)}`);
+  // "NJ Transit" never splits across lines, even at 200% text.
+  await expect(row.locator('.gate-row-source .nowrap').first()).toHaveCSS('white-space', 'nowrap');
   await page.screenshot({ path: info.outputPath(`home-${lang}.png`), fullPage: true });
   await page.locator('[data-tab="gates"]').click();
   await expect(page.locator('.gate-row .dep-gate[data-status="posted"]').first()).toContainText('NJ Transit');

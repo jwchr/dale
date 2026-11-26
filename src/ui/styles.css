@@ -149,6 +149,11 @@ main { flex: 1; padding-bottom: 24px; }
 .dep-sub { color: var(--muted); font-size: 0.85rem; }
 .dep-gate { font-size: 0.85rem; font-weight: 700; }
 .dep-gate[data-status='unknown'] { font-weight: 600; color: var(--muted); }
+/* A posted gate reads first; its source and age sit quieter on their own line. */
+.dep-gate[data-status='posted'] { display: block; }
+.dep-gate .gate-posted { display: block; font-size: 1rem; font-weight: 800; }
+.dep-gate .gate-row-source { display: block; font-size: 0.8rem; font-weight: 500; opacity: 0.8; }
+.nowrap { white-space: nowrap; }
 .dep-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-left: auto; }
 .dep-min { font-weight: 700; }
 .badge-sched { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; color: var(--muted); border: 1px dashed var(--muted); border-radius: 6px; padding: 1px 6px; }

@@ -886,7 +886,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
           {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
           {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
-          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}><GateText t={t} g={g} /></span>; })()}
         </span>
       </button>
       {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
@@ -919,7 +919,7 @@ function FavoriteCard({ ctx, fav, count, model, liveEnabled, evidence, distance,
           <RouteDistance value={distance(d)} lang={ctx.lang} now={now} />
           {!live && soonest?.index === i && <span className="tag tag-first">{t.leave.arrivesFirst}</span>}
           {plan && !canWalkTo({ dep: { ...d, departs: shown } }, now, plan) && <span className="dep-toosoon">{t.leave.tooSoon}</span>}
-          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>; })()}
+          {(() => { const g = departureGate(ds, d, ctx.gates); return g && <span className="dep-gate" data-status={g.status}><GateText t={t} g={g} /></span>; })()}
         </span>
       </button>
       {live && <p id={reasonId} className="dep-evidence">{observedAt !== undefined ? <span className="dep-source">{t.live.rows.sourceAge(Math.max(0, Math.floor((now - observedAt) / 1000)))}</span>
@@ -1175,7 +1175,7 @@ function GatesScreen({ ctx, favorites, count, onGuide, onDeparture }: { ctx: Ctx
       {l.deps.length ? <ul className="tab-list">{l.deps.map(dep => { const g = departureGate(ds, dep, ctx.gates); return <li key={dep.tripInstanceId}>
         <button type="button" className="tab-row gate-row" onClick={() => onDeparture(dep, l.leg)}>
           <RouteBadge ds={ds} routeId={dep.route.id} />
-          <span><span className="gate-service">{isTurnpikeExpress(dep.route.shortName, dep.pattern.headsign) ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}>{gateLine(t, g)}</span>}</span>
+          <span><span className="gate-service">{isTurnpikeExpress(dep.route.shortName, dep.pattern.headsign) ? t.gateTurnpikeExpress : routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</span><TimeText ctx={ctx} at={dep.departs} estimated={dep.estimated} />{localYmd(dep.departs, ctx.tz) !== localYmd(now, ctx.tz) && <span className="dep-date">{fmtYmd(localYmd(dep.departs, ctx.tz), ctx.lang)}</span>}{g && <span className="dep-gate" data-status={g.status}><GateText t={t} g={g} /></span>}</span>
           <ArrowRight />
         </button>
       </li>; })}</ul> : <p className="muted">{d.gatesNoBuses}</p>}
@@ -1395,6 +1395,13 @@ function departureGate(ds: Dataset, dep: Departure, postings: GatePosting[]): Ga
 
 /** Source and receipt age of a posted gate, with the latency notice past one minute. */
 const gateSource = (t: Strings, ageMs = 0) => `NJ Transit · ${t.gateReceiptAge(ageMs)}${ageMs > 60_000 ? ` · ${t.gateLatencyNotice}` : ''}`;
+/** The same source line for screens: "NJ Transit" and the age never split across lines. */
+const GateSource = ({ t, ageMs = 0 }: { t: Strings; ageMs?: number }) =>
+  <><span className="nowrap">NJ Transit</span> · <span className="nowrap">{t.gateReceiptAge(ageMs)}</span>{ageMs > 60_000 && <> · {t.gateLatencyNotice}</>}</>;
+/** Departure-row gate: a posted gate stands out, with its source and age on a quieter line under it. */
+const GateText = ({ t, g }: { t: Strings; g: GateAnswer }) => g.status === 'posted'
+  ? <><span className="gate-posted">{t.gatePosted(g.gate, g.door)}</span><span className="gate-row-source"><GateSource t={t} ageMs={g.ageMs} /></span></>
+  : <>{gateLine(t, g)}</>;
 /**
  * Every gate surface uses the same source-qualified receipt age and latency notice.
  * Published and unknown fallback lines retain their existing wording.
@@ -1491,7 +1498,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
       {gate && (
         <div className="card gate-card" data-status={gate.status}>
           <h2>{t.gateTitle}</h2>
-          {gate.status === 'posted' && <><p className="gate-big">{t.gatePosted(gate.gate, gate.door)}</p><p className="muted small gate-source">{gateSource(t, gate.ageMs)}</p></>}
+          {gate.status === 'posted' && <><p className="gate-big">{t.gatePosted(gate.gate, gate.door)}</p><p className="muted small gate-source"><GateSource t={t} ageMs={gate.ageMs} /></p></>}
           {gate.status === 'usual' && <><p className="gate-big">{t.gateUsual(gate.gate, gate.door)}</p><p className="muted small">{t.gateUsualNote(gate.samples)}</p></>}
           {gate.status === 'published' && <><p className="gate-big">{t.gatePublished(gate.gate, gate.door)}</p><p className="muted small">{t.gatePublishedNote(fmtYmd(gate.effective, ctx.lang))}</p></>}
           {gate.status === 'unknown' && <p className="gate-big">{t.gateUnknown}</p>}
