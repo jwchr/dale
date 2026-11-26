@@ -1,5 +1,6 @@
 import { NjtError, safeNjtFailure } from './njt-client';
 import type { RawFeed, RawResponse } from './raw-archive';
+import { ARCHIVE_START_MS, ARCHIVE_TURN_MS } from './pool';
 import { boundedGet, withoutBom } from './traffic-archive';
 
 /** D84 and Jeff, Nov 26, 2026 ("P0 recording all data sources!! ... weather.. everything!!"):
@@ -61,12 +62,15 @@ export class WeatherArchive {
     return { slot, items };
   }
 
-  /** One request at a time, after the crossings, so it never adds a connection beside them. */
-  async collect(plan: { slot: number; items: Item[] }): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
+  /** One request at a time, after the crossings, so it never adds a connection beside them. `started` is
+   *  the crossings' own start, so both together keep the shared turn budget (Neon on #307). */
+  async collect(plan: { slot: number; items: Item[] }, started = this.clock()): Promise<{ responses: RawResponse[]; failures: { feed: RawFeed; code: string; at: number }[]; secrets: string[] }> {
     const entries: Entry[] = [], failures: { feed: RawFeed; code: string; at: number }[] = [];
     for (const { kind, id, feed, url } of plan.items) {
       try {
-        const text = accept(await boundedGet(url, this.fetchImpl, this.timeoutMs, HEADERS));
+        const elapsed = this.clock() - started;
+        if (elapsed >= ARCHIVE_START_MS) throw new NjtError('timed-out');
+        const text = accept(await boundedGet(url, this.fetchImpl, Math.min(this.timeoutMs, ARCHIVE_TURN_MS - elapsed), HEADERS));
         entries.push({ kind, id, url, receivedAt: this.clock(), status: 'ok', text });
       } catch (error) {
         const code = safeNjtFailure(error), at = this.clock();

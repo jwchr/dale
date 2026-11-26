@@ -77,6 +77,13 @@ describe('National Weather Service data, saved raw once a minute', () => {
     expect(saved.responses[0]).toEqual({ kind: 'alerts', id: 'NJ,NY', url: ALERTS.url, receivedAt: SLOT + 1_000, status: code });
     expect(saved.responses.slice(1).every((r: { status: string }) => r.status === 'ok')).toBe(true);
   });
+  it('shares the crossings\' turn budget: nothing starts 12 seconds after the start it is given', async () => {
+    const urls: string[] = [];
+    const a = archive(url => { urls.push(url); return ok(url); });
+    const plan = a.prepare(SLOT)!, result = await a.collect(plan, SLOT + 1_000 - 12_000);
+    expect(urls).toHaveLength(0); expect(result.responses).toEqual([]);
+    expect(result.failures.map(f => f.code)).toEqual(['timed-out', 'timed-out', 'timed-out', 'timed-out']);
+  });
   it('times out a hung station and moves on', async () => {
     const { saved, failures } = await run(archive(url => url.includes('KACY') ? new Promise<Response>(() => {}) : ok(url), {}, 20));
     expect(failures).toEqual([{ feed: 'nws-observation', code: 'timed-out', at: SLOT + 1_000 }]);

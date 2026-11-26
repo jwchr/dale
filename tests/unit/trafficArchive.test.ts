@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TRAFFIC_SOURCES, TrafficArchive, dueSources, easternDate, type TrafficState } from '../../worker/traffic-archive';
 
 // 22:15 UTC is a quarter hour: the every-minute feeds plus the two five-minute feeds with offset 0 are due.
@@ -116,15 +116,31 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(status(saved, 'crossingTimes')).toBe('timed-out');
     expect(status(saved, 'crossingAlerts')).toBe('ok');
   });
-  it('starts no new request once 25 seconds of the turn are spent, and keeps what it already has', async () => {
+  it('starts no new request once 12 seconds of the turn are spent, and keeps what it already has', async () => {
     let now = SLOT + 1_000;
     const urls: string[] = [];
-    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 26_000; return ok(url); }, {}, 10_000, () => now);
+    const a = archive(url => { urls.push(url); if (url.includes('RSSAllNJ')) now += 12_000; return ok(url); }, {}, 10_000, () => now);
     const { saved, failures } = await bundle(a);
     expect(urls).toHaveLength(3);
     expect(saved.responses.slice(0, 3).map((r: { status: string }) => r.status)).toEqual(['ok', 'ok', 'ok']);
     expect(saved.responses.slice(3).every((r: { status: string; text?: string }) => r.status === 'timed-out' && r.text === undefined)).toBe(true);
     expect(failures).toHaveLength(DUE.length - 3);
+  });
+  it('counts the budget from the start it is given, and ends a hung request by 20 seconds', async () => {
+    let now = SLOT + 1_000;
+    const urls: string[] = [];
+    const late = archive(url => { urls.push(url); return ok(url); }, {}, 10_000, () => now);
+    const skipped = await late.collect(SLOT, now - 12_000);
+    expect(urls).toHaveLength(0); expect(skipped.responses).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      const hung = archive(url => url.includes('crossingtimesapi') ? new Promise<Response>(() => {}) : ok(url), {}, 60_000, () => now);
+      const done = hung.collect(SLOT, now - 11_000);
+      await vi.advanceTimersByTimeAsync(9_000); now += 9_000;
+      const result = await done;
+      expect(result.failures[0]).toMatchObject({ feed: 'panynj-crossingTimes', code: 'timed-out' });
+      expect(result.failures.every(f => f.code === 'timed-out')).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
   it('saves nothing when every source fails, and fetches one at a time', async () => {
     let open = 0, most = 0;
