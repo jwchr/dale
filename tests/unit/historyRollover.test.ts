@@ -96,7 +96,7 @@ describe('weekly schedule rollover on the same Durable Object storage', () => {
     oldJournal.setEnabled(true, NOW);
     oldJournal.complete(oldJournal.beginAttempt(NOW)!, poll(ds, NOW), NOW);
     const state = JSON.parse(String(db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-    state.reservedWrites = 75_000 - 3; db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    state.reservedWrites = 90_000 - 3; db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     const newKey = await historyContextKey(next), journal = new HistoryJournal(storage, next, newKey);
     expect(() => journal.setEnabled(true, NOW + 30_000)).toThrow('history-schedule-budget');
     expect(journal.status(NOW + 30_000)).toMatchObject({ enabled: true, scheduleVersion: 'fedcba654321', scheduleContextStored: false, observations: 1, batches: 1 });
@@ -130,7 +130,7 @@ describe('weekly schedule rollover on the same Durable Object storage', () => {
     alarmAt = null; await oldObject.alarm();
     expect(await health(oldObject)).toMatchObject({ observations: 1, batches: 1, error: false });
     const state = JSON.parse(String(db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-    state.reservedWrites = 75_000 - 3; db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    state.reservedWrites = 90_000 - 3; db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     now = NOW + 30_000; const upstream = calls.length;
     const New = createFeedClass(next, net, () => now), newObject = new New(ctx, env);
     const refused = await health(newObject);

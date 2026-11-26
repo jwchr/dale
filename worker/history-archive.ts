@@ -98,7 +98,7 @@ export class HistoryArchive {
     // acknowledged (CodeRabbit, #278). Operation and SQL write limits still apply.
     if (bytes > 0 && before.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';
     if (usage.a + a > RAW_A_LIMIT || usage.b + b > RAW_B_LIMIT) return 'free-operation-budget';
-    if (!this.journal.reserveSpareWrites(writes + 4, now)) return 'sql-write-budget';
+    if (!this.journal.reserveRawWrites(writes + 4, now)) return 'sql-write-budget';
     return this.storage.transactionSync(() => {
       const state = this.read(), totals = this.totals(now);
       if (bytes > 0 && state.reservedBytes + bytes >= RAW_BYTE_LIMIT) return 'free-storage-budget';

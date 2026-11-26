@@ -52,8 +52,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (!this.rawArchive) return undefined;
       // A storage, budget or secret stop keeps its own reason; busRegion always shows the region state (Neon Nov25 k).
       const status = this.rawArchive.status();
-      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'unavailable' as const,
-        ...(this.rawSaving && !regionRoutes && (status.reason === 'ready' || status.reason === 'waiting') ? { reason: 'region-unavailable' } : {}) };
+      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'statewide' as const };
     }
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
@@ -281,7 +280,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
       if (railDue) startRailBudgetRetry(this.saved.rawArchive, now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
-        if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
+        if (!this.journal?.reserveRawWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
       }, fetchImpl, clock) : undefined;
       const railPlan = rail?.prepare(now);
@@ -317,7 +316,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try {
-            const bytes = await njtRequest(endpoint, { token }, saving && regionRoutes ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            const bytes = await njtRequest(endpoint, { token }, saving ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            // D84: with no region file every statewide bus response is saved whole, as before D83.
+            if (saving && !regionRoutes) raw.push({ feed: endpoint, bytes, receivedAt });
             if (saving && regionRoutes) {
               // Filtering/decoding failure must never replace live data or interrupt corridor history.
               try { raw.push(await filterRegionRaw({ feed: endpoint, bytes, receivedAt }, regionRoutes)); }

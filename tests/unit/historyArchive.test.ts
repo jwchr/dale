@@ -97,7 +97,7 @@ describe('verified permanent private archive', () => {
     const h = await harness();
     if (budget === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 39_000_000_000, verifiedObjects: 0, failures: 0, reason: 'waiting' }));
     else if (budget === 'sql') {
-      const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 75_000;
+      const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 90_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', budget === 'classA' ? 950_000 : 0, budget === 'classB' ? 2_000_000 : 0);
     await h.archive.flush(NOW); expect(h.calls).toEqual([]); expect(h.journal.nextUnarchived()).toBeDefined();
