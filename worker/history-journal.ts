@@ -11,7 +11,11 @@ export const HISTORY_INTERVAL_MS = 30_000;
 const MAX_BATCH_BYTES = 128_000, MAX_JOURNAL_BYTES = 250_000_000, MAX_DATABASE_BYTES = 500_000_000;
 // Conservative per-attempt reservation covers journal insert/metadata,
 // existing relay cache writes, authentication rollover and one alarm reschedule.
-const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 75_000;
+// 90,000 of Cloudflare Free's 100,000 SQL rows written a day: the last 10,000 cover writes this counter does
+// not see (alarms, small state saves). Statewide raw saving gets its own share of each interval, RAW_LANE, which
+// other optional work must leave free (Jeff, Nov 26, 2026, P0: "Nothing is more important than getting this data
+// saved"; raw saving had been squeezed out of the 75,000 cap from about 8:50 AM ET).
+const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 90_000, RAW_LANE = 6;
 export const HISTORY_HOT_MS = 6 * 3600_000;
 export interface ArchiveReceipt { key: string; manifestKey: string; rawSHA256: string; gzipSHA256: string; rawBytes: number; gzipBytes: number; contextManifestKey?: string }
 export async function historyContextKey(ds: Dataset) {
@@ -265,19 +269,25 @@ export class HistoryJournal {
   /** Optional derived work (arrival confidence, #91) may use only the spare margin: the rest of today's normal
    * collection/archive/prune reservations stay reserved, plus `keep` units left for other optional work. */
   reserveSpareWrites(units: number, now: number, keep = 0): boolean {
-    return this.reserveOptionalWrites(units, now, keep, true);
+    return this.reserveOptionalWrites(units, now, keep, true, false);
+  }
+  /** Statewide raw saving (bus and rail originals and the rail state saves behind them): it may use the raw lane
+   *  that every other optional use leaves free, ahead of derived work. */
+  reserveRawWrites(units: number, now: number): boolean {
+    return this.reserveOptionalWrites(units, now, 0, true, true);
   }
   /** Owner reads charge the same spare budget even while collection is paused; never enable it. */
   reserveReadWrites(units: number, now: number, keep = 0): boolean {
-    return this.reserveOptionalWrites(units, now, keep, false);
+    return this.reserveOptionalWrites(units, now, keep, false, false);
   }
-  private reserveOptionalWrites(units: number, now: number, keep: number, requireEnabled: boolean): boolean {
+  private reserveOptionalWrites(units: number, now: number, keep: number, requireEnabled: boolean, raw: boolean): boolean {
     return this.storage.transactionSync(() => {
       const state = this.read(now);
       if ((requireEnabled && !state.enabled) || !Number.isSafeInteger(units) || units < 1 || !Number.isSafeInteger(keep) || keep < 0) return false;
       if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
       const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
-      const normal = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+      const intervals = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS);
+      const normal = intervals * (raw ? 24 : 24 + RAW_LANE) + 16;
       if (DAILY_WRITE_BUDGET - state.reservedWrites - units < normal + keep) return false;
       state.reservedWrites += units; this.write(state); return true;
     });
@@ -345,7 +355,7 @@ export class HistoryJournal {
       if (!state.enabled) return;
       if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
       const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
-      const catchUpReserve = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+      const catchUpReserve = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
       for (const [i, row] of rows.entries()) {
         if (state.reservedWrites + 4 > DAILY_WRITE_BUDGET) break;
         if (i > 0 && DAILY_WRITE_BUDGET - state.reservedWrites - 4 < catchUpReserve) break;

@@ -76,6 +76,9 @@ const archiveByteLimitOk = (before, after) => after === before || (after > befor
 // D80: the shared Class A guard may rise only to this fixed value, inside R2's free 1,000,000 a month.
 export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 950_000;
 const archiveClassALimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_A_LIMIT);
+// D84: the daily SQL write counter may rise only to this fixed value, under Cloudflare Free's 100,000 rows a day.
+export const APPROVED_DAILY_WRITE_LIMIT = 90_000;
+const dailyWriteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_DAILY_WRITE_LIMIT);
 // D80: the one approved set of raw limits a live Worker may move to.
 export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 };
 // Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave
@@ -89,7 +92,8 @@ export function continuesEnabled(before, after, progressSince) {
   // `batches` counts retained hot rows: HistoryJournal.pruneVerified decrements it after verified
   // archiving, so it is not cumulative evidence. `observations` only ever grows.
   if (!['observations', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
-    || !['byteLimit', 'databaseByteLimit', 'dailyWriteReservationLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
+    || !['byteLimit', 'databaseByteLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
+    || !dailyWriteLimitOk(before.dailyWriteReservationLimit, after.dailyWriteReservationLimit)
     || (before.budgetDay === after.budgetDay && after.reservedWrites < before.reservedWrites)
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
     || !archiveByteLimitOk(before.archive.byteLimit, after.archive.byteLimit)

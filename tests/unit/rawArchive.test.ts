@@ -267,7 +267,7 @@ describe('private as-received raw archives', () => {
     const h = await harness();
     if (guard === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_999_999_999, verifiedObjects: 0, failures: 0, reason: 'ready' }));
     else if (guard === 'sql') {
-      const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 75_000;
+      const meta = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); meta.reservedWrites = 90_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(meta));
     } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(NOW).toISOString().slice(0, 10), guard === 'classA' ? 950_000 : 0, guard === 'classB' ? 2_000_000 : 0);
     await h.raw.capture([input()], NOW, []);
@@ -380,17 +380,22 @@ describe('raw collection through the bus Worker', () => {
     expect(manifest).toMatchObject({ sha256: sha(bytes), rawBytes: bytes.byteLength,
       filtered: { v: 1, counties: REGION_COUNTIES, sourceSHA256: sha(source), sourceBytes: source.byteLength, entities: 3, kept: 1, noRoute: 1 } });
   });
-  it('keeps an archive stop reason visible when the region is unavailable (Neon Nov25 k)', async () => {
+  it('keeps an archive stop reason visible with no region file (Neon Nov25 k)', async () => {
     const h = await service(true, true, true, null); h.echoSecret(); await h.poll();
-    expect((await h.health()).rawArchive).toMatchObject({ reason: 'secret-response-rejected', busRegion: 'unavailable' });
+    expect((await h.health()).rawArchive).toMatchObject({ reason: 'secret-response-rejected', busRegion: 'statewide' });
   });
   it.each([null, undefined, { v: 1, feedVersion: 'old', counties: REGION_COUNTIES, routeIds: ['10'] },
-    { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: [] }])('fails closed for an unavailable region asset (%j)', async region => {
+    { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: [] }])('saves every statewide bus response whole with no usable region file (D84, %j)', async region => {
     const h = await service(true, true, true, region); await h.poll();
-    expect([...h.objects.keys()].filter(k => /\/get(VehiclePositions|TripUpdates)\//.test(k))).toEqual([]);
+    for (const feed of ['getVehiclePositions', 'getTripUpdates']) {
+      const busKey = [...h.objects.keys()].find(k => k.includes(`/${feed}/`) && k.endsWith('.pb.gz'))!;
+      const sent = binaryFeed([{ id: 'synthetic', ...(feed === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }]);
+      expect(new Uint8Array(gunzipSync(h.objects.get(busKey)!))).toEqual(new Uint8Array(sent));
+    }
     const railKey = [...h.objects.keys()].find(k => k.includes('/rail-getVehiclePositions/') && k.endsWith('.pb.gz'))!;
     expect(new Uint8Array(gunzipSync(h.objects.get(railKey)!))).toEqual(original());
-    expect((await h.health()).rawArchive).toMatchObject({ reason: 'region-unavailable', busRegion: 'unavailable' });
+    expect((await h.health()).rawArchive).toMatchObject({ busRegion: 'statewide' });
+    expect((await h.health()).rawArchive.reason).not.toBe('region-unavailable');
     const normal = await service(); await normal.poll();
     const history = (db: DatabaseSync) => db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt').all();
     expect(history(h.db).length).toBeGreaterThan(0);
@@ -496,9 +501,9 @@ describe('raw collection through the bus Worker', () => {
     expect(h.urls).toHaveLength(2);
   });
   it('reports a rail token-save SQL budget failure without mislabeling the agency ceiling', async () => {
-    const reserve = HistoryJournal.prototype.reserveSpareWrites;
-    vi.spyOn(HistoryJournal.prototype, 'reserveSpareWrites').mockImplementation(function (this: HistoryJournal, units, now, keep) {
-      return units === 3 ? false : reserve.call(this, units, now, keep);
+    const reserve = HistoryJournal.prototype.reserveRawWrites;
+    vi.spyOn(HistoryJournal.prototype, 'reserveRawWrites').mockImplementation(function (this: HistoryJournal, units, now) {
+      return units === 3 ? false : reserve.call(this, units, now);
     });
     const h = await service(); await h.poll();
     expect(h.urls.filter(url => url.endsWith('/getToken'))).toHaveLength(1);

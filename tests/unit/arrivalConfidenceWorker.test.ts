@@ -10,7 +10,7 @@ import type { ConfidenceKey } from '../../src/domain/arrivalConfidence';
 import { liveDataset as ds, NOW } from '../helpers/liveBus';
 
 // Synthetic batches only: invented trips, a fake vehicle id and fake coordinates that must never reach any output.
-const DAILY_WRITE_BUDGET = 75_000, databases: DatabaseSync[] = [];
+const DAILY_WRITE_BUDGET = 90_000, databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function harness() {
   const db = new DatabaseSync(':memory:'); databases.push(db);
@@ -84,7 +84,8 @@ describe('live fold inside the collector', () => {
   });
   it('spare writes leave every remaining normal poll, the rollover margin and the caller keep untouched', () => {
     const h = harness();
-    const normal = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000) * 24 + 16;
+    // Every other optional use also leaves statewide raw saving its 6 writes per remaining poll (Jeff's P0, Nov 26).
+    const normal = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000) * (24 + 6) + 16;
     const room = DAILY_WRITE_BUDGET - h.journal.status(NOW).reservedWrites - normal;
     expect(h.journal.reserveSpareWrites(room - 10, NOW, 11)).toBe(false);
     expect(h.journal.reserveSpareWrites(room - 10, NOW, 10)).toBe(true);
@@ -93,6 +94,18 @@ describe('live fold inside the collector', () => {
     expect(h.journal.reserveSpareWrites(0, NOW)).toBe(false);
     const off = harness(); off.journal.setEnabled(false, NOW);
     expect(off.journal.reserveSpareWrites(1, NOW)).toBe(false);
+  });
+  it('statewide raw saving may use the lane every other optional use leaves free, never the normal polls (P0, Nov 26)', () => {
+    const h = harness();
+    const intervals = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000);
+    const room = DAILY_WRITE_BUDGET - h.journal.status(NOW).reservedWrites - (intervals * 24 + 16);
+    expect(h.journal.reserveSpareWrites(room - intervals * 6, NOW)).toBe(true);
+    expect(h.journal.reserveSpareWrites(1, NOW)).toBe(false);
+    expect(h.journal.reserveRawWrites(intervals * 6 + 1, NOW)).toBe(false);
+    expect(h.journal.reserveRawWrites(intervals * 6, NOW)).toBe(true);
+    expect(h.journal.reserveRawWrites(1, NOW)).toBe(false);
+    const off = harness(); off.journal.setEnabled(false, NOW);
+    expect(off.journal.reserveRawWrites(1, NOW)).toBe(false);
   });
 });
 
