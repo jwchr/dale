@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error native Node ESM script without declarations
-import { archiveStaticGtfs, createWranglerBucket, runCli } from '../../scripts/archive-static-gtfs.mjs';
+import { PUBLIC_FEEDS, archivePublicGtfs, archiveStaticGtfs, createWranglerBucket, runCli } from '../../scripts/archive-static-gtfs.mjs';
 
 const BUS = 'static-bus-gtfs', RAIL = 'static-rail-gtfs';
 const NOW = Date.UTC(2026, 10, 26, 9, 17);
@@ -273,7 +273,7 @@ describe('wrangler wiring and private temporary files', () => {
       expect(logs.join('')).not.toContain(secret);
     }
     expect(JSON.parse(logs[0]!).exitCode).toBe(exit);
-    expect(objects.size).toBe(failure ? 0 : 6);
+    expect(objects.size).toBe(failure ? 0 : 6 + 3 * PUBLIC_FEEDS.length);
   });
 
   it('CLI reports missing Cloudflare configuration for both feeds without I/O', async () => {
@@ -295,5 +295,101 @@ describe('wrangler wiring and private temporary files', () => {
     for (const name of ['NJT_API_USERNAME', 'NJT_API_PASSWORD', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'])
       expect(workflow).toContain(`${name}: \u0024{{ secrets.${name} }}`);
     expect(workflow).not.toContain('upload-artifact');
+  });
+});
+
+describe('daily private archive of the public partner and NJ Transit schedule ZIPs', () => {
+  type Feed = { feed: string; url: string; max: number; source: string };
+  const two: Feed[] = [
+    { feed: 'static-partner-a', url: 'https://www.njtransit.com/A_bus_data.zip', max: 64, source: 'synthetic A' },
+    { feed: 'static-partner-b', url: 'https://api.prod.coachusa.com/gtfs', max: 64, source: 'synthetic B' },
+  ];
+  function open(answer: (url: string) => Response | Promise<Response>, feeds = two, timeoutMs = 1_000) {
+    const objects = new Map<string, Uint8Array>(), writes: string[] = [], requests: { url: string; init: RequestInit }[] = [];
+    let at = NOW;
+    const bucket = {
+      async get(key: string) { return objects.get(key)?.slice() ?? null; },
+      async put(key: string, bytes: Uint8Array) { writes.push(key); objects.set(key, bytes.slice()); },
+    };
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => { requests.push({ url, init }); return answer(url); });
+    return { objects, writes, requests, day: () => { at += 86_400_000; },
+      run: () => archivePublicGtfs({ credentials, fetchImpl, clock: () => at, bucket, feeds, timeoutMs }) };
+  }
+  const moved = (location: string, status = 301) => new Response(null, { status, headers: { location } });
+  const cdn = (url: string) => url.replace('https://www.njtransit.com/', 'https://content.njtransit.com/sites/default/files/developers-resources/');
+
+  it('lists every ZIP the developer portal names, each on HTTPS at a known host, under its own feed', () => {
+    expect(PUBLIC_FEEDS).toHaveLength(18);
+    const feeds = PUBLIC_FEEDS as Feed[];
+    expect(new Set(feeds.map(f => f.feed)).size).toBe(18); expect(new Set(feeds.map(f => f.url)).size).toBe(18);
+    for (const { feed, url } of feeds) {
+      expect(feed).toMatch(/^static-(partner|njt-public)-[a-z-]+$/);
+      expect(new URL(url).protocol).toBe('https:');
+      expect(['www.njtransit.com', 'api.prod.coachusa.com', 'seastreak.com']).toContain(new URL(url).hostname);
+    }
+    expect(feeds.map(f => f.url)).toEqual(expect.arrayContaining(['https://www.njtransit.com/LakelandBusLines_bus_data.zip',
+      'https://www.njtransit.com/bus_data.zip', 'https://www.njtransit.com/rail_data.zip', 'https://api.prod.coachusa.com/gtfs',
+      'https://seastreak.com/api/transit/google_transit.zip']));
+  });
+
+  it('follows NJ Transit\'s redirect, saves each exact ZIP with manifest and index, and on an unchanged day only refreshes the index', async () => {
+    const h = open(url => url.startsWith('https://www.njtransit.com/') ? moved(cdn(url)) : new Response(zip(url.includes('coachusa') ? 3 : 4).slice().buffer));
+    const result = await h.run();
+    expect(result).toEqual({ exitCode: 0, feeds: { 'static-partner-a': { status: 'saved', receivedAt: NOW }, 'static-partner-b': { status: 'saved', receivedAt: NOW } } });
+    const key = `raw/v1/2026-11-26/static-partner-a/${NOW}-${sha(zip(4))}.zip`;
+    expect(h.objects.get(key)).toEqual(zip(4));
+    expect(decode(h.objects.get(`${key}.manifest.json`)!)).toEqual({ v: 1, feed: 'static-partner-a', receivedAt: NOW, sha256: sha(zip(4)), bytes: zip(4).length, source: 'synthetic A' });
+    expect(decode(h.objects.get(indexKey('static-partner-a'))!)).toEqual({ v: 1, feed: 'static-partner-a', sha256: sha(zip(4)), key, lastCheckedAt: NOW });
+    expect(h.requests.map(r => r.url)).toEqual([two[0]!.url, cdn(two[0]!.url), two[1]!.url]);
+    for (const { init } of h.requests) {
+      expect(init).toMatchObject({ method: 'GET', redirect: 'manual', cache: 'no-store' });
+      expect((init.headers as Record<string, string>)['user-agent']).toMatch(/^Dale transit app/);
+      expect(init.body).toBeUndefined();
+    }
+    h.writes.length = 0; h.day();
+    expect((await h.run()).feeds['static-partner-a']).toEqual({ status: 'unchanged', receivedAt: NOW + 86_400_000 });
+    expect(h.writes).toEqual([indexKey('static-partner-a'), indexKey('static-partner-b')]);
+  });
+
+  it.each([
+    ['a redirect to another host', () => moved('https://example.invalid/a.zip'), 'redirect-refused'],
+    ['a redirect off HTTPS', () => moved('http://content.njtransit.com/a.zip', 302), 'redirect-refused'],
+    ['a redirect with no location', () => new Response(null, { status: 302 }), 'redirect-refused'],
+    ['an endless redirect loop', () => moved('https://www.njtransit.com/A_bus_data.zip'), 'redirect-refused'],
+    ['an HTML error page', () => new Response('<!DOCTYPE html><html>Page not found</html>'), 'invalid-response'],
+    ['a missing file', () => new Response('', { status: 404 }), 'http-error'],
+    ['rate limiting', () => new Response('', { status: 429 }), 'rate-limited'],
+    ['a file over its cap', () => new Response(new Uint8Array(65).fill(0x50).buffer), 'response-too-large'],
+    ['a network failure', () => { throw new TypeError('offline'); }, 'network-error'],
+    ['a hung answer', () => new Promise<Response>(() => {}), 'timed-out'],
+    ['a body that stalls', () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([0x50])); } })), 'timed-out'],
+  ])('refuses %s with a fixed code, saves nothing for it, and still saves the next', async (_, bad, code) => {
+    const h = open(url => url.includes('A_bus') ? bad() : new Response(zip(5).slice().buffer), two, 30);
+    const result = await h.run();
+    expect(result.exitCode).toBe(1);
+    expect(result.feeds['static-partner-a']).toMatchObject({ status: 'failed', code, operation: 'download' });
+    expect(result.feeds['static-partner-b']).toEqual({ status: 'saved', receivedAt: NOW });
+    expect([...h.objects.keys()].some(k => k.includes('static-partner-a'))).toBe(false);
+  });
+
+  it('gives up after 3 redirects', async () => {
+    const h = open(url => url.includes('A_bus') ? moved('https://content.njtransit.com/A_bus_data.zip') : new Response(zip(8).slice().buffer));
+    h.requests.length = 0;
+    expect((await h.run()).feeds['static-partner-a']).toMatchObject({ code: 'redirect-refused' });
+    expect(h.requests.filter(r => r.url.includes('A_bus'))).toHaveLength(4);
+  });
+
+  it('never saves an answer that carries an NJ Transit credential', async () => {
+    const leaked = new Uint8Array([0x50, 0x4b, 3, 4, ...new TextEncoder().encode(credentials.NJT_API_PASSWORD)]);
+    const h = open(url => new Response((url.includes('A_bus') ? leaked : zip(6)).slice().buffer));
+    expect((await h.run()).feeds['static-partner-a']).toMatchObject({ status: 'failed', code: 'invalid-response' });
+    expect([...h.objects.keys()].some(k => k.includes('static-partner-a'))).toBe(false);
+  });
+
+  it('needs no NJ Transit account: it runs and saves with no credentials at all', async () => {
+    const result = await archivePublicGtfs({ credentials: {}, fetchImpl: vi.fn(async () => new Response(zip(7).slice().buffer)),
+      clock: () => NOW, bucket: { get: async () => null, put: async () => {} }, feeds: two });
+    expect(result.exitCode).toBe(1); // readback of a bucket that keeps nothing fails, proving it got that far
+    expect(Object.values(result.feeds).every(f => (f as { operation: string }).operation === 'readback')).toBe(true);
   });
 });
