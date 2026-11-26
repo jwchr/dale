@@ -8,8 +8,10 @@ export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | '
   | 'raildata-poll' | 'raildata-getStationList' | 'raildata-getStationSchedule'
   | 'raildata-getVehicleData' | 'raildata-getTrainSchedule' | 'raildata-getStationMSG'
   | 'busdv-poll' | 'busdv-getLocations' | 'busdv-getBusRoutes'
-  | 'busdv-authenticateUser' | 'busdv-getVehicleLocations' | 'busdv-getBusDV';
-const isJson = (feed: RawFeed) => feed.startsWith('raildata-') || feed.startsWith('busdv-');
+  | 'busdv-authenticateUser' | 'busdv-getVehicleLocations' | 'busdv-getBusDV'
+  // Crossings and incidents: one JSON bundle a minute, and per-source names for failures only.
+  | 'traffic-poll' | 'panynj-crossingTimes' | 'panynj-crossingAlerts' | '511nj-events';
+const isJson = (feed: RawFeed) => feed.startsWith('raildata-') || feed.startsWith('busdv-') || feed === 'traffic-poll';
 export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; receivedAt: number;
   /** Original bus bytes are checked for secrets but never saved after filtering. */
   sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter;

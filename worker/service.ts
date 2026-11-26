@@ -8,6 +8,7 @@ import { reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
 import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
 import { BusDvArchive, newBusDvState, type BusDvState } from './busdv-archive';
+import { TrafficArchive, type TrafficState } from './traffic-archive';
 import { createNormalizer, type NormalizedFeed } from './normalize';
 import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
@@ -28,11 +29,11 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; BUSDV_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; BUSDV_RAW?: string; TRAFFIC_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState;
   /** Private: holds BUSDV2's own token. Never exposed by any endpoint. */
-  busDv?: BusDvState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+  busDv?: BusDvState; traffic?: TrafficState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 /** Raw-only bus alerts give up sooner than the live feeds' 15 seconds (Neon Nov26 e, #301 P2). */
 const ALERTS_TIMEOUT_MS = 8_000;
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
@@ -296,6 +297,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const busDv = busDvDue ? new BusDvArchive(this.saved.busDv ??= newBusDvState(), this.env, fetchImpl, clock) : undefined;
       const busDvPlan = busDv?.prepare(now);
       if (busDvPlan === 'request-ceiling') saving?.recordFailure('busdv-poll', 'request-ceiling', now);
+      // Port Authority crossings and 511NJ incidents: once a minute, under the same raw guards.
+      const trafficDue = !!saving && this.env.TRAFFIC_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const traffic = trafficDue ? new TrafficArchive(this.saved.traffic ??= {}, fetchImpl, clock) : undefined;
+      const trafficSlot = traffic?.prepare(now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
         if (!this.journal?.reserveRawWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
@@ -389,7 +394,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
         } catch { this.saved.rawArchive!.failures++; }
       }
-      for (const work of [railDataWork, busDvWork]) {
+      // After the rail feeds, so with RailData and BUSDV2 at most five connections are open at once.
+      const trafficWork = traffic && trafficSlot !== undefined ? traffic.collect(trafficSlot).catch(() => undefined) : undefined;
+      for (const work of [railDataWork, busDvWork, trafficWork]) {
         if (!work) continue;
         const result = await work;
         if (!result) this.saved.rawArchive!.failures++;
