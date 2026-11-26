@@ -1,3 +1,5 @@
+import { agoEn, agoEs } from './ago';
+
 export const commuteBriefingStrings = {
   en: {
     heading: 'What changed for my commute', date: 'Travel date', allDay: 'All day · Eastern time',
@@ -10,7 +12,7 @@ export const commuteBriefingStrings = {
     timetable: 'Open full timetable', reselect: 'Check saved stops and routes',
     source: 'Schedule source', ageUnknown: 'Source age unknown', publicationUnknown: 'Source publication/update time unknown.',
     built: 'Schedule file built', buildAge: 'Build age', version: 'Schedule version',
-    age: (minutes: number) => minutes < 60 ? `${minutes} min ago` : minutes < 1440 ? `${Math.floor(minutes / 60)} hr ago` : `${Math.floor(minutes / 1440)} days ago`,
+    age: agoEn,
     checked: 'Last successful schedule check', checkUnknown: 'Last successful schedule check unknown.',
     saved: 'Offline copy saved', savedUnknown: 'Offline saved-copy age unknown.', offline: 'Offline saved schedule. Last known information.',
     valid: 'Calendar validity', issued: 'Printed issue date', effective: 'Printed gate rules effective',
@@ -30,7 +32,7 @@ export const commuteBriefingStrings = {
     timetable: 'Abrir horario completo', reselect: 'Revisar paradas y rutas guardadas',
     source: 'Fuente del horario', ageUnknown: 'Antigüedad de la fuente desconocida', publicationUnknown: 'Fecha de publicación/actualización de la fuente desconocida.',
     built: 'Archivo de horario generado', buildAge: 'Antigüedad del archivo', version: 'Versión del horario',
-    age: (minutes: number) => minutes < 60 ? `hace ${minutes} min` : minutes < 1440 ? `hace ${Math.floor(minutes / 60)} h` : `hace ${Math.floor(minutes / 1440)} días`,
+    age: agoEs,
     checked: 'Última consulta exitosa del horario', checkUnknown: 'Última consulta exitosa del horario desconocida.',
     saved: 'Copia sin conexión guardada', savedUnknown: 'Antigüedad de la copia sin conexión desconocida.', offline: 'Horario guardado sin conexión. Última información conocida.',
     valid: 'Vigencia del calendario', issued: 'Fecha de edición impresa', effective: 'Reglas impresas de puerta vigentes desde',
