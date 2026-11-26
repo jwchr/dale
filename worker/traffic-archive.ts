@@ -90,6 +90,8 @@ export async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs
 }
 
 /** Exact text for the expected shape, or a fixed failure code. Error pages are never saved as data. */
+/** JSON.parse refuses a leading byte-order mark, which some servers send. The saved text keeps it as sent. */
+export const withoutBom = (text: string) => text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'> {
   let text: string;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw new NjtError('invalid-response'); }
@@ -98,7 +100,7 @@ function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'
     return { text };
   }
   let value: unknown;
-  try { value = JSON.parse(text); } catch { throw new NjtError('invalid-response'); }
+  try { value = JSON.parse(withoutBom(text)); } catch { throw new NjtError('invalid-response'); }
   if (shape.kind === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray((value as Record<string, unknown>)[shape.list])) throw new NjtError('invalid-response');
     return { text };
@@ -106,10 +108,13 @@ function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'
   if (!Array.isArray(value)) throw new NjtError('invalid-response');
   if (!shape.drop) return { text };
   // The same records, minus the staff name. Unparseable records are refused, never saved raw.
-  const drop = shape.drop;
+  // The name is removed at any depth and in any letter case, so a renamed or nested copy is never saved either.
+  const drop = shape.drop, names = new Set(drop.map(key => key.toLowerCase()));
   if (value.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new NjtError('invalid-response');
-  const cleaned = value.map(row => Object.fromEntries(Object.entries(row as Record<string, unknown>).filter(([key]) => !drop.includes(key))));
-  return { text: JSON.stringify(cleaned), dropped: drop };
+  const strip = (v: unknown): unknown => Array.isArray(v) ? v.map(strip)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([key]) => !names.has(key.toLowerCase())).map(([key, x]) => [key, strip(x)]))
+    : v;
+  return { text: JSON.stringify(value.map(strip)), dropped: drop };
 }
 
 export class TrafficArchive {

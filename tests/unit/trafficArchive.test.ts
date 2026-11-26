@@ -63,6 +63,19 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     expect(saved.responses[7]).toMatchObject({ source: 'njtBusAdvisories', status: 'ok', text: RSS, url: 'https://www.njtransit.com/rss/BusAdvisories_feed.xml' });
     expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
   });
+  it('drops the staff name at any depth and in any letter case', async () => {
+    const nested = [{ messageid: 1, sentby: 'Synthetic Staff', detail: { SENTBY: 'Synthetic Staff', notes: [{ SentBy: 'Synthetic Staff', note: 'kept' }] } }];
+    const { saved } = await bundle(archive(url => url.includes('crossingtimesalert') ? Response.json(nested) : ok(url)));
+    expect(JSON.parse(saved.responses[1].text)).toEqual([{ messageid: 1, detail: { notes: [{ note: 'kept' }] } }]);
+    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+  });
+  it('reads JSON that starts with a byte-order mark and saves it exactly as sent', async () => {
+    const withBom = '\uFEFF[{"routeTravelTime":7}]', everbridge = '\uFEFF' + EVERBRIDGE;
+    const { saved, failures } = await bundle(archive(url => url.includes('crossingtimesapi') ? new Response(withBom)
+      : url.includes('everbridge') ? new Response(everbridge) : ok(url)));
+    expect(failures).toEqual([]);
+    expect(saved.responses[0].text).toBe(withBom); expect(saved.responses[3].text).toBe(everbridge);
+  });
   it('uses the Eastern date for alerts, not the UTC date', () => {
     expect(easternDate(Date.UTC(2026, 10, 27, 3, 0))).toBe('11/26/2026');
     expect(easternDate(Date.UTC(2026, 10, 27, 5, 0))).toBe('11/27/2026');

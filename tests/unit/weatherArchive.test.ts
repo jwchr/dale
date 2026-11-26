@@ -59,6 +59,11 @@ describe('National Weather Service data, saved raw once a minute', () => {
     expect(calls).toHaveLength(4);
     for (const c of calls) expect(c.headers?.['user-agent']).toMatch(/^Dale transit app/);
   });
+  it('reads an answer that starts with a byte-order mark and saves it exactly as sent', async () => {
+    const withBom = '\uFEFF' + ALERT_TEXT;
+    const { saved, failures } = await run(archive(url => url.includes('/alerts/') ? new Response(withBom) : ok(url)));
+    expect(failures).toEqual([]); expect(saved.responses[0].text).toBe(withBom);
+  });
   it.each([
     ['an error page', () => new Response('<html>Service unavailable</html>'), 'invalid-response'],
     ['JSON that is not GeoJSON', () => Response.json({ hello: 1 }), 'invalid-response'],
