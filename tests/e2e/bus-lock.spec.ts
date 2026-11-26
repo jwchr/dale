@@ -563,6 +563,9 @@ test('ride progress: a late bus shows each stop ahead at its expected time, with
   const minutes = (text: string) => { const [, h, m, ap] = text.match(/(\d{1,2}):(\d{2}) ([AP])M/)!; return (Number(h) % 12 + (ap === 'P' ? 12 : 0)) * 60 + Number(m); };
   expect(Math.abs(minutes(expected!) - minutes(sched!) - late)).toBeLessThanOrEqual(1); // minutes round separately
   await expect(ahead.getByRole('button')).toHaveAccessibleName(/expected about ~?\d{1,2}:\d{2}/);
+  // A screen reader hears "scheduled" in full; the short "Sched." is for the eye only (Neon Nov24 h).
+  await expect(ahead.getByRole('button')).toHaveAccessibleName(/, scheduled ~?\d{1,2}:\d{2} [AP]M/);
+  await expect(ahead.getByRole('button')).not.toHaveAccessibleName(/Sched\./);
 });
 
 test('ride progress on the printed timetable: no stop locations, so taps only, said plainly', async ({ page }) => {
