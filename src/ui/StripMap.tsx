@@ -161,7 +161,11 @@ export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Datas
                     const shown = stripTimes(stopTimes[i]!, shift, reached?.at);
                     return <>
                       <span className="strip-time">{clock(shown.time.at, shown.time.estimated)}</span>
-                      {shown.sched && <span className="strip-sched">{p.schedShort(clock(shown.sched.at, shown.sched.estimated))}</span>}
+                      {shown.sched && <>
+                        {/* "Sched."/"Prog." is for the eye; a screen reader hears the full word (Neon Nov24 h). */}
+                        <span className="strip-sched" aria-hidden="true">{p.schedShort(clock(shown.sched.at, shown.sched.estimated))}</span>
+                        <span className="sr-only">{p.srScheduled}{clock(shown.sched.at, shown.sched.estimated)}</span>
+                      </>}
                     </>;
                   })()}
                   <span className="sr-only">{i === alightIndex ? p.srYours : ''}{p.srTap}</span>
