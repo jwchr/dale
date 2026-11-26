@@ -5,6 +5,7 @@
 // does not parse is dropped and counted. See docs/RAIL_LIVE.md.
 import { tzOffsetMinutes } from '../src/domain/time';
 import type { Credentials } from './njt-client';
+import { looksLikeMarkup } from './pool';
 
 export const RAIL_HOST = 'https://raildata.njtransit.com';
 export const RAIL_SOURCE = 'NJ Transit RailData';
@@ -50,7 +51,7 @@ export interface RailBoard {
   skippedRows: number;
 }
 
-class RailError extends Error { constructor(readonly code: RailFailure) { super(code); } }
+export class RailError extends Error { constructor(readonly code: RailFailure) { super(code); } }
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** "18-Nov-2026 09:15:00 PM" in New York time, to epoch ms; undefined when it is not exactly that shape and a real date. */
@@ -158,8 +159,10 @@ async function railFetch(method: string, fields: Record<string, string>, fetchIm
     if (raw) {
       // Archive mode keeps the exact bytes and only reads small bodies, where NJ Transit's error answers fit:
       // parsing a multi-megabyte schedule would double its memory. Malformed data is kept as received.
-      if (statusFailure) throw new RailError(statusFailure);
+      // The body is read before the status, so a 400 or 500 saying "Invalid token." still drops the token
+      // and "Daily usage limit" still pauses (Neon, #303). An HTML or XML page is never saved as data.
       if (size <= 16_384) try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* kept as received */ }
+      if (!statusFailure && (!size || looksLikeMarkup(bytes))) throw new RailError('unexpected-response');
     } else try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new RailError(statusFailure ?? 'unexpected-response'); }
     // NJ Transit's guide shows "Invalid token." as a body without naming an HTTP status, so the body decides.
     if (object(value) && typeof value.errorMessage === 'string') {
@@ -241,11 +244,11 @@ export class RailBoards {
 
   /** One raw RailData answer for the private archive (D84), sharing this object's token, mint limit and
    *  rate-limit pause with the Train screen. Returns the token too, so the archive can refuse any body containing it. */
-  async archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }> {
+  async archiveRequest(method: RailArchiveMethod, fields: Record<string, string>, maxBytes: number, timeoutMs = 30_000): Promise<{ bytes: Uint8Array<ArrayBuffer>; token: string }> {
     const saved = await this.state();
     if (this.clock() < (saved.pausedUntil ?? 0)) throw new RailError('rate-limited');
     const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
-    try { return { bytes: (await railFetch(method, { token, ...fields }, this.fetchImpl, maxBytes, 30_000, true)).bytes, token }; }
+    try { return { bytes: (await railFetch(method, { token, ...fields }, this.fetchImpl, maxBytes, timeoutMs, true)).bytes, token }; }
     catch (error) { await this.refused(error, token, saved); throw error; }
   }
 
@@ -253,7 +256,8 @@ export class RailBoards {
     // Only while it is still the stored token, so a newer one from another station is kept.
     if (error instanceof RailError && error.code === 'access-denied' && saved.token?.value === token) { saved.token = undefined; await this.storage.put(RAIL_KEY, saved); }
     // A rate limit pauses every station, and survives a restart. The token is kept: replacing it would spend the daily allowance.
-    if (error instanceof RailError && error.code === 'rate-limited') { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
+    // Once only: a second refused call in the same pause writes nothing more (Neon, #303).
+    if (error instanceof RailError && error.code === 'rate-limited' && (saved.pausedUntil ?? 0) <= this.clock()) { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
   }
 
   /** A new token, shared by concurrent callers. Never more than RAIL_MINTS_PER_DAY a day or one an hour. */

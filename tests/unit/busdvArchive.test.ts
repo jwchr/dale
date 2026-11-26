@@ -340,4 +340,70 @@ describe('BUSDV2 private raw archive', () => {
       expect(entries(r).some(e => e.text === 'partial')).toBe(false);
     } finally { vi.useRealTimers(); }
   });
+
+  // Neon review of #304, Nov 26, 2026.
+  it.each([{ errorMessage: null, DVTrip: [] }, { errorMessage: '', DVTrip: [] }, { Error: false }])('keeps a board whose error field is empty (%j) and keeps the token', async body => {
+    const h = harness(); h.answers.getBusDV = () => Response.json(body);
+    const r = result(await h.run());
+    expect(r.failures).toEqual([]);
+    expect(entries(r).find(e => e.method === 'getBusDV')).toMatchObject({ status: 'ok', text: JSON.stringify(body) });
+    expect(h.state.token?.value).toBe(TOKEN);
+  });
+
+  it('refuses any other error text without dropping the token, so no daily mint is spent', async () => {
+    const h = harness(); h.answers.getBusDV = () => Response.json({ errorMessage: 'Synthetic server problem' });
+    const r = result(await h.run());
+    expect(r.failures.map(f => f.code)).toEqual(['invalid-response']);
+    expect(entries(r).find(e => e.method === 'getBusDV')!.text).toBeUndefined();
+    expect(h.state.token?.value).toBe(TOKEN);
+    h.time(NOW + 42_000); await h.run();
+    expect(h.calls.filter(c => c.method === 'authenticateUser')).toHaveLength(1);
+  });
+
+  it.each(['<html><body>Service unavailable</body></html>', '﻿  <?xml version="1.0"?><error/>'])('never saves a markup page as data, and retries a daily call an hour later (%s)', async page => {
+    const h = harness(); h.answers.getBusRoutes = () => new Response(page);
+    const r = result(await h.run());
+    expect(r.failures.filter(f => f.feed === 'busdv-getBusRoutes').map(f => f.code)).toEqual(VEHICLE_MODES.map(() => 'invalid-response'));
+    expect(r.responses.some(v => String(v.feed) === 'busdv-getBusRoutes')).toBe(false);
+    delete h.answers.getBusRoutes; h.time(NOW + HOUR);
+    result(await h.run());
+    expect(h.calls.filter(c => c.method === 'getBusRoutes')).toHaveLength(2 * VEHICLE_MODES.length);
+  });
+
+  it('sends nothing more in a poll once a sibling is rate limited', async () => {
+    const h = harness(); h.answers.getVehicleLocations = c => c.fields.mode === 'BUS' ? new Response('', { status: 429 }) : Response.json({ synthetic: true });
+    const r = result(await h.run());
+    // BUS and NLR start together on the two connections; nothing after them is sent.
+    expect(h.calls.map(c => c.method)).toEqual(['authenticateUser', 'getVehicleLocations', 'getVehicleLocations']);
+    expect(r.failures.filter(f => f.code === 'rate-limited').length).toBe(entries(r).length - 1);
+  });
+
+  it('starts nothing 12 seconds into its turn, so a slow NJ Transit cannot hold the live bus poll', async () => {
+    const h = harness();
+    h.answers.getVehicleLocations = c => { if (c.fields.mode === 'BUS') h.time(NOW + 12_000); return Response.json({ synthetic: true }); };
+    const r = result(await h.run());
+    // The clock reached 12 s as the first call was sent, so the second lane sends nothing either.
+    expect(h.calls.filter(c => c.method !== 'authenticateUser')).toHaveLength(1);
+    expect(entries(r).filter(e => e.status === 'ok')).toHaveLength(1);
+    expect(r.failures.length).toBe(entries(r).length - 1);
+    expect(r.failures.every(f => f.code === 'timed-out')).toBe(true);
+  });
+
+  it('ends a hung call by 20 seconds into the turn even when its own limit is longer', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness(300, 60_000);
+      h.answers.getVehicleLocations = () => new Promise<Response>(() => {});
+      const pending = h.run();
+      let done = false; void pending.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(19_999); expect(done).toBe(false);
+      // The archive's clock moves with the timers, so the queued calls see the spent turn.
+      h.time(NOW + 20_000);
+      await vi.advanceTimersByTimeAsync(1);
+      const r = result(await pending);
+      expect(h.calls.filter(c => c.method !== 'authenticateUser')).toHaveLength(2);
+      expect(r.failures.length).toBe(entries(r).length);
+      expect(r.failures.every(f => f.code === 'timed-out')).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
 });
