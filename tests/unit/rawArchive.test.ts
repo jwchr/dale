@@ -78,6 +78,14 @@ describe('private as-received raw archives', () => {
     expect(new Uint8Array(gunzipSync(h.objects.get(key)!))).toEqual(bytes);
     expect(JSON.parse(new TextDecoder().decode(h.objects.get(key + '.manifest.json'))).upstreamHeaderTimestamp).toBeNull();
   });
+  it('saves RailData JSON bundles whole under a .json.gz key with no protobuf header time', async () => {
+    const h = await harness(), bytes = new TextEncoder().encode('{"v":1,"responses":[]}') as Uint8Array<ArrayBuffer>;
+    await h.raw.capture([{ feed: 'raildata-poll', bytes, receivedAt: NOW }], NOW, []);
+    const key = [...h.objects.keys()].find(k => k.endsWith('.json.gz'))!;
+    expect(key).toBe(`raw/v1/${new Date(NOW).toISOString().slice(0, 10)}/raildata-poll/${NOW}-${sha(bytes)}.json.gz`);
+    expect(new Uint8Array(gunzipSync(h.objects.get(key)!))).toEqual(bytes);
+    expect(JSON.parse(new TextDecoder().decode(h.objects.get(key + '.manifest.json')))).toMatchObject({ feed: 'raildata-poll', upstreamHeaderTimestamp: null });
+  });
   it('saves every identical response separately, including after eviction, but replaying the same receipt is idempotent', async () => {
     const h = await harness(); await h.raw.capture([input()], NOW, []); h.finish(); h.restart();
     await h.raw.capture([input(NOW + 30_000)], NOW + 30_000, []); h.finish();
@@ -324,7 +332,7 @@ describe('private as-received raw archives', () => {
 
 describe('raw collection through the bus Worker', () => {
   const regionAsset = { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: ['10'] };
-  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[]) {
+  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[], railData = false) {
     const dependency = arguments.length >= 4 ? region : regionAsset;
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '', malformed = '', echo = false;
@@ -337,7 +345,10 @@ describe('raw collection through the bus Worker', () => {
       urls.push(String(url));
       const endpoint = String(url).split('/').pop();
       const isRail = String(url).includes('/GTFSRT/');
-      if (endpoint === 'getVehicleData') throw new Error('No background RailData calls');
+      if (String(url).includes('/TrainData/') && endpoint !== 'getToken') {
+        if (!railData) throw new Error('No background RailData calls');
+        return Response.json({ synthetic: endpoint });
+      }
       if (authFailure && endpoint === 'authenticateUser') return new Response('', { status: 401 });
       if (endpoint === 'authenticateUser' || endpoint === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
       if (isRail) { railCalls++; if (railFailure) return new Response('', { status: 503 }); }
@@ -357,7 +368,7 @@ describe('raw collection through the bus Worker', () => {
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
     const Feed = createFeedClass(ds, fetchImpl, () => now, dependency), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
-    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
+    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined, RAILDATA_RAW: railData ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
@@ -407,6 +418,20 @@ describe('raw collection through the bus Worker', () => {
     const normalFeed = (normal.saved.get('state-v1') as { vehicles: unknown; updates: unknown });
     expect(savedFeed.vehicles).toEqual(normalFeed.vehicles);
     expect(savedFeed.updates).toEqual(normalFeed.updates);
+  });
+  it('saves one RailData bundle per poll beside the GTFS-RT feeds when RAILDATA_RAW is on (D84)', async () => {
+    const h = await service(true, true, true, null, undefined, true); await h.poll();
+    const key = [...h.objects.keys()].find(k => k.includes('/raildata-poll/') && k.endsWith('.json.gz'))!;
+    const saved = JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(key)!)));
+    expect(saved.responses.map((r: { method: string }) => r.method)).toEqual(['getStationMSG', 'getTrainSchedule', 'getVehicleData']);
+    expect(saved.responses.every((r: { status: string; text: string }) => r.status === 'ok' && JSON.parse(r.text).synthetic)).toBe(true);
+    for (const feed of ['raildata-getStationList', 'raildata-getStationSchedule', 'getVehiclePositions', 'rail-getVehiclePositions'])
+      expect([...h.objects.keys()].some(k => k.includes(`/${feed}/`))).toBe(true);
+    expect((await h.health()).rawArchive.reason).toBe('ready');
+  });
+  it('makes no RailData calls while raw saving itself is off, even with RAILDATA_RAW on', async () => {
+    const h = await service(true, true, false, null, undefined, true); await h.poll();
+    expect(h.urls.some(u => u.includes('/TrainData/'))).toBe(false);
   });
   it('counts bus protobuf decode failure without interrupting the other feed or rail', async () => {
     const h = await service(); h.malformed('getVehiclePositions'); await h.poll();
