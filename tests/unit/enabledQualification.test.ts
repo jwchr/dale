@@ -73,7 +73,7 @@ it.each(['disabled', 'wrong-feed', 'old-alarm', 'wrong-rate', 'quota', 'backlog'
   const r = qualification(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   expect(r.stdout).not.toContain('Enabled qualification observation:');
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|PRIVATE_MODULE|PRIVATE_AUXILIARY|PRIVATE_NAMESPACE|FORBIDDEN|AssertionError|https:/);
-});
+}, 30_000); // old-alarm re-reads for about 8 s before refusing (a poll in progress clears the alarm).
 it('existing manual workflow scopes qualification to CF GET evidence, without NJT credentials or guessed input pins', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/live-worker.yml', import.meta.url), 'utf8');
   const step = workflow.split(/\n      - /).find(s => s.includes('GET-only enabled qualification'))!;
