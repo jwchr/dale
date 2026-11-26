@@ -35,7 +35,7 @@ export function lastServiceDate(ds) {
   let last = '';
   for (const t of ds.trips) {
     const cal = ds.calendars[t.serviceId];
-    if (cal?.end && cal.days?.some(Boolean) && cal.end > last) last = cal.end;
+    if (cal?.end && cal.days?.some(Boolean) && (!cal.start || cal.start <= cal.end) && cal.end > last) last = cal.end; // inverted range runs no day (Neon Nov25 k)
   }
   return last;
 }

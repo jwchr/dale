@@ -96,6 +96,12 @@ describe('rollover capacity mirrors the Worker context admission', () => {
     live.trips.push({ ...live.trips[0]!, id: 'holiday-trip', serviceId: 'HOLIDAY' });
     expect(lastServiceDate(live)).toBe('20261210');
   });
+  it('ignores the end date of a calendar whose range is inverted (Neon Nov25 k)', () => {
+    const live = structuredClone(liveDataset); for (const cal of Object.values(live.calendars)) cal.end = '20261210';
+    live.calendars.INVERTED = { days: [true, true, true, true, true, false, false], start: '20270101', end: '20261231', added: [], removed: [] };
+    live.trips.push({ ...live.trips[0]!, id: 'inverted-trip', serviceId: 'INVERTED' });
+    expect(lastServiceDate(live)).toBe('20261210');
+  });
 });
 
 describe('rollover transition proof', () => {
