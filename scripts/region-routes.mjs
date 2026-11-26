@@ -21,7 +21,9 @@ function polygons(geojson) {
     throw new Error('region-geometry');
   });
   if (!result.length || result.some(p => !Array.isArray(p) || !p.length || p.some(r => !Array.isArray(r) || r.length < 4
-    || r.some(c => !Array.isArray(c) || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1]))))) throw new Error('region-geometry');
+    || r.some(c => !Array.isArray(c) || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1]))
+    // GeoJSON rings repeat their first position last; an unclosed ring is malformed, not closed for it (CodeRabbit #294).
+    || r[0][0] !== r.at(-1)[0] || r[0][1] !== r.at(-1)[1]))) throw new Error('region-geometry');
   return result;
 }
 

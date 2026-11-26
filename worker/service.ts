@@ -50,8 +50,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private rawSaving = false;
     private rawStatus() {
       if (!this.rawArchive) return undefined;
-      return { ...this.rawArchive.status(), saving: this.rawSaving,
-        ...(this.rawSaving && !regionRoutes ? { reason: 'region-unavailable' } : {}) };
+      // A storage, budget or secret stop keeps its own reason; busRegion always shows the region state (Neon Nov25 k).
+      const status = this.rawArchive.status();
+      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'unavailable' as const,
+        ...(this.rawSaving && !regionRoutes && (status.reason === 'ready' || status.reason === 'waiting') ? { reason: 'region-unavailable' } : {}) };
     }
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
@@ -315,7 +317,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try {
-            const bytes = await njtRequest(endpoint, { token }, saving ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            const bytes = await njtRequest(endpoint, { token }, saving && regionRoutes ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
             if (saving && regionRoutes) {
               // Filtering/decoding failure must never replace live data or interrupt corridor history.
               try { raw.push(await filterRegionRaw({ feed: endpoint, bytes, receivedAt }, regionRoutes)); }

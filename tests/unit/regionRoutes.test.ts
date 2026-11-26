@@ -46,6 +46,8 @@ describe('region GTFS route selection', () => {
     expect(regionRouteIds(files([[40.22, -74.76]]), region).report.kept).toBe(0);
     expect(() => regionRouteIds({}, region)).toThrow();
     expect(() => regionRouteIds(files([[1, 1]]), { type: 'Point', coordinates: [1, 1] })).toThrow();
+    // An unclosed ring (first position not repeated last) is malformed (CodeRabbit #294).
+    expect(() => regionRouteIds(files([[40.22, -74.76]]), { type: 'Polygon', coordinates: [[[-75, 40], [-73, 40], [-73, 42], [-75, 42]]] })).toThrow('region-geometry');
   });
 });
 
