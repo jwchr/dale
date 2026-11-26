@@ -1,3 +1,4 @@
+import bindings from 'gtfs-realtime-bindings';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -5,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HistoryArchive, type HistoryBucket } from '../../worker/history-archive';
 import { HistoryJournal, historyContextKey, type HistoryStorage } from '../../worker/history-journal';
 import { RawArchive, newRawArchiveState, type RawArchiveState, type RawResponse } from '../../worker/raw-archive';
+import { REGION_COUNTIES } from '../../worker/region-raw';
 import { createFeedClass } from '../../worker/service';
 import { liveDataset as ds, NOW, binaryFeed, vehicle, update } from '../helpers/liveBus';
 const databases: DatabaseSync[] = [];
@@ -320,9 +322,11 @@ describe('private as-received raw archives', () => {
 });
 
 describe('raw collection through the bus Worker', () => {
-  async function service(enabled = true, railEnabled = true, rawEnabled = true) {
+  const regionAsset = { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: ['10'] };
+  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[]) {
+    const dependency = arguments.length >= 4 ? region : regionAsset;
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
-    let oversized = '', large = '';
+    let oversized = '', large = '', malformed = '';
     const urls: string[] = [];
     const saved = new Map<string, unknown>(); let alarmAt: number | null = null;
     const storage = { ...h.storage, get: async <T,>(key: string) => structuredClone(saved.get(key)) as T | undefined,
@@ -337,22 +341,77 @@ describe('raw collection through the bus Worker', () => {
       if (endpoint === 'authenticateUser' || endpoint === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
       if (isRail) { railCalls++; if (railFailure) return new Response('', { status: 503 }); }
       const feed = (isRail ? 'rail-' : '') + endpoint;
+      if (feed === malformed) return new Response(new Uint8Array([0]));
       if (feed === oversized) {
         let n = 0;
         return new Response(new ReadableStream({ pull(controller) { if (n++ < 33) controller.enqueue(new Uint8Array(1024 * 1024)); else controller.close(); } }));
       }
-      if (feed === large) return new Response(new Uint8Array(9 * 1024 * 1024));
+      if (feed === large) {
+        const largeBytes = new Uint8Array(binaryFeed([{ id: 'large-synthetic', vehicle: vehicle({ vehicle: { id: 'x'.repeat(9 * 1024 * 1024) } }) }]));
+        return new Response(largeBytes);
+      }
+      if (!isRail && busEntities) return new Response(new Uint8Array(binaryFeed(busEntities)));
       if (!isRail && busFailure && endpoint === 'getVehiclePositions') return new Response('', { status: 503 });
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
-    const Feed = createFeedClass(ds, fetchImpl, () => now), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
+    const Feed = createFeedClass(ds, fetchImpl, () => now, dependency), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
     const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
-    return { ...h, poll, saved, urls, env, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; },
+    return { ...h, poll, saved, urls, env, malformed: (feed: string) => { malformed = feed; }, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; },
       restart: () => { object = new Feed(ctx, env); }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
   }
+
+  it.each(['vehicle', 'tripUpdate'] as const)('filters %s bus entities and records original provenance', async kind => {
+    const entity = (id: string, routeId?: string) => ({ id, [kind]: kind === 'vehicle'
+      ? vehicle({ trip: routeId ? { routeId } : {} }) : update({ trip: routeId ? { routeId } : {} }) });
+    const entities = [entity('kept', '10'), entity('outside', '99'), entity('no-route')];
+    const source = new Uint8Array(binaryFeed(entities));
+    const h = await service(true, true, true, regionAsset, entities); await h.poll();
+    const key = [...h.objects.keys()].find(k => k.includes('/getVehiclePositions/') && k.endsWith('.pb.gz'))!;
+    const bytes = new Uint8Array(gunzipSync(h.objects.get(key)!));
+    const decoded = bindings.transit_realtime.FeedMessage.decode(bytes);
+    expect(decoded.entity.map(e => e.id)).toEqual(['kept']);
+    expect(decoded.header).toEqual(bindings.transit_realtime.FeedMessage.decode(source).header);
+    const manifest = JSON.parse(new TextDecoder().decode(h.objects.get(key + '.manifest.json')));
+    expect(manifest).toMatchObject({ sha256: sha(bytes), rawBytes: bytes.byteLength,
+      filtered: { v: 1, counties: REGION_COUNTIES, sourceSHA256: sha(source), sourceBytes: source.byteLength, entities: 3, kept: 1, noRoute: 1 } });
+  });
+  it.each([null, undefined, { v: 1, feedVersion: 'old', counties: REGION_COUNTIES, routeIds: ['10'] },
+    { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: [] }])('fails closed for an unavailable region asset (%j)', async region => {
+    const h = await service(true, true, true, region); await h.poll();
+    expect([...h.objects.keys()].filter(k => /\/get(VehiclePositions|TripUpdates)\//.test(k))).toEqual([]);
+    const railKey = [...h.objects.keys()].find(k => k.includes('/rail-getVehiclePositions/') && k.endsWith('.pb.gz'))!;
+    expect(new Uint8Array(gunzipSync(h.objects.get(railKey)!))).toEqual(original());
+    expect((await h.health()).rawArchive.reason).toBe('region-unavailable');
+    const normal = await service(); await normal.poll();
+    const history = (db: DatabaseSync) => db.prepare('SELECT body FROM dale_history_batches ORDER BY attempt').all();
+    expect(history(h.db).length).toBeGreaterThan(0);
+    expect(history(h.db)).toEqual(history(normal.db));
+    const savedFeed = (h.saved.get('state-v1') as { vehicles: unknown; updates: unknown });
+    const normalFeed = (normal.saved.get('state-v1') as { vehicles: unknown; updates: unknown });
+    expect(savedFeed.vehicles).toEqual(normalFeed.vehicles);
+    expect(savedFeed.updates).toEqual(normalFeed.updates);
+  });
+  it('counts bus protobuf decode failure without interrupting the other feed or rail', async () => {
+    const h = await service(); h.malformed('getVehiclePositions'); await h.poll();
+    const raw = (await h.health()).rawArchive;
+    expect(raw.failures).toBe(1);
+    expect(raw.hoursUTC[0].events.getVehiclePositions['invalid-response']).toBe(1);
+    expect(raw.hoursUTC[0].feeds.getVehiclePositions).toBeUndefined();
+    expect(raw.hoursUTC[0].feeds.getTripUpdates.count).toBe(1);
+    expect(raw.hoursUTC[0].feeds['rail-getVehiclePositions'].count).toBe(1);
+    expect([...h.objects.keys()].some(k => k.includes('/getVehiclePositions/'))).toBe(false);
+  });
+  it('checks original secret echoes even in discarded bus entities and drops alerts', async () => {
+    const entities = [{ id: 'keep', vehicle: vehicle() },
+      { id: 'synthetic-password', vehicle: vehicle({ trip: { routeId: '99' } }) },
+      { id: 'alert', alert: {}, vehicle: vehicle() }];
+    const h = await service(true, true, true, regionAsset, entities); await h.poll();
+    expect([...h.objects.keys()].some(k => /\/get(VehiclePositions|TripUpdates)\//.test(k))).toBe(false);
+    expect((await h.health()).rawArchive.blockedSecrets).toBe(2);
+  });
   it('saves both rail protobuf originals every 30 seconds, including after eviction, using one cached token', async () => {
     const h = await service(); await h.poll();
     expect(h.railCalls).toBe(2);
@@ -500,8 +559,9 @@ describe('raw collection through the bus Worker', () => {
   it.each(['getVehiclePositions', 'rail-getVehiclePositions'])('preserves a complete %s response above the former 8 MB limit', async feed => {
     const h = await service(); h.large(feed); await h.poll();
     const key = [...h.objects.keys()].find(key => key.includes(`/${feed}/`) && key.endsWith('.pb.gz'))!;
-    expect(gunzipSync(h.objects.get(key)!).byteLength).toBe(9 * 1024 * 1024);
-    expect((await h.health()).rawArchive.hoursUTC[0].feeds[feed].rawBytes).toBe(9 * 1024 * 1024);
+    const size = gunzipSync(h.objects.get(key)!).byteLength;
+    expect(size).toBeGreaterThan(9 * 1024 * 1024);
+    expect((await h.health()).rawArchive.hoursUTC[0].feeds[feed].rawBytes).toBe(size);
   });
   it.each(['bus', 'rail'])('enforces the %s API ceiling across restart while the other API still saves', async api => {
     const h = await service(); await h.poll();
