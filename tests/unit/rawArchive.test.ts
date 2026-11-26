@@ -332,7 +332,7 @@ describe('private as-received raw archives', () => {
 
 describe('raw collection through the bus Worker', () => {
   const regionAsset = { v: 1, feedVersion: ds.meta.feedVersion, counties: REGION_COUNTIES, routeIds: ['10'] };
-  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[], railData = false, busDv = false, traffic = false) {
+  async function service(enabled = true, railEnabled = true, rawEnabled = true, region?: unknown, busEntities?: bindings.transit_realtime.IFeedEntity[], railData = false, busDv = false, traffic = false, weather = false) {
     const dependency = arguments.length >= 4 ? region : regionAsset;
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '', malformed = '', echo = false;
@@ -348,6 +348,10 @@ describe('raw collection through the bus Worker', () => {
       if (String(url).includes('/TrainData/') && endpoint !== 'getToken') {
         if (!railData) throw new Error('No background RailData calls');
         return Response.json({ synthetic: endpoint });
+      }
+      if (String(url).includes('api.weather.gov')) {
+        if (!weather) throw new Error('No background weather calls');
+        return Response.json(String(url).includes('/alerts/') ? { type: 'FeatureCollection', features: [] } : { type: 'Feature', properties: { synthetic: 'weather' } });
       }
       if (String(url).includes('panynj.gov') || String(url).includes('511nj.org')) {
         if (!traffic) throw new Error('No background traffic calls');
@@ -377,7 +381,7 @@ describe('raw collection through the bus Worker', () => {
       return new Response(new Uint8Array(binaryFeed([{ id: 'synthetic', ...(endpoint === 'getVehiclePositions' ? { vehicle: vehicle() } : { tripUpdate: update() }) }])));
     }) as typeof fetch;
     const Feed = createFeedClass(ds, fetchImpl, () => now, dependency), ctx = { storage, blockConcurrencyWhile: async <T,>(fn: () => Promise<T>) => fn() };
-    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined, RAILDATA_RAW: railData ? 'enabled' : undefined, BUSDV_RAW: busDv ? 'enabled' : undefined, TRAFFIC_RAW: traffic ? 'enabled' : undefined,
+    const env = { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password', HISTORY_COLLECTION: enabled ? 'enabled' : 'disabled', HISTORY_ARCHIVE: h.bucket, RAW_ARCHIVE: rawEnabled ? 'enabled' : undefined, RAIL_GTFSRT_RAW: railEnabled ? 'enabled' : undefined, RAILDATA_RAW: railData ? 'enabled' : undefined, BUSDV_RAW: busDv ? 'enabled' : undefined, TRAFFIC_RAW: traffic ? 'enabled' : undefined, WEATHER_RAW: weather ? 'enabled' : undefined,
       FEED: { idFromName: () => 'one', get: () => object } };
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
@@ -491,6 +495,27 @@ describe('raw collection through the bus Worker', () => {
   it('makes no crossings or incidents calls while raw saving itself is off, even with TRAFFIC_RAW on', async () => {
     const h = await service(true, true, false, null, undefined, false, false, true); await h.poll();
     expect(h.urls.some(u => u.includes('panynj.gov') || u.includes('511nj.org'))).toBe(false);
+  });
+  it('saves one National Weather Service bundle per minute when WEATHER_RAW is on, after the crossings', async () => {
+    const h = await service(true, true, true, null, undefined, false, false, true, true); await h.poll();
+    const bundles = () => [...h.objects.keys()].filter(k => k.includes('/weather-poll/') && k.endsWith('.json.gz'));
+    expect(bundles()).toHaveLength(1);
+    const saved = JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(bundles()[0]!)!)));
+    expect(saved.responses.map((r: { kind: string; id: string; status: string }) => `${r.kind}:${r.id}:${r.status}`))
+      .toEqual(['alerts:NJ,NY:ok', 'observation:KACY:ok', 'observation:KBLM:ok', 'observation:KCDW:ok']);
+    // Weather starts only after the last crossings request.
+    const lastTraffic = h.urls.map(u => u.includes('511nj.org')).lastIndexOf(true), firstWeather = h.urls.findIndex(u => u.includes('api.weather.gov'));
+    expect(firstWeather).toBeGreaterThan(lastTraffic);
+    const calls = () => h.urls.filter(u => u.includes('api.weather.gov')).length;
+    h.time(NOW + (60_000 - NOW % 60_000) - 1); await h.poll();
+    expect(calls()).toBe(4);
+    h.time(NOW + (60_000 - NOW % 60_000) + 30_000); await h.poll();
+    expect(calls()).toBe(8); expect(bundles()).toHaveLength(2);
+    expect(h.urls.filter(u => u.includes('api.weather.gov')).slice(4)).toContain('https://api.weather.gov/stations/KEWR/observations/latest');
+  });
+  it('makes no weather calls while raw saving itself is off, even with WEATHER_RAW on', async () => {
+    const h = await service(true, true, false, null, undefined, false, false, false, true); await h.poll();
+    expect(h.urls.some(u => u.includes('api.weather.gov'))).toBe(false);
   });
   it('counts bus protobuf decode failure without interrupting the other feed or rail', async () => {
     const h = await service(); h.malformed('getVehiclePositions'); await h.poll();
