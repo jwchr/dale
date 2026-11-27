@@ -15,15 +15,24 @@ describe('private history evidence selection', () => {
     expect(result.records[0]!.observation.stopCall).toBeUndefined();
     expect(result.records[0]).not.toHaveProperty('arrival');
   });
-  it('saves a report stamped ahead of the clock once, at its own time, after the clock passes it (Codex, CodeRabbit #323)', () => {
+  it('saves a report stamped ahead of the clock once, at the clock time it was first seen (Codex, CodeRabbit #323)', () => {
     const feedAt = (now: number) => normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 }), 'vehicles', now);
     const first = select(feedAt(NOW), NOW);
-    expect(first).toMatchObject({ records: [], early: 1 });
-    const second = select(feedAt(NOW + 15_000), NOW + 15_000, first.watermarks);
-    expect(second).toMatchObject({ records: [], early: 1 });
-    const third = select(feedAt(NOW + 30_000), NOW + 30_000, second.watermarks);
-    expect(third.records.map(r => r.observation.observedAt)).toEqual([NOW + 25_000]);
-    expect(select(feedAt(NOW + 45_000), NOW + 45_000, third.watermarks)).toMatchObject({ records: [], duplicates: 1 });
+    expect(first.records.map(r => r.observation.observedAt)).toEqual([NOW]);
+    expect(first.early).toBe(1);
+    const second = select(feedAt(NOW + 15_000), NOW + 15_000, JSON.parse(JSON.stringify(first.watermarks)));
+    expect(second).toMatchObject({ records: [], duplicates: 1, conflicts: 0 });
+    expect(select(feedAt(NOW + 30_000), NOW + 30_000, second.watermarks)).toMatchObject({ records: [], duplicates: 1, conflicts: 0 });
+  });
+  it('keeps every report from a bus whose clock runs steadily ahead (Neon Nov27 a)', () => {
+    // NJ Transit stamps each new position 20 seconds ahead of the Worker, and the bus moves on every 15 seconds.
+    let marks = {}; const saved: number[] = [];
+    for (const step of [0, 15_000, 30_000]) {
+      const feed = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: (NOW + step + 20_000) / 1000 }) }], { timestamp: (NOW + step) / 1000 }), 'vehicles', NOW + step);
+      const result = select(feed, NOW + step, marks);
+      saved.push(...result.records.map(r => r.observation.observedAt)); marks = result.watermarks;
+    }
+    expect(saved).toEqual([NOW, NOW + 15_000, NOW + 30_000]);
   });
   it('deduplicates a repeated normalized report across a persisted checkpoint and records a later report', () => {
     const first = select(sample(), NOW);

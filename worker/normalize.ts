@@ -11,7 +11,7 @@ export interface VehiclePresence { vehicleId: string; tripId?: string; tripInsta
 export interface NormalizedFeed { presence?: VehiclePresence[]; unresolvedDateTrips?: string[]; diagnostics?: FeedDiagnostics; feed: LiveFeed; observations: VehicleObservation[]; updates: NormalizedUpdate[] }
 const seconds = (v: unknown) => { const n = Number(v), ms = n * 1000; return Number.isSafeInteger(n) && n > 0 && Number.isSafeInteger(ms) && Number.isFinite(new Date(ms).getTime()) ? ms : undefined; };
 /** How far ahead of this Worker's clock an NJ Transit time may be and still count (the rider app allows the same 30 s). */
-const CLOCK_SKEW_MS = 30_000;
+export const CLOCK_SKEW_MS = 30_000;
 
 export function createNormalizer(ds: Dataset) {
   const trips = new Map(ds.trips.map((t) => [t.id, t])), patterns = new Map(ds.patterns.map((p) => [p.id, p]));
