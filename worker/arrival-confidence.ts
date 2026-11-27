@@ -42,6 +42,8 @@ export function batchSamples(body: unknown): VehicleObservation[] {
 
 export class ArrivalConfidence {
   private nextCheckAt = 0;
+  /** Why the last apply() refused, so health names the real limit (Neon DEEP Nov 26). */
+  private refusal: 'storage-limit' | 'write-budget' = 'write-budget';
   constructor(private readonly storage: HistoryStorage, private readonly ds: Dataset, private readonly contextKey: string) {
     storage.sql.exec('CREATE TABLE IF NOT EXISTS dale_arrival_meta (id INTEGER PRIMARY KEY CHECK(id IN (1,2)), body TEXT NOT NULL)');
     storage.sql.exec('CREATE TABLE IF NOT EXISTS dale_arrival_rows (route TEXT NOT NULL, direction INTEGER NOT NULL, day_type TEXT NOT NULL, hour INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(route,direction,day_type,hour)) WITHOUT ROWID');
@@ -123,8 +125,8 @@ export class ArrivalConfidence {
     }
     const size = this.storage.sql.databaseSize;
     // Leave the collector's own 500 MB database guard well clear, and keep these aggregates within their own cap.
-    if (writes.length && (!Number.isSafeInteger(size) || size >= DATABASE_HEADROOM_BYTES || meta.bytes + delta > MAX_CONFIDENCE_BYTES)) return undefined;
-    if (!reserve(writes.length + 2 + (options.extraUnits ?? 0), now, options.keep)) return undefined;
+    if (writes.length && (!Number.isSafeInteger(size) || size >= DATABASE_HEADROOM_BYTES || meta.bytes + delta > MAX_CONFIDENCE_BYTES)) { this.refusal = 'storage-limit'; return undefined; }
+    if (!reserve(writes.length + 2 + (options.extraUnits ?? 0), now, options.keep)) { this.refusal = 'write-budget'; return undefined; }
     this.storage.transactionSync(() => {
       for (const w of writes) {
         const id = rowId(w.key);
@@ -178,8 +180,7 @@ export class ArrivalConfidence {
     } });
     if (!result) {
       this.nextCheckAt = now + FOLD_MS;
-      const size = this.storage.sql.databaseSize;
-      const reason = !Number.isSafeInteger(size) || size >= DATABASE_HEADROOM_BYTES || meta.bytes >= MAX_CONFIDENCE_BYTES ? 'storage-limit' : 'write-budget';
+      const reason = this.refusal;
       if (meta.reason !== reason && reserve(2, now)) this.storage.transactionSync(() => { const m = this.read(); m.reason = reason; this.write(m); });
       return;
     }

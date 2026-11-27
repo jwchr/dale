@@ -22,6 +22,15 @@ describe('exact stop-specific upcoming arrivals', () => {
     const noGps = { ...b, vehicles: { state: 'unavailable' as const } };
     expect(departureEvidence(noGps, item, NOW).kind).toBe('live');
   });
+  it('a stale copy of a trip update next to a fresh one does not make the trip ambiguous or hide its GPS (Neon DEEP Nov 26)', () => {
+    const u = updates(), fresh = u.updates[0]!;
+    u.updates.push({ ...fresh, observedAt: NOW - 10 * 60_000, cancelled: true });
+    const item = summarizeDepartures(ds, [q], positions(), u, NOW)[0]!;
+    expect(item.problem).toBeUndefined();
+    expect(item.gps).toBeDefined();
+    expect(item.cancelledAt).toBeUndefined();
+    expect(item.updatedAt).toBe(fresh.observedAt);
+  });
   it('uses an explicit street-stop arrival when no departure is available, but never treats PABT staging as a departure', () => {
     const u = updates({ stopTimeUpdate: [{ stopId: '2', arrival: { time: NOW / 1000 + 300 } }] });
     const b = { ...batch(), items: summarizeDepartures(ds, [q], positions(), u, NOW) };

@@ -1,3 +1,4 @@
+import { MAX_CONFIDENCE_BYTES } from '../../worker/arrival-confidence';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
@@ -81,6 +82,19 @@ describe('live fold inside the collector', () => {
     h.confidence.fold(NOW + FOLD_MS, h.spare);
     expect(h.confidence.status()).toMatchObject({ folds: 1, arrivals: 6, otherSchedule: 1, reason: 'ready' });
     expect(h.confidence.answer(key)).toMatchObject({ samples: 6 });
+  });
+  it('names the storage cap when new rows would pass it, not the write budget (Neon DEEP Nov 26)', () => {
+    const h = harness();
+    insert(h.db, at('20261101', '06:00'), []);
+    morning(h.db, WEEKDAYS[0]!);
+    h.confidence.fold(NOW, h.spare);
+    expect(h.confidence.status()).toMatchObject({ folds: 1, reason: 'ready' });
+    // Under the cap by one byte, so only the new rows' size can pass it.
+    const meta = h.db.prepare('SELECT body FROM dale_arrival_meta WHERE id=1').get();
+    h.db.prepare('UPDATE dale_arrival_meta SET body=? WHERE id=1').run(JSON.stringify({ ...JSON.parse(String(meta!.body)), bytes: MAX_CONFIDENCE_BYTES - 1 }));
+    for (const date of WEEKDAYS.slice(1)) morning(h.db, date);
+    h.confidence.fold(NOW + FOLD_MS, h.spare);
+    expect(h.confidence.status()).toMatchObject({ folds: 1, reason: 'storage-limit' });
   });
   it('spare writes leave every remaining normal poll, the rollover margin and the caller keep untouched', () => {
     const h = harness();

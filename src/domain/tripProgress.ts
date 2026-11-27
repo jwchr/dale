@@ -100,8 +100,11 @@ export function tripProgress(input: ProgressInput): TripProgress {
   const { stops, times, boardIndex, alightIndex, now, milestones } = input;
   const reachedIndex = Math.max(boardIndex, ...milestones.map((m) => m.index));
   const evidence: { position: number; at: number; source: EvidenceSource }[] = [];
-  const last = [...milestones].sort((a, b) => a.at - b.at || a.index - b.index).at(-1);
-  if (last && now - last.at <= (last.source === 'tap' ? TAP_MAX_AGE_MS : FIX_MAX_AGE_MS)) evidence.push({ position: last.index, at: last.at, source: last.source });
+  // Newest of the milestones still fresh for their own source, so an expired GPS stop never hides a
+  // rider's tap that is still good (Neon DEEP Nov 26, C1-5).
+  const last = milestones.filter((m) => now - m.at <= (m.source === 'tap' ? TAP_MAX_AGE_MS : FIX_MAX_AGE_MS))
+    .sort((a, b) => a.at - b.at || a.index - b.index).at(-1);
+  if (last) evidence.push({ position: last.index, at: last.at, source: last.source });
   for (const [fix, source] of [[input.bus, 'bus_gps'], [input.phone, 'phone_gps']] as const) {
     if (!fix) continue;
     const p = fixPosition(stops, boardIndex, fix, now);

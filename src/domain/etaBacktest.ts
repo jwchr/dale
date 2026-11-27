@@ -103,7 +103,8 @@ export function backtest(samples: readonly DelaySample[]): BaselineScore[] {
         if (baseline === 'schedule') { errors.push(Math.abs(target.delay)); continue; }
         const history = list.filter(h => h.day < target.day && (baseline === 'allHistory' || target.day - h.day <= 28))
           .map(h => h.delay).sort((a, b) => a - b);
-        if (history.length < MIN_HISTORY) { abstained++; continue; }
+        // MIN_HISTORY counts earlier service days, not samples: five trips from one day are one day (Neon DEEP Nov 26, C1-10).
+        if (new Set(list.filter(h => h.day < target.day && (baseline === 'allHistory' || target.day - h.day <= 28)).map(h => h.day)).size < MIN_HISTORY) { abstained++; continue; }
         errors.push(Math.abs(target.delay - quantile(history, 0.5)));
         intervals++;
         if (target.delay >= quantile(history, 0.1) && target.delay <= quantile(history, 0.9)) inside++;

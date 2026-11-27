@@ -6,7 +6,9 @@ import type { NormalizedFeed } from './normalize';
 export function summarizeDepartures(ds: Dataset, queries: DepartureRequest[], vehicles: NormalizedFeed, updates: NormalizedFeed, now: number): DepartureReport[] {
   return queries.map(query => {
     const id = query.tripId + '@' + query.serviceDate;
-    const matches = updates.updates.filter(u => u.tripInstanceId === id), update = matches.length === 1 ? matches[0] : undefined;
+    // Only fresh updates count, as for GPS below and the history journal: a stale copy next to a fresh one
+    // must not mark the trip ambiguous and hide its GPS (Neon DEEP Nov 26, debate 1).
+    const matches = updates.updates.filter(u => u.tripInstanceId === id && u.observedAt <= now && now - u.observedAt <= LIVE_MAX_AGE_MS), update = matches.length === 1 ? matches[0] : undefined;
     const points = vehicles.observations.filter(o => o.tripInstanceId === id && o.observedAt <= now && now - o.observedAt <= LIVE_MAX_AGE_MS);
     const ambiguous = matches.length > 1 || new Set(points.map(o => o.vehicleId)).size > 1;
     const missingDate = vehicles.unresolvedDateTrips?.includes(query.tripId) || updates.unresolvedDateTrips?.includes(query.tripId);
