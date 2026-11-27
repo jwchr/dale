@@ -48,9 +48,13 @@ describe('official GTFS-RT normalization', () => {
   it('reads a time up to 30 seconds ahead as clock skew, at now, never later (Neon DEEP Nov 26)', () => {
     const ahead = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 5 }) }], { timestamp: NOW / 1000 + 1 }), 'vehicles', NOW);
     expect(ahead.feed).toEqual({ state: 'ok', timestamp: NOW });
-    expect(ahead.observations).toHaveLength(1); expect(ahead.observations[0]!.observedAt).toBe(NOW);
+    expect(ahead.observations).toHaveLength(1); expect(ahead.observations[0]).toMatchObject({ observedAt: NOW, sourceAt: NOW + 5000 });
+    // The cadence census keeps NJ Transit's own clock (Codex, CodeRabbit #323).
+    expect(ahead.presence?.[0]?.observedAt).toBe(NOW + 5000);
     const updated = normalize(binaryFeed([{ id: 'u', tripUpdate: update({ timestamp: NOW / 1000 + 30 }) }], { timestamp: NOW / 1000 }), 'updates', NOW);
-    expect(updated.updates).toHaveLength(1); expect(updated.updates[0]!.observedAt).toBe(NOW);
+    expect(updated.updates).toHaveLength(1); expect(updated.updates[0]).toMatchObject({ observedAt: NOW, sourceAt: NOW + 30_000 });
+    // A time not ahead carries no second time.
+    expect('sourceAt' in normalize(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW).observations[0]!).toBe(false);
   });
   it('distinguishes a deleted vehicle from an official trip cancellation', () => {
     expect(normalize(binaryFeed([{ id: 'v', isDeleted: true, vehicle: vehicle() }]), 'vehicles', NOW).observations).toEqual([]);

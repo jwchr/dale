@@ -19,6 +19,8 @@ export interface HistorySelection {
   records: HistoryEvidence[];
   watermarks: Record<string, HistoryWatermark>;
   duplicates: number;
+  /** Reports whose source time was still ahead of the clock, left for a later poll. */
+  early: number;
   rejected: number;
   conflicts: number;
   outOfOrder: number;
@@ -36,7 +38,7 @@ export function createHistorySelector(ds: Dataset) {
   return (feed: NormalizedFeed, receivedAt: number, previous: Record<string, HistoryWatermark> = {}): HistorySelection => {
     const watermarks: Record<string, HistoryWatermark> = Object.fromEntries(Object.entries(previous)
       .filter(([, mark]) => Number.isSafeInteger(mark.observedAt) && mark.observedAt <= receivedAt && receivedAt - mark.observedAt <= LIVE_MAX_AGE_MS));
-    const result: HistorySelection = { records: [], watermarks, duplicates: 0, rejected: 0, conflicts: 0, outOfOrder: 0, feedUsable: false };
+    const result: HistorySelection = { records: [], watermarks, duplicates: 0, early: 0, rejected: 0, conflicts: 0, outOfOrder: 0, feedUsable: false };
     const generatedAt = feed.feed.timestamp;
     if (ds.meta.demo || ds.meta.transcribed || ds.meta.realtime?.provider !== 'njt-bus-g2'
       || !Number.isSafeInteger(receivedAt) || receivedAt <= 0 || feed.feed.state !== 'ok' || generatedAt === undefined
@@ -44,6 +46,10 @@ export function createHistorySelector(ds: Dataset) {
     result.feedUsable = true;
     const candidates = new Map<string, { key: string; evidence: HistoryEvidence; fingerprint: string; conflict: boolean }>();
     for (const point of feed.observations) {
+      // A time ahead of the clock reads as now, which moves each poll, so saving it now would store one report
+      // under several times. It waits: once the clock passes NJ Transit's own time, the next poll saves it once,
+      // at that time. Its original bytes are in the raw archive either way (Codex, CodeRabbit #323).
+      if (point.sourceAt !== undefined) { result.early++; continue; }
       const split = point.tripInstanceId.lastIndexOf('@');
       const trip = trips.get(point.tripInstanceId.slice(0, split)), serviceDate = point.tripInstanceId.slice(split + 1);
       const pattern = trip && patterns.get(trip.patternId), route = pattern && routes.get(pattern.routeId);

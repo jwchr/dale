@@ -213,7 +213,7 @@ export class HistoryJournal {
       const tripChanges = updates?.feed.state === 'ok' && updates.feed.timestamp !== undefined
         && updates.feed.timestamp <= receivedAt && receivedAt - updates.feed.timestamp <= LIVE_MAX_AGE_MS
         ? updates.updates.filter(u => u.observedAt <= receivedAt && receivedAt - u.observedAt <= LIVE_MAX_AGE_MS)
-          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, cancelled: u.cancelled, skippedStops: [...u.skippedStops], ...(this.keepPredictions ? { predictions: u.predictions.map(p => ({ stopIndex: p.stopIndex, at: p.at, observedAt: p.observedAt, kind: p.kind })) } : {}) })) : [];
+          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, ...(u.sourceAt !== undefined ? { sourceAt: u.sourceAt } : {}), cancelled: u.cancelled, skippedStops: [...u.skippedStops], ...(this.keepPredictions ? { predictions: u.predictions.map(p => ({ stopIndex: p.stopIndex, at: p.at, observedAt: p.observedAt, kind: p.kind })) } : {}) })) : [];
       let records = selected.records;
       const census = (feed.presence ?? []).map(p => ({ vehicleId: p.vehicleId, tripId: p.tripId, tripInstanceId: p.tripInstanceId, routeId: p.routeId,
         observedAt: p.observedAt, qualification: p.qualification }));

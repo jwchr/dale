@@ -15,6 +15,16 @@ describe('private history evidence selection', () => {
     expect(result.records[0]!.observation.stopCall).toBeUndefined();
     expect(result.records[0]).not.toHaveProperty('arrival');
   });
+  it('saves a report stamped ahead of the clock once, at its own time, after the clock passes it (Codex, CodeRabbit #323)', () => {
+    const feedAt = (now: number) => normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 }), 'vehicles', now);
+    const first = select(feedAt(NOW), NOW);
+    expect(first).toMatchObject({ records: [], early: 1 });
+    const second = select(feedAt(NOW + 15_000), NOW + 15_000, first.watermarks);
+    expect(second).toMatchObject({ records: [], early: 1 });
+    const third = select(feedAt(NOW + 30_000), NOW + 30_000, second.watermarks);
+    expect(third.records.map(r => r.observation.observedAt)).toEqual([NOW + 25_000]);
+    expect(select(feedAt(NOW + 45_000), NOW + 45_000, third.watermarks)).toMatchObject({ records: [], duplicates: 1 });
+  });
   it('deduplicates a repeated normalized report across a persisted checkpoint and records a later report', () => {
     const first = select(sample(), NOW);
     const again = select(sample(), NOW + 30_000, JSON.parse(JSON.stringify(first.watermarks)));
