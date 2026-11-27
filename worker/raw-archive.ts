@@ -213,7 +213,10 @@ export class RawArchive {
           upstreamHeaderTimestamp: feedInfo ? feedInfo.timestamp : null, ...(response.filtered ? { filtered: response.filtered } : {}),
           ...(response.label ? { label: response.label } : {}) };
         last[stream] = sha256; lastAt[stream] = response.receivedAt;
-        Object.assign(records, feedInfo ? { [stream]: { at: response.receivedAt, records: feedInfo.entities } } : countJson(stream, response.bytes, response.receivedAt));
+        const counted = feedInfo ? { [stream]: { at: response.receivedAt, records: feedInfo.entities } } : countJson(stream, response.bytes, response.receivedAt);
+        // A readable bundle's per-answer counts replace an older whole-bundle count (Neon Nov27 a).
+        if (!(stream in counted)) delete records[stream];
+        Object.assign(records, counted);
         prepared.push({ gzipSum, item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
@@ -235,6 +238,8 @@ export class RawArchive {
           this.state.failures++;
           const stuck = this.state.stuck ??= [];
           if (now - item.manifest.receivedAt > STUCK_MS && stuck.length < STUCK_KEPT) {
+            // This failure counts as the list's first try, so it is not tried again this same poll (Neon Nov26 h).
+            if (!stuck.length) this.state.stuckTriedAt = now;
             stuck.push(item);
             this.state.stuckCount = (this.state.stuckCount ?? 0) + 1;
             this.state.pending = this.state.pending.filter(p => p !== item);

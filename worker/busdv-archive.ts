@@ -65,18 +65,22 @@ export function busDvCoverage(bytes: Uint8Array): Omit<BusDvCoverage, 'at'> | un
   let value: unknown;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\ufeff/, '')); } catch { return; }
   if (!Array.isArray(value)) return;
-  let maxMiles: number | null = null, lat: [number, number] | null = null, lon: [number, number] | null = null;
+  let vehicles = 0, maxMiles: number | null = null, lat: [number, number] | null = null, lon: [number, number] | null = null;
   for (const row of value) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const r = row as Record<string, unknown>;
+    // Only rows that look like a vehicle count, so an error or note row does not raise the total (Neon Nov27 a).
+    if (!('VehicleLat' in r || 'VehicleLong' in r || 'VehicleDistanceMiles' in r)) continue;
+    vehicles++;
     const miles = coord(r.VehicleDistanceMiles, 0, 10_000), y = coord(r.VehicleLat, -90, 90), x = coord(r.VehicleLong, -180, 180);
     if (miles !== undefined) maxMiles = Math.max(maxMiles ?? 0, Math.ceil(miles));
-    if (y !== undefined && x !== undefined) {
+    // 0,0 is a GPS with no fix, not a place in New Jersey, so it never widens the reach (Neon Nov27 a).
+    if (y !== undefined && x !== undefined && !(y === 0 && x === 0)) {
       lat = [Math.min(lat?.[0] ?? Infinity, Math.floor(y * 10) / 10), Math.max(lat?.[1] ?? -Infinity, Math.ceil(y * 10) / 10)];
       lon = [Math.min(lon?.[0] ?? Infinity, Math.floor(x * 10) / 10), Math.max(lon?.[1] ?? -Infinity, Math.ceil(x * 10) / 10)];
     }
   }
-  return { vehicles: value.length, maxMiles, lat, lon };
+  return { vehicles, maxMiles, lat, lon };
 }
 /** A copy for the public status page: never the private state itself (it holds the token). */
 export const busDvCoverageStatus = (state: BusDvState | undefined) =>

@@ -101,8 +101,12 @@ describe('private as-received raw archives', () => {
     h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
     await h.raw.capture([], NOW + 3600_000, []);
     expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 0 });
+    const failed = h.raw.status().failures, gets = () => h.calls.filter(c => c.startsWith('get:')).length, before = gets();
     await h.raw.capture([], NOW + 86_400_001, []);
     expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 1 });
+    // The failure that moves it counts as its first try: it is not tried again in the same poll (Neon Nov26 h).
+    expect(h.raw.status().failures).toBe(failed + 1);
+    expect(gets() - before).toBe(1);
     // The whole manifest is kept: it is the only copy until it is in R2 (CodeRabbit, #321).
     expect(h.state.stuck).toEqual([{ key: expect.stringMatching(/\.pb\.gz$/), manifest: expect.objectContaining({ receivedAt: NOW, sha256: expect.any(String), gzipSHA256: expect.any(String) }) }]);
     expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz'))).toBe(true);
@@ -137,6 +141,17 @@ describe('private as-received raw archives', () => {
       'busdv-poll/getBusDV:BUS': { at: NOW, records: null, answers: 1, failed: 1 } });
     // Counts survive a restart with the rest of the checkpoint.
     h.restart(); expect(h.raw.status().records['getTripUpdates']).toEqual({ at: NOW, records: 0 });
+  });
+  it('drops an old whole-bundle count once a readable bundle gives per-answer counts (Neon Nov27 a)', async () => {
+    const h = await harness(), enc = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)) as Uint8Array<ArrayBuffer>;
+    await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW, bytes: enc({ v: 1 }) }], NOW, []);
+    expect(h.raw.status().records).toEqual({ 'busdv-poll': { at: NOW, records: null } });
+    await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW + 1, bytes: enc({ v: 1, responses: [
+      { method: 'getVehicleLocations', mode: 'BUS', status: 'ok', text: '[{"a":1}]' }] }) }], NOW + 1, []);
+    expect(h.raw.status().records).toEqual({ 'busdv-poll/getVehicleLocations:BUS': { at: NOW + 1, records: 1, answers: 1, failed: 0 } });
+    // A later unreadable bundle is shown again, next to the last per-answer counts and their own times.
+    await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW + 2, bytes: enc({ v: 2 }) }], NOW + 2, []);
+    expect(h.raw.status().records['busdv-poll']).toEqual({ at: NOW + 2, records: null });
   });
   it('preserves successful response bodies even when the protobuf cannot normalize, with an unknown header time', async () => {
     const h = await harness(), bytes = new Uint8Array([255, 0, 64, 201, 17]);

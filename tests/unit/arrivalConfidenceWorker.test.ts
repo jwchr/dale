@@ -313,6 +313,35 @@ describe('archive backfill (manual, bounded, idempotent)', () => {
     await runToEnd(backfill, h.spare, LATER + 61_000);
     expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 1, newArrivals: 1 });
   });
+  it('running out of step time after some batches ends the step normally: no back-off, the next step resumes (Neon DEEP Nov 26, C1-1)', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    ['07:01', '07:02', '07:03'].forEach((t) => a.putBatch(at('20261109', t), [record('T1@20261109', at('20261109', t), [0, '1'])], old, 'older-version'));
+    let clock = 0, batchReads = 0;
+    a.hooks.onGet = (k) => { if (k.includes('/batches/') && ++batchReads === 2) clock += 5_000; return undefined; }; // the second batch read finds the step's time used up
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 24 * 3600_000}`, () => clock);
+    await backfill.step(LATER, h.spare); // 2026-11-08
+    await backfill.step(LATER + 1000, h.spare);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', batchesReplayed: 1, retries: 0, retryableFailures: 0 });
+    expect('retryAt' in backfill.status()).toBe(false);
+    await backfill.step(LATER + 2000, h.spare); // resumes right away, at the batch that ran out of time
+    expect(backfill.status()).toMatchObject({ batchesReplayed: 3, retries: 0 });
+    await runToEnd(backfill, h.spare, LATER + 3000);
+    expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 3, retryableFailures: 0 });
+  });
+  it('an R2 error after some batches still backs off: only running out of step time ends a step normally (Neon Nov26 h)', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    ['07:01', '07:02', '07:03'].forEach((t) => a.putBatch(at('20261109', t), [record('T1@20261109', at('20261109', t), [0, '1'])], old, 'older-version'));
+    let batchReads = 0;
+    a.hooks.onGet = (k) => k.includes('/batches/') && ++batchReads === 2 ? Promise.reject(new Error('backfill-timeout')) : undefined; // an R2 error, even one worded like a timeout
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 24 * 3600_000}`);
+    await backfill.step(LATER, h.spare); // 2026-11-08
+    await backfill.step(LATER + 1000, h.spare);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', batchesReplayed: 1, retries: 1, retryableFailures: 1, retryAt: LATER + 61_000 });
+    await runToEnd(backfill, h.spare, LATER + 61_000);
+    expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 3 });
+  });
   it('reserves at least every row it writes, in the live fold and in both backfill modes', async () => {
     const h = harness(), a = archive();
     for (const date of BACKFILL_DATES) {

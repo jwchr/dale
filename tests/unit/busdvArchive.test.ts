@@ -425,8 +425,12 @@ describe('BUSDV2 private raw archive', () => {
         { VehicleID: 'SYN1', VehicleLat: '40.7581', VehicleLong: '-73.9912', VehicleDistanceMiles: '30.2' },
         { VehicleID: 'SYN2', VehicleLat: 39.3611, VehicleLong: -74.4417, VehicleDistanceMiles: 75 },
         { VehicleID: 'SYN3', VehicleLat: 'x', VehicleLong: '-74.1', VehicleDistanceMiles: '' },
-        'not a row', null,
-      ))).toEqual({ vehicles: 5, maxMiles: 75, lat: [39.3, 40.8], lon: [-74.5, -73.9] });
+        'not a row', null, { errorMessage: 'synthetic note' },
+      ))).toEqual({ vehicles: 3, maxMiles: 75, lat: [39.3, 40.8], lon: [-74.5, -73.9] });
+    });
+    it('counts a vehicle with no GPS fix (0,0) but never widens the reach to it (Neon Nov27 a)', () => {
+      expect(busDvCoverage(rows({ VehicleLat: 0, VehicleLong: '0' }, { VehicleLat: '40.9', VehicleLong: '-74.1' })))
+        .toEqual({ vehicles: 2, maxMiles: null, lat: [40.9, 40.9], lon: [-74.1, -74.1] });
     });
     it('reports an empty list as zero vehicles, and refuses anything that is not a JSON array', () => {
       expect(busDvCoverage(encode('\ufeff[]'))).toEqual({ vehicles: 0, maxMiles: null, lat: null, lon: null });

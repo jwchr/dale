@@ -362,9 +362,12 @@ export class HistoryJournal {
       for (const row of rows) {
         if (pruned >= 2 || state.reservedWrites + 4 > DAILY_WRITE_BUDGET) break;
         if (pruned > 0 && DAILY_WRITE_BUDGET - state.reservedWrites - 4 < catchUpReserve) break;
-        let receipt: ArchiveReceipt;
-        try { receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt; } catch { continue; }
-        const context = this.scheduleContext(String(row.context_key ?? row.feed_version)).receipt;
+        // A bad receipt or a missing schedule context keeps the row and steps over it (Neon Nov26 h).
+        let receipt: ArchiveReceipt, context: ArchiveReceipt | undefined;
+        try {
+          receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt;
+          context = this.scheduleContext(String(row.context_key ?? row.feed_version)).receipt;
+        } catch { continue; }
         if (!(context && receipt.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(String(receipt.rawSHA256)))) continue;
         pruned++;
         this.storage.sql.exec('DELETE FROM dale_history_batches WHERE attempt=?', Number(row.attempt));
