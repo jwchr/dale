@@ -16,13 +16,9 @@ export const TRAFFIC_START_MS = 8_000;
 const PANYNJ = 'https://www.panynj.gov/bin/portauthority/', NJT = 'https://www.njtransit.com/rss/', NJ511 = 'https://511nj.org/client/rest/rss/';
 /** Eastern calendar date as MM/DD/YYYY, the alerts feed's own date format. */
 export const easternDate = (at: number) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' }).format(at);
-/** The Port Authority's alert feeds name the staff member who posted each alert (`SentBy`). Dale keeps no
- *  personal data, so a staff-name field is removed before saving, from every JSON feed, at any depth and in
- *  any spelling (SentBy, sent_by, CreatedBy, UpdatedBy, ModifiedBy, PostedBy, Author), and the entry lists
- *  what was removed. So are the RSS tags that name a person. An answer without them is kept exactly as sent
- *  (Neon Nov26 g, #309 and #314). */
-const staffKey = (key: string) => /^((sent|created|updated|modified|posted|submitted)by|author)$/.test(key.toLowerCase().replace(/[^a-z]/g, ''));
-const STAFF_TAGS = /<(author|dc:creator|managingEditor|webMaster)\b[^>]*?(?:\/>|>[\s\S]*?<\/\1\s*>)/gi;
+/** Every answer is saved exactly as sent, staff names included (Jeff, Nov 26, 2026: "Keep exact"; reason:
+ *  the archive is the original record, kept private in R2; screens and the status page never show those names).
+ *  This replaces the staff-name drop of #309, #314 and #316. */
 /** rss: an RSS document. array: a JSON list of records. object: a JSON object holding a list under `list`. */
 type Shape = { kind: 'rss' } | { kind: 'array' } | { kind: 'object'; list: string };
 interface Source { feed: RawFeed; url: (at: number) => string; shape: Shape; every?: number; offset?: number }
@@ -57,7 +53,7 @@ export const dueSources = (slot: number): SourceName[] => (Object.keys(TRAFFIC_S
 });
 
 export interface TrafficState { slot?: number }
-interface Entry { source: SourceName; url: string; receivedAt: number; status: 'ok' | string; text?: string; dropped?: string[] }
+interface Entry { source: SourceName; url: string; receivedAt: number; status: 'ok' | string; text?: string }
 
 export async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs: number, headers?: Record<string, string>): Promise<Uint8Array<ArrayBuffer>> {
   const ctl = new AbortController();
@@ -99,30 +95,24 @@ export async function boundedGet(url: string, fetchImpl: typeof fetch, timeoutMs
 /** JSON.parse refuses a leading byte-order mark, which some servers send. The saved text keeps it as sent. */
 export const withoutBom = (text: string) => text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 /** Exact text for the expected shape, or a fixed failure code. Error pages and cut-off answers are never
- *  saved as data. Staff names are removed first (see staffKey). */
-function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text' | 'dropped'> {
+ *  saved as data. */
+function accept(shape: Shape, bytes: Uint8Array): Pick<Entry, 'text'> {
   let text: string;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw new NjtError('invalid-response'); }
   if (shape.kind === 'rss') {
     // The closing tag too: a connection cut mid-answer would otherwise be saved as a good reading (Neon Nov26 g, #309).
     if (!/^\s*(<\?xml[^>]*>\s*)?<rss[\s>]/.test(text) || !/<\/rss>\s*$/.test(text)) throw new NjtError('invalid-response');
-    const tags = new Set<string>(), scrubbed = text.replace(STAFF_TAGS, (_, tag: string) => { tags.add(tag); return ''; });
-    return tags.size ? { text: scrubbed, dropped: [...tags].sort() } : { text };
+    return { text };
   }
   let value: unknown;
   try { value = JSON.parse(withoutBom(text)); } catch { throw new NjtError('invalid-response'); }
   if (shape.kind === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray((value as Record<string, unknown>)[shape.list])) throw new NjtError('invalid-response');
   } else if (!Array.isArray(value) || value.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
-    // A list of records only. A bare string in the list could be a name, so it is refused, never saved raw.
+    // A list of records only: anything else is not the feed's usual answer.
     throw new NjtError('invalid-response');
   }
-  const keys = new Set<string>();
-  const strip = (v: unknown): unknown => Array.isArray(v) ? v.map(strip)
-    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([key]) => !(staffKey(key) && keys.add(key))).map(([key, x]) => [key, strip(x)]))
-    : v;
-  const scrubbed = strip(value);
-  return keys.size ? { text: JSON.stringify(scrubbed), dropped: [...keys].sort() } : { text };
+  return { text };
 }
 
 export class TrafficArchive {
