@@ -40,10 +40,17 @@ describe('official GTFS-RT normalization', () => {
     { trip: { ...descriptor, startDate: '' }, timestamp: NOW / 1000 - 5 * 3600 }, { trip: { ...descriptor, startDate: '20261344' } },
     { trip: { ...descriptor, routeId: 'other' } }, { trip: { ...descriptor, directionId: 1 } },
     { trip: { ...descriptor, startDate: '20261107' } }, { trip: { ...descriptor, tripId: 'not-in-static-feed' } },
-    { trip: { ...descriptor, scheduleRelationship: 1 } }, { timestamp: 0 }, { timestamp: NOW / 1000 + 5 },
+    { trip: { ...descriptor, scheduleRelationship: 1 } }, { timestamp: 0 }, { timestamp: NOW / 1000 + 31 },
     { vehicle: {} }, { position: { latitude: 91, longitude: 0 } },
   ])('does not invent a match/measurement for unsupported descriptor or position: %j', (patch) => {
     expect(normalize(binaryFeed([{ id: 'v', vehicle: vehicle(patch) }]), 'vehicles', NOW).observations).toEqual([]);
+  });
+  it('reads a time up to 30 seconds ahead as clock skew, at now, never later (Neon DEEP Nov 26)', () => {
+    const ahead = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 5 }) }], { timestamp: NOW / 1000 + 1 }), 'vehicles', NOW);
+    expect(ahead.feed).toEqual({ state: 'ok', timestamp: NOW });
+    expect(ahead.observations).toHaveLength(1); expect(ahead.observations[0]!.observedAt).toBe(NOW);
+    const updated = normalize(binaryFeed([{ id: 'u', tripUpdate: update({ timestamp: NOW / 1000 + 30 }) }], { timestamp: NOW / 1000 }), 'updates', NOW);
+    expect(updated.updates).toHaveLength(1); expect(updated.updates[0]!.observedAt).toBe(NOW);
   });
   it('distinguishes a deleted vehicle from an official trip cancellation', () => {
     expect(normalize(binaryFeed([{ id: 'v', isDeleted: true, vehicle: vehicle() }]), 'vehicles', NOW).observations).toEqual([]);
@@ -62,7 +69,7 @@ describe('official GTFS-RT normalization', () => {
   it('rejects malformed/differential/future feeds and keeps old timestamps stale', () => {
     expect(normalize(new Uint8Array([255]), 'vehicles', NOW).feed.state).toBe('invalid');
     expect(normalize(binaryFeed([], { incrementality: 1 }), 'vehicles', NOW).feed.state).toBe('invalid');
-    expect(normalize(binaryFeed([], { timestamp: NOW / 1000 + 1 }), 'vehicles', NOW).feed.state).toBe('invalid');
+    expect(normalize(binaryFeed([], { timestamp: NOW / 1000 + 31 }), 'vehicles', NOW).feed.state).toBe('invalid');
     expect(normalize(gps(), 'vehicles', NOW + 180_000).feed).toEqual({ state: 'stale', timestamp: NOW - 10_000 });
   });
 });

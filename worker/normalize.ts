@@ -10,6 +10,8 @@ export interface FeedDiagnostics { entities: number; knownTrips: number; corrido
 export interface VehiclePresence { vehicleId: string; tripId?: string; tripInstanceId?: string; routeId?: string; observedAt?: number; qualification: 'unmatched' | 'invalid-position-or-time' | 'unsupported-service' | 'stale' | 'matched' }
 export interface NormalizedFeed { presence?: VehiclePresence[]; unresolvedDateTrips?: string[]; diagnostics?: FeedDiagnostics; feed: LiveFeed; observations: VehicleObservation[]; updates: NormalizedUpdate[] }
 const seconds = (v: unknown) => { const n = Number(v), ms = n * 1000; return Number.isSafeInteger(n) && n > 0 && Number.isSafeInteger(ms) && Number.isFinite(new Date(ms).getTime()) ? ms : undefined; };
+/** How far ahead of this Worker's clock an NJ Transit time may be and still count (the rider app allows the same 30 s). */
+const CLOCK_SKEW_MS = 30_000;
 
 export function createNormalizer(ds: Dataset) {
   const trips = new Map(ds.trips.map((t) => [t.id, t])), patterns = new Map(ds.patterns.map((p) => [p.id, p]));
@@ -33,11 +35,15 @@ export function createNormalizer(ds: Dataset) {
     // Ambiguous/malformed dates and added/duplicated/unscheduled trips remain unknown.
     return { id: tripInstanceId(trip.id, date), pattern, dated: explicit };
   }
+  /** A time a little ahead of this Worker's clock is clock skew, read as now; further ahead stays rejected
+   *  (Neon DEEP Nov 26: 1 ms ahead dropped the whole feed). Never later than now, so it never looks newer. */
+  const skewed = (at: number | undefined, now: number) => at !== undefined && at > now && at <= now + CLOCK_SKEW_MS ? now : at;
   return function normalize(bytes: Uint8Array, kind: 'vehicles' | 'updates', now: number): NormalizedFeed {
     const empty: NormalizedFeed = { feed: { state: 'invalid' }, observations: [], updates: [] };
     try {
-      const data = bindings.transit_realtime.FeedMessage.decode(bytes), at = seconds(data.header.timestamp);
-      if (!at || at > now || data.header.incrementality === 1) return empty;
+      const data = bindings.transit_realtime.FeedMessage.decode(bytes), sent = seconds(data.header.timestamp);
+      if (!sent || sent > now + CLOCK_SKEW_MS || data.header.incrementality === 1) return empty;
+      const at = Math.min(sent, now);
       const diagnostics: FeedDiagnostics = { entities: data.entity.length, knownTrips: 0, corridorRoutes: 0, missingServiceDates: 0, missingObservationTimes: 0 };
       const feedRoutes = new Set(ds.routes.map((r) => r.feedRouteId ?? r.id));
       const output: NormalizedFeed = { ...(kind === 'vehicles' ? { presence: [] } : {}), unresolvedDateTrips: [], diagnostics, feed: { state: now - at > LIVE_MAX_AGE_MS ? 'stale' : 'ok', timestamp: at }, observations: [], updates: [] };
@@ -54,7 +60,7 @@ export function createNormalizer(ds: Dataset) {
           }
         }
         if (kind === 'vehicles' && entity.vehicle) {
-          const vehicle = entity.vehicle, observedAt = seconds(vehicle.timestamp), match = identify(vehicle.trip, observedAt), pos = vehicle.position;
+          const vehicle = entity.vehicle, observedAt = skewed(seconds(vehicle.timestamp), now), match = identify(vehicle.trip, observedAt), pos = vehicle.position;
           let presence: VehiclePresence | undefined;
           // Corridor-only timestamp census preserves unchanged/rejected presence
           // for cadence analysis, without storing any systemwide coordinates.
@@ -79,7 +85,7 @@ export function createNormalizer(ds: Dataset) {
           output.observations.push({ tripInstanceId: match.id, vehicleId: vehicle.vehicle.id, observedAt, lat: pos.latitude, lon: pos.longitude, ...(stopCall ? { stopCall } : {}) });
         }
         if (kind === 'updates' && entity.tripUpdate) {
-          const update = entity.tripUpdate, observedAt = seconds(update.timestamp), match = identify(update.trip, observedAt);
+          const update = entity.tripUpdate, observedAt = skewed(seconds(update.timestamp), now), match = identify(update.trip, observedAt);
           if (!match || !observedAt || observedAt > now || ![0, 3].includes(update.trip.scheduleRelationship ?? 0)) continue;
           // A cancellation can be posted long before its trip, so its timestamp does not prove the day: only NJ Transit's own date counts.
           if (update.trip.scheduleRelationship === 3 && !match.dated) {
