@@ -1,6 +1,7 @@
 import bindings from 'gtfs-realtime-bindings';
 import type { HistoryArchive, HistoryBucket } from './history-archive';
 import type { RegionFilter } from './region-raw';
+import { countJson, type RecordCount } from './record-count';
 
 // Alerts are saved raw only (D84: "All the data, save all the data."); nothing in Dale reads them yet.
 export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts'
@@ -33,6 +34,8 @@ export interface RawArchiveState {
   pending: Pending[]; reason: string; failures: number; missing: number; blockedSecrets: number;
   /** When a storage, operation or SQL guard last refused raw saving (absent in older checkpoints). */
   budgetAt?: number;
+  /** Records in each stream's last saved answer, for the status page (absent in older checkpoints). */
+  records?: Record<string, RecordCount>;
 }
 export const newRawArchiveState = (): RawArchiveState => ({ v: 1, credit: { bytes: 0, a: 0, b: 0, writes: 0, day: '' },
   last: {}, lastAt: {}, ledgers: {}, pending: [], reason: 'waiting', failures: 0, missing: 0, blockedSecrets: 0 });
@@ -59,11 +62,12 @@ async function bounded<T>(task: Promise<T>): Promise<T> {
   try { return await Promise.race([task, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('raw-timeout')), 12_000); })]); }
   finally { clearTimeout(timer); }
 }
-function headerTimestamp(bytes: Uint8Array): number | null {
+/** One decode gives the header time and the entity count, so a large bus feed is not decoded twice. */
+function decodeFeed(bytes: Uint8Array): { timestamp: number | null; entities: number | null } {
   try {
-    const value = Number(bindings.transit_realtime.FeedMessage.decode(bytes).header.timestamp);
-    return Number.isSafeInteger(value) && value > 0 ? value : null;
-  } catch { return null; }
+    const message = bindings.transit_realtime.FeedMessage.decode(bytes), value = Number(message.header.timestamp);
+    return { timestamp: Number.isSafeInteger(value) && value > 0 ? value : null, entities: message.entity.length };
+  } catch { return { timestamp: null, entities: null }; }
 }
 /** Exact known secrets are rejected, never redacted: redaction would alter the original evidence. */
 /** Searches the bytes directly: decoding a 32 MiB response into a string for each poll would
@@ -143,7 +147,7 @@ export class RawArchive {
   status() {
     return { configured: true, reason: this.state.reason, failures: this.state.failures, missing: this.state.missing,
       blockedSecrets: this.state.blockedSecrets, pending: this.state.pending.length,
-      hoursUTC: Object.values(this.state.ledgers) };
+      hoursUTC: Object.values(this.state.ledgers), records: this.state.records ?? {} };
   }
   /** Fixed codes only, never upstream error text. Oversized streams have no saved/truncated original. */
   recordFailure(feed: RawFeed, code: string, at: number) {
@@ -158,7 +162,7 @@ export class RawArchive {
   async capture(responses: RawResponse[], now: number, secrets: string[]): Promise<void> {
     const failuresBefore = this.state.failures, blockedBefore = this.state.blockedSecrets;
     // Stage receipt comparisons until credit and recovery allow the new intents to commit.
-    const last = { ...this.state.last }, lastAt = { ...this.state.lastAt };
+    const last = { ...this.state.last }, lastAt = { ...this.state.lastAt }, records = { ...this.state.records };
     // Prepare bounded originals independently; a bad/failed feed never prevents the other.
     const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer> }[] = [];
     for (const response of responses) {
@@ -172,12 +176,14 @@ export class RawArchive {
         // Each BUSDV2 mode is its own stream, compared only with its own last answer (Flash, #304).
         const stream = response.label ? `${response.feed}:${response.label}` : response.feed;
         if (lastAt[stream] === response.receivedAt && last[stream] === sha256) continue;
+        const feedInfo = isJson(response.feed) ? undefined : decodeFeed(response.bytes);
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
           identical: last[stream] === sha256 ? 1 : 0,
-          upstreamHeaderTimestamp: isJson(response.feed) ? null : headerTimestamp(response.bytes), ...(response.filtered ? { filtered: response.filtered } : {}),
+          upstreamHeaderTimestamp: feedInfo ? feedInfo.timestamp : null, ...(response.filtered ? { filtered: response.filtered } : {}),
           ...(response.label ? { label: response.label } : {}) };
         last[stream] = sha256; lastAt[stream] = response.receivedAt;
+        Object.assign(records, feedInfo ? { [stream]: { at: response.receivedAt, records: feedInfo.entities } } : countJson(stream, response.bytes, response.receivedAt));
         prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
@@ -221,7 +227,7 @@ export class RawArchive {
       return;
     }
     if (admitted) {
-      this.state.last = last; this.state.lastAt = lastAt;
+      this.state.last = last; this.state.lastAt = lastAt; this.state.records = records;
       this.state.pending.push(...prepared.map(p => p.item));
     }
     await this.checkpoint();
