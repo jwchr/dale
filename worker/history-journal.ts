@@ -11,8 +11,8 @@ export const HISTORY_INTERVAL_MS = 30_000;
 const MAX_BATCH_BYTES = 128_000, MAX_JOURNAL_BYTES = 250_000_000, MAX_DATABASE_BYTES = 500_000_000;
 // Conservative per-attempt reservation covers journal insert/metadata,
 // existing relay cache writes, authentication rollover and one alarm reschedule.
-// 90,000 of Cloudflare Free's 100,000 SQL rows written a day: the last 10,000 cover writes this counter does
-// not see (alarms, small state saves). Statewide raw saving gets its own share of each interval, RAW_LANE, which
+// 1,000,000 SQL rows written a day on Workers Paid (D85; 31 days is 31 million, inside the 50 million included
+// a month). Writes this counter does not see (alarms, small state saves) also count toward the account. Statewide raw saving gets its own share of each interval, RAW_LANE, which
 // other optional work must leave free (Jeff, Nov 26, 2026, P0: "Nothing is more important than getting this data
 // saved"; raw saving had been squeezed out of the 75,000 cap from about 8:50 AM ET).
 const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6;
@@ -295,9 +295,9 @@ export class HistoryJournal {
   canCatchUpArchive(now: number) {
     const state = this.read(now), used = state.budgetDay === day(now) ? state.reservedWrites : 0;
     const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
-    // Keep the rest of today's normal collection/archive/prune reservations
-    // ahead of optional backlog catch-up work.
-    return DAILY_WRITE_BUDGET - used >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+    // Keep the rest of today's normal collection/archive/prune reservations, and raw saving's own lane,
+    // ahead of optional backlog catch-up work (CodeRabbit, #324: the same reserve the catch-up step itself uses).
+    return DAILY_WRITE_BUDGET - used >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
   }
   storageWritesRemaining(now: number) {
     const state = this.read(now);

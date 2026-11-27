@@ -75,6 +75,18 @@ describe('private SQLite history journal', () => {
     const tomorrow = Date.parse('2026-11-05T00:00:00Z');
     expect(h.journal.beginAttempt(tomorrow)).toBe(tomorrow); expect(h.journal.status(tomorrow).reservedWrites).toBe(12);
   });
+  it('leaves raw saving its lane before backlog catch-up runs (CodeRabbit, #324)', () => {
+    const h = harness(); h.journal.setEnabled(true, NOW);
+    const intervals = Math.ceil((Date.parse(new Date(NOW).toISOString().slice(0, 10) + 'T00:00:00Z') + 86400_000 - NOW) / 30_000);
+    const set = (left: number) => {
+      const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
+      state.budgetDay = new Date(NOW).toISOString().slice(0, 10); state.reservedWrites = 1_000_000 - left;
+      h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    };
+    set(intervals * 30 + 16); expect(h.journal.canCatchUpArchive(NOW)).toBe(true);
+    set(intervals * 30 + 15); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
+    set(intervals * 24 + 16); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
+  });
   it('fails closed on oversized evidence without advancing its dedupe checkpoint', () => {
     const h = harness(), many = feed(), original = many.observations[0]!;
     many.observations = Array.from({ length: 500 }, (_, i) => ({ ...original, vehicleId: `bus-${i}` }));
