@@ -32,13 +32,16 @@ function harness(count = 300, timeoutMs = 20_000) {
   const archive = () => new BusDvArchive(state, credentials, fetchImpl, () => now, timeoutMs);
   return { calls, answers, credentials, fetchImpl, archive, get state() { return state; },
     time: (at: number) => { now = at; },
-    async run() {
+    /** accept: whether the raw archive takes this poll's answers (service.ts calls onAccepted from capture). */
+    async run(accept = true) {
       const a = archive(), plan = a.prepare(now);
       checkpoint = JSON.parse(JSON.stringify(state)) as BusDvState;
       if (!plan || typeof plan === 'string') return plan;
       // A cold collector with the pre-I/O checkpoint must still honor the same reservation.
       state = checkpoint;
-      return archive().collect(plan);
+      const result = await archive().collect(plan);
+      if (accept) for (const response of result.responses) response.onAccepted?.();
+      return result;
     } };
 }
 type Result = Awaited<ReturnType<BusDvArchive['collect']>>;
@@ -188,8 +191,10 @@ describe('BUSDV2 private raw archive', () => {
     expect(h.calls.some(c => c.method === 'getBusDV')).toBe(false);
   });
 
-  it.each([{}, [], [{ bus_terminal_code: 'S001' }, {}], [{ bus_terminal_code: 42 }], [{ bus_terminal_code: ' ' }]])(
+  // it.for passes each row whole; it.each would spread an array row into separate arguments (CodeRabbit, #324).
+  it.for<unknown>([{}, [], [{ bus_terminal_code: 'S001' }, {}], [{ bus_terminal_code: 42 }], [{ bus_terminal_code: ' ' }]])(
     'keeps the previous location list on a malformed daily answer %j', async bad => {
+      expect(bad).toBeDefined();
       const h = harness(); h.state.locations = ['S100', 'S200'];
       h.answers.getLocations = () => Response.json(bad);
       const r = result(await h.run());
@@ -255,6 +260,17 @@ describe('BUSDV2 private raw archive', () => {
     const r = result(await h.run());
     expect(h.calls.filter(c => c.method === 'getBusRoutes')).toHaveLength(5);
     expect(r.responses.filter(v => String(v.feed) === 'busdv-getBusRoutes').map(v => v.label)).toEqual(['RL']);
+  });
+
+  it('asks a daily call again in an hour when the raw archive could not take its answer (CodeRabbit, #324)', async () => {
+    const h = harness();
+    result(await h.run(false));
+    h.time(NOW + HOUR - 1); result(await h.run());
+    expect(h.calls.filter(c => c.method === 'getBusRoutes')).toHaveLength(4);
+    h.time(NOW + HOUR + 42_000); result(await h.run());
+    expect(h.calls.filter(c => c.method === 'getBusRoutes')).toHaveLength(8);
+    h.time(NOW + 2 * HOUR + 84_000); result(await h.run());
+    expect(h.calls.filter(c => c.method === 'getBusRoutes')).toHaveLength(8);
   });
 
   it.each([TOKEN, USER, PASSWORD, encodeURIComponent(PASSWORD)])('refuses an echoed secret without redacting the evidence (%s)', async secret => {
@@ -448,8 +464,10 @@ describe('BUSDV2 private raw archive', () => {
         : c.fields.mode === 'RL' ? new Response('<html>maintenance</html>') : Response.json([]);
       result(await h.run());
       const first = busDvCoverageStatus(h.state)!;
-      expect(first.BUS).toEqual({ at: NOW, vehicles: 1, maxMiles: 53, lat: [40.8, 40.9], lon: [-74.1, -74] });
-      expect(first.NLR).toEqual({ at: NOW, vehicles: 0, maxMiles: null, lat: null, lon: null });
+      // Totals only in public (CodeRabbit, #324): the map box stays in the private state.
+      expect(first.BUS).toEqual({ at: NOW, vehicles: 1, maxMiles: 53 });
+      expect(first.NLR).toEqual({ at: NOW, vehicles: 0, maxMiles: null });
+      expect(h.state.coverage!.BUS).toMatchObject({ lat: [40.8, 40.9], lon: [-74.1, -74] });
       expect(first.RL).toBeUndefined();
       const published = JSON.stringify(first);
       for (const secret of [TOKEN, 'SYN-BUS-7', '40.8912', '-74.0431']) expect(published).not.toContain(secret);

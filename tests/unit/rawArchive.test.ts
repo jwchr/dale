@@ -153,6 +153,20 @@ describe('private as-received raw archives', () => {
     await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW + 2, bytes: enc({ v: 2 }) }], NOW + 2, []);
     expect(h.raw.status().records['busdv-poll']).toEqual({ at: NOW + 2, records: null });
   });
+  it('tells a daily answer it was taken only once capture has it: saved, waiting for upload, or seen before (CodeRabbit, #324)', async () => {
+    const h = await harness(), taken: string[] = [];
+    const answer = (receivedAt: number, text: string, tag: string) => ({ feed: 'raildata-getStationList' as const, receivedAt,
+      bytes: new TextEncoder().encode(text) as Uint8Array<ArrayBuffer>, onAccepted: () => { taken.push(tag); } });
+    await h.raw.capture([answer(NOW, '[1]', 'saved')], NOW, []);
+    await h.raw.capture([answer(NOW, '[1]', 'seen before')], NOW, []);
+    await h.raw.capture([answer(NOW + 1, '["synthetic-secret"]', 'secret')], NOW + 1, ['synthetic-secret']);
+    h.fail('.manifest.json'); // Each original waits for its manifest.
+    await h.raw.capture([answer(NOW + 2, '[2]', 'waiting')], NOW + 2, []);
+    for (let n = 3; n < 10; n++) await h.raw.capture([answer(NOW + n, `[${n}]`, `waiting ${n}`)], NOW + n, []);
+    // Eight answers of this feed already wait, so a ninth is dropped and is not taken.
+    await h.raw.capture([answer(NOW + 10, '[10]', 'full')], NOW + 10, []);
+    expect(taken).toEqual(['saved', 'seen before', 'waiting', ...Array.from({ length: 7 }, (_, i) => `waiting ${i + 3}`)]);
+  });
   it('preserves successful response bodies even when the protobuf cannot normalize, with an unknown header time', async () => {
     const h = await harness(), bytes = new Uint8Array([255, 0, 64, 201, 17]);
     await h.raw.capture([input(NOW, bytes)], NOW, []);

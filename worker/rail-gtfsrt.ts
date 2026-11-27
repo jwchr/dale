@@ -1,7 +1,7 @@
 import { njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
 import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
-import { ARCHIVE_CONNECTIONS, inPool } from './pool';
+import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool } from './pool';
 import type { RawResponse, RawFeed } from './raw-archive';
 
 const DAY = 86400_000, HOUR = 3600_000;
@@ -37,8 +37,14 @@ export class RailGtfsrt {
   async collect(plan: RailPlan): Promise<{ responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] }> {
     const result: { responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] } = { responses: [], failures: [], secrets: [] };
     const methods = ['getVehiclePositions', 'getTripUpdates', 'getAlerts'] as const;
-    const request = (method: 'getToken' | typeof methods[number], fields: Record<string, string>, max: number) =>
-      njtRequest(method, fields, max, this.fetchImpl, 15_000, 'rail-gtfsrt');
+    // The same turn as RailData and BUSDV2 (CodeRabbit, #324): nothing starts 12 seconds in and nothing
+    // runs past 20, so a slow NJ Transit cannot hold rider requests or the next poll for 45 seconds.
+    const started = this.clock();
+    const request = (method: 'getToken' | typeof methods[number], fields: Record<string, string>, max: number) => {
+      const elapsed = this.clock() - started;
+      if (elapsed >= ARCHIVE_START_MS) throw new NjtError('timed-out');
+      return njtRequest(method, fields, max, this.fetchImpl, Math.min(15_000, ARCHIVE_TURN_MS - elapsed), 'rail-gtfsrt');
+    };
     let token = plan.token;
     if (token) result.secrets.push(token);
     try {
