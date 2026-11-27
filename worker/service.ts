@@ -502,6 +502,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         return Response.json({ v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, collection, rideAlerts: this.rideHealth(), rail,
         connectionFailures: this.saved.failures ?? {},
         vehicles: age(vehicles), updates: age(updates), vehicleDiagnostics: vehicles.diagnostics, updateDiagnostics: updates.diagnostics, reportingBuses: new Set(vehicles.observations.filter((o) => now - o.observedAt <= 120_000).map((o) => o.vehicleId)).size,
+        // The newest fresh bus's trip and service date only (schedule data, no vehicle or position), for the deploy's
+        // tracker check through the public /v1/live endpoint (Codex, #322).
+        exampleTrip: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0]?.tripInstanceId ?? null,
       }, { headers: { 'cache-control': 'no-store' } });
       }
       return Response.json(this.snapshot(trip, date, vehicle, now), { headers: { 'cache-control': 'no-store' } });

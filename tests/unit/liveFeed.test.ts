@@ -114,6 +114,8 @@ describe('single paced private live relay', () => {
     // The public status page names no vehicle (Neon DEEP Nov 26: it used to show the newest one).
     const profile = await (await h.object.fetch(request('/v1/status'))).text();
     expect(profile).not.toContain('bus-B'); expect(profile).not.toContain('locked-bus');
+    // The deploy check gets only the newest fresh bus's trip and date, then reads it through public /v1/live (Codex, #322).
+    expect(JSON.parse(profile).exampleTrip).toMatch(/^T[12]@20261104$/);
     for (let i = 0; i < 15; i++) reports.push({ id: 'extra-' + i, vehicle: vehicle({ vehicle: { id: 'extra-' + i } }) });
     const crowded = harness(() => binaryFeed(reports));
     const limited = parseLiveSnapshot(await (await crowded.object.fetch(request('/v1/live?trip=T1&date=20261104&vehicle=locked-bus'))).json(), ds, 'T1', '20261104', NOW);
