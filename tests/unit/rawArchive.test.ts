@@ -72,6 +72,57 @@ describe('private as-received raw archives', () => {
       gzipBytes: compressed.length, sha256: sha(bytes), gzipSHA256: sha(compressed), upstreamHeaderTimestamp: NOW / 1000 - 10 });
     expect(key).toBe(`raw/v1/${new Date(NOW).toISOString().slice(0, 10)}/getVehiclePositions/${NOW}-${sha(bytes)}.pb.gz`);
   });
+  it('uploads at most four originals at once, each before its manifest (Neon DEEP Nov 26, B1-1)', async () => {
+    const h = await harness(), put = h.bucket.put.bind(h.bucket);
+    let active = 0, most = 0;
+    h.bucket.put = async (key, bytes, options) => {
+      active++; most = Math.max(most, active);
+      try { await new Promise(r => setTimeout(r, 2)); return await put(key, bytes, options); } finally { active--; }
+    };
+    await h.raw.capture(Array.from({ length: 10 }, (_, i) => input(NOW + i)), NOW + 10, []);
+    expect(most).toBe(4);
+    expect(h.raw.status()).toMatchObject({ pending: 0, failures: 0 });
+    for (const key of [...h.objects.keys()].filter(k => k.endsWith('.pb.gz')))
+      expect(h.calls.indexOf('put:' + key)).toBeLessThan(h.calls.indexOf('put:' + key + '.manifest.json'));
+    expect([...h.objects.keys()].filter(k => k.endsWith('.pb.gz'))).toHaveLength(10);
+  });
+  it('books one Class A and two Class B for each recovered original (Neon DEEP Nov 26, B1-8)', async () => {
+    const h = await harness();
+    h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
+    expect(h.raw.status().pending).toBe(1);
+    h.fail('');
+    const before = { ...h.state.credit };
+    await h.raw.capture([], NOW, []);
+    expect(h.raw.status().pending).toBe(0);
+    expect([before.a - h.state.credit.a, before.b - h.state.credit.b]).toEqual([1, 2]);
+  });
+  it('moves an original still failing recovery after a day out of pending, keeping it on record (Neon DEEP Nov 26)', async () => {
+    const h = await harness();
+    h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
+    await h.raw.capture([], NOW + 3600_000, []);
+    expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 0 });
+    await h.raw.capture([], NOW + 86_400_001, []);
+    expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 1 });
+    // The whole manifest is kept: it is the only copy until it is in R2 (CodeRabbit, #321).
+    expect(h.state.stuck).toEqual([{ key: expect.stringMatching(/\.pb\.gz$/), manifest: expect.objectContaining({ receivedAt: NOW, sha256: expect.any(String), gzipSHA256: expect.any(String) }) }]);
+    expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz'))).toBe(true);
+    // Retried once an hour; when R2 takes it, the manifest lands and the item leaves the list.
+    h.fail('');
+    await h.raw.capture([], NOW + 86_400_001 + 60_000, []);
+    expect(h.raw.status()).toMatchObject({ stuck: 1, stuckRecovered: 0 });
+    await h.raw.capture([], NOW + 86_400_001 + 3600_000, []);
+    expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 0, stuckRecovered: 1 });
+    expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz.manifest.json'))).toBe(true);
+  });
+  it('never drops a stuck manifest: with the list full, the next one stays pending (CodeRabbit, #321)', async () => {
+    const h = await harness();
+    h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
+    const filler = structuredClone(h.state.pending[0]!);
+    h.state.stuck = Array.from({ length: 64 }, (_, i) => ({ ...filler, key: filler.key + '-filler-' + i }));
+    h.state.stuckTriedAt = NOW + 86_400_001;
+    await h.raw.capture([], NOW + 86_400_001, []);
+    expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 64 });
+  });
   it('shows how many records each stream last saved, so an empty source reads 0 instead of passing on saves', async () => {
     const h = await harness(), empty = new Uint8Array(binaryFeed([]));
     const bundle = new TextEncoder().encode(JSON.stringify({ v: 1, responses: [

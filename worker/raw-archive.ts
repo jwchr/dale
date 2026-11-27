@@ -2,6 +2,7 @@ import bindings from 'gtfs-realtime-bindings';
 import type { HistoryArchive, HistoryBucket } from './history-archive';
 import type { RegionFilter } from './region-raw';
 import { countJson, type RecordCount } from './record-count';
+import { inPool } from './pool';
 
 // Alerts are saved raw only (D84: "All the data, save all the data."); nothing in Dale reads them yet.
 export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'rail-getVehiclePositions' | 'rail-getTripUpdates' | 'rail-getAlerts'
@@ -26,6 +27,8 @@ interface Manifest extends Counts {
   filtered?: RegionFilter; label?: string;
 }
 interface Pending { key: string; manifest: Manifest }
+/** A pending original still failing recovery a day after it was received (Neon DEEP Nov 26). */
+const STUCK_MS = 86_400_000, STUCK_KEPT = 64, STUCK_RETRY_MS = 3_600_000, UPLOAD_CONNECTIONS = 4;
 interface Ledger { hour: string; feeds: Partial<Record<RawFeed, Counts>>; events?: Partial<Record<RawFeed, Record<string, number>>> }
 export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
@@ -36,6 +39,11 @@ export interface RawArchiveState {
   budgetAt?: number;
   /** Records in each stream's last saved answer, for the status page (absent in older checkpoints). */
   records?: Record<string, RecordCount>;
+  /** Originals moved out of pending after a day of failed recovery, so they stop holding their hour and
+   *  feed open. Each keeps its whole manifest (the only copy until it is in R2) and is retried once an
+   *  hour; none is ever dropped, so at STUCK_KEPT the next one stays pending (CodeRabbit, #321).
+   *  The R2 originals are never touched. */
+  stuck?: Pending[]; stuckCount?: number; stuckRecovered?: number; stuckTriedAt?: number;
 }
 export const newRawArchiveState = (): RawArchiveState => ({ v: 1, credit: { bytes: 0, a: 0, b: 0, writes: 0, day: '' },
   last: {}, lastAt: {}, ledgers: {}, pending: [], reason: 'waiting', failures: 0, missing: 0, blockedSecrets: 0 });
@@ -125,10 +133,12 @@ export class RawArchive {
     c.bytes -= bytes; c.a -= a; c.b -= b; c.writes--;
     return true;
   }
-  private async put(key: string, bytes: Uint8Array<ArrayBuffer>, contentType: string) {
-    await bounded(this.bucket.put(key, bytes.buffer, { onlyIf: { etagDoesNotMatch: '*' }, sha256: await digest(bytes), storageClass: 'Standard',
+  /** `known` is the SHA-256 the caller already took of these exact bytes, so each body is hashed once (Neon DEEP Nov 26). */
+  private async put(key: string, bytes: Uint8Array<ArrayBuffer>, contentType: string, known?: ArrayBuffer) {
+    const sum = known ?? await digest(bytes);
+    await bounded(this.bucket.put(key, bytes.buffer, { onlyIf: { etagDoesNotMatch: '*' }, sha256: sum, storageClass: 'Standard',
       httpMetadata: { contentType, cacheControl: 'private, no-store' } }));
-    await this.verify(key, bytes.byteLength, await hash(bytes));
+    await this.verify(key, bytes.byteLength, hex(sum));
   }
   private async verify(key: string, size: number, sha256: string) {
     const object = await bounded(this.bucket.get(key));
@@ -143,10 +153,30 @@ export class RawArchive {
     for (const name of ['count', 'rawBytes', 'gzipBytes', 'identical'] as const) counts[name] += m[name];
     this.state.pending = this.state.pending.filter(p => p !== item);
   }
+  /** One stuck original an hour gets its manifest written. Its hour already closed, so its ledger is not
+   *  reopened (that would write a second ledger for a finished hour): it is counted as recovered instead. */
+  private async retryStuck(now: number) {
+    const stuck = this.state.stuck, item = stuck?.[0];
+    if (!stuck || !item || now - (this.state.stuckTriedAt ?? -Infinity) < STUCK_RETRY_MS) return;
+    if (!this.credit(0, 1, 2, now)) return;
+    this.state.stuckTriedAt = now;
+    await this.checkpoint();
+    try {
+      const object = await bounded(this.bucket.get(item.key));
+      if (!object) this.state.missing++;
+      else {
+        await this.verifyObject(object, item.manifest.gzipBytes, item.manifest.gzipSHA256);
+        await this.put(item.key + '.manifest.json', encode(JSON.stringify(item.manifest)), 'application/json');
+        this.state.stuckRecovered = (this.state.stuckRecovered ?? 0) + 1;
+      }
+      stuck.shift();
+    } catch { this.state.failures++; stuck.push(stuck.shift()!); }
+    await this.checkpoint();
+  }
   /** Only safe totals leave the private checkpoint. Hashes, keys and bodies stay private. */
   status() {
     return { configured: true, reason: this.state.reason, failures: this.state.failures, missing: this.state.missing,
-      blockedSecrets: this.state.blockedSecrets, pending: this.state.pending.length,
+      blockedSecrets: this.state.blockedSecrets, pending: this.state.pending.length, stuck: this.state.stuck?.length ?? 0, stuckRecovered: this.state.stuckRecovered ?? 0,
       hoursUTC: Object.values(this.state.ledgers), records: this.state.records ?? {} };
   }
   /** Fixed codes only, never upstream error text. Oversized streams have no saved/truncated original. */
@@ -164,7 +194,7 @@ export class RawArchive {
     // Stage receipt comparisons until credit and recovery allow the new intents to commit.
     const last = { ...this.state.last }, lastAt = { ...this.state.lastAt }, records = { ...this.state.records };
     // Prepare bounded originals independently; a bad/failed feed never prevents the other.
-    const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer> }[] = [];
+    const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer>; gzipSum: ArrayBuffer }[] = [];
     for (const response of responses) {
       // A label (BUSDV2 mode) makes answers received in the same millisecond distinct responses.
       if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt && p.manifest.label === response.label)) continue;
@@ -172,26 +202,27 @@ export class RawArchive {
       if (containsSecret(response.sourceBytes ?? response.bytes, secrets)) { this.state.blockedSecrets++; this.state.reason = 'secret-response-rejected'; continue; }
       try {
         const gzip = new Uint8Array(await new Response(new Blob([response.bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-        const sha256 = await hash(response.bytes);
+        const sha256 = await hash(response.bytes), gzipSum = await digest(gzip);
         // Each BUSDV2 mode is its own stream, compared only with its own last answer (Flash, #304).
         const stream = response.label ? `${response.feed}:${response.label}` : response.feed;
         if (lastAt[stream] === response.receivedAt && last[stream] === sha256) continue;
         const feedInfo = isJson(response.feed) ? undefined : decodeFeed(response.bytes);
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
-          count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: await hash(gzip),
+          count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: hex(gzipSum),
           identical: last[stream] === sha256 ? 1 : 0,
           upstreamHeaderTimestamp: feedInfo ? feedInfo.timestamp : null, ...(response.filtered ? { filtered: response.filtered } : {}),
           ...(response.label ? { label: response.label } : {}) };
         last[stream] = sha256; lastAt[stream] = response.receivedAt;
         Object.assign(records, feedInfo ? { [stream]: { at: response.receivedAt, records: feedInfo.entities } } : countJson(stream, response.bytes, response.receivedAt));
-        prepared.push({ item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
+        prepared.push({ gzipSum, item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
       } catch { this.state.failures++; }
     }
     // Recovery runs first and buys no new bytes: each original's manifest was reserved when it
     // was prepared, so a full raw byte budget can never strand a receipt without its manifest.
     const recovering = this.state.pending.slice();
     if (recovering.length) {
-      if (!this.credit(0, 2 * recovering.length, 2 * recovering.length, now)) return;
+      // Each item costs one read of the original (B), one manifest put (A) and its readback (B).
+      if (!this.credit(0, recovering.length, 2 * recovering.length, now)) return;
       await this.checkpoint();
       for (const item of recovering) {
         try {
@@ -200,9 +231,18 @@ export class RawArchive {
           await this.verifyObject(object, item.manifest.gzipBytes, item.manifest.gzipSHA256);
           await this.put(item.key + '.manifest.json', encode(JSON.stringify(item.manifest)), 'application/json');
           this.acknowledge(item);
-        } catch { this.state.failures++; }
+        } catch {
+          this.state.failures++;
+          const stuck = this.state.stuck ??= [];
+          if (now - item.manifest.receivedAt > STUCK_MS && stuck.length < STUCK_KEPT) {
+            stuck.push(item);
+            this.state.stuckCount = (this.state.stuckCount ?? 0) + 1;
+            this.state.pending = this.state.pending.filter(p => p !== item);
+          }
+        }
       }
     }
+    await this.retryStuck(now);
     // An hour closes only when nothing from it is pending, including originals received in it this
     // poll before the clock crossed the hour (Neon, #278).
     const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now)
@@ -244,12 +284,15 @@ export class RawArchive {
       this.state.reason = this.state.pending.length || this.state.failures > failuresBefore ? 'archive-error' : this.state.reason;
       return;
     }
-    const results = await Promise.allSettled(prepared.map(async ({ item, gzip }) => {
-      await this.put(item.key, gzip, 'application/gzip');
-      await this.put(item.key + '.manifest.json', encode(JSON.stringify(item.manifest)), 'application/json');
-      this.acknowledge(item);
-    }));
-    for (const result of results) if (result.status === 'rejected') this.state.failures++;
+    // A few at a time: Cloudflare queues calls past six open connections, and a queued put could time out
+    // before it starts (Neon DEEP Nov 26, B1-1). Each original still goes before its manifest.
+    await inPool(prepared, UPLOAD_CONNECTIONS, async ({ item, gzip, gzipSum }) => {
+      try {
+        await this.put(item.key, gzip, 'application/gzip', gzipSum);
+        await this.put(item.key + '.manifest.json', encode(JSON.stringify(item.manifest)), 'application/json');
+        this.acknowledge(item);
+      } catch { this.state.failures++; }
+    });
     // A capture that saved nothing new has not shown the budget is back: keep a budget stop, so rail still
     // waits its hour instead of polling every minute while every fetch fails or repeats (Neon Nov24 d, #278).
     const stillStopped = !prepared.length && BUDGET_REASONS.includes(this.state.reason);

@@ -351,17 +351,22 @@ export class HistoryJournal {
       let changed = false;
       // Two rows per call let cleanup outpace the one new batch per poll after an archive outage
       // longer than the hot window; the second row only uses spare catch-up budget.
-      const rows = this.storage.sql.exec('SELECT attempt,bytes,feed_version,context_key,archive_receipt FROM dale_history_batches WHERE attempt<=? AND archive_receipt IS NOT NULL ORDER BY attempt LIMIT 2', now - HISTORY_HOT_MS).toArray();
+      const rows = this.storage.sql.exec('SELECT attempt,bytes,feed_version,context_key,archive_receipt FROM dale_history_batches WHERE attempt<=? AND archive_receipt IS NOT NULL ORDER BY attempt LIMIT 8', now - HISTORY_HOT_MS).toArray();
       if (!state.enabled) return;
       if (state.budgetDay !== day(now)) { state.budgetDay = day(now); state.reservedWrites = 0; }
       const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
       const catchUpReserve = Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
-      for (const [i, row] of rows.entries()) {
-        if (state.reservedWrites + 4 > DAILY_WRITE_BUDGET) break;
-        if (i > 0 && DAILY_WRITE_BUDGET - state.reservedWrites - 4 < catchUpReserve) break;
-        const receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt;
+      // Up to two rows per call, from the oldest eight: a row that cannot be proven saved is kept and stepped
+      // over, so one bad receipt never stops cleanup of the verified rows after it (Neon DEEP Nov 26).
+      let pruned = 0;
+      for (const row of rows) {
+        if (pruned >= 2 || state.reservedWrites + 4 > DAILY_WRITE_BUDGET) break;
+        if (pruned > 0 && DAILY_WRITE_BUDGET - state.reservedWrites - 4 < catchUpReserve) break;
+        let receipt: ArchiveReceipt;
+        try { receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt; } catch { continue; }
         const context = this.scheduleContext(String(row.context_key ?? row.feed_version)).receipt;
-        if (!(context && receipt.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(receipt.rawSHA256))) break;
+        if (!(context && receipt.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(String(receipt.rawSHA256)))) continue;
+        pruned++;
         this.storage.sql.exec('DELETE FROM dale_history_batches WHERE attempt=?', Number(row.attempt));
         state.bytes -= Number(row.bytes); state.batches--; state.reservedWrites += 4;
         changed = true;

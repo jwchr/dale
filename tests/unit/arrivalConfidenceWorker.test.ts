@@ -1,3 +1,4 @@
+import { A_LIMIT } from '../../worker/history-archive';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
@@ -238,6 +239,14 @@ describe('archive backfill (manual, bounded, idempotent)', () => {
     const ledger = h.db.prepare('SELECT SUM(class_a) AS a, SUM(class_b) AS b FROM dale_archive_days').get()!;
     expect(Number(ledger.a)).toBe(a.counts().lists);
     expect(Number(ledger.b)).toBeGreaterThanOrEqual(a.counts().gets);
+  });
+  it('keeps backfilling once raw saving has used more than half of the Class A cap (Neon DEEP Nov 26, B1-4)', async () => {
+    const h = harness(), a = archive();
+    a.putBatch(at('20261109', '07:04'), [record('T1@20261109', at('20261109', '07:04'), [0, '1'])], 'ctx');
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `apply:${LATER + 24 * 3600_000 + 3}`);
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(LATER).toISOString().slice(0, 10), A_LIMIT / 2 + 1000, 0);
+    await runToEnd(backfill, h.spare);
+    expect(a.counts().lists).toBeGreaterThan(0);
   });
   it('a finished or expired lease never restarts; a lease beyond 48 hours or malformed never starts', async () => {
     const h = harness(), a = archive();
