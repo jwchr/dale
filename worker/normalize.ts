@@ -54,7 +54,7 @@ export function createNormalizer(ds: Dataset) {
           if (feedRoutes.has(report.trip.routeId ?? '')) diagnostics.corridorRoutes++;
           if (trips.has(report.trip.tripId ?? '')) {
             diagnostics.knownTrips++;
-            if (!report.trip.startDate && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, seconds(report.timestamp)) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
+            if (!report.trip.startDate && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, skewed(seconds(report.timestamp), now)) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
             if (!report.trip.startDate) diagnostics.missingServiceDates++;
             if (!seconds(report.timestamp)) diagnostics.missingObservationTimes++;
           }
