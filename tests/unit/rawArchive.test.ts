@@ -103,8 +103,25 @@ describe('private as-received raw archives', () => {
     expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 0 });
     await h.raw.capture([], NOW + 86_400_001, []);
     expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 1 });
-    expect(h.state.stuck).toEqual([{ key: expect.stringMatching(/\.pb\.gz$/), receivedAt: NOW }]);
+    // The whole manifest is kept: it is the only copy until it is in R2 (CodeRabbit, #321).
+    expect(h.state.stuck).toEqual([{ key: expect.stringMatching(/\.pb\.gz$/), manifest: expect.objectContaining({ receivedAt: NOW, sha256: expect.any(String), gzipSHA256: expect.any(String) }) }]);
     expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz'))).toBe(true);
+    // Retried once an hour; when R2 takes it, the manifest lands and the item leaves the list.
+    h.fail('');
+    await h.raw.capture([], NOW + 86_400_001 + 60_000, []);
+    expect(h.raw.status()).toMatchObject({ stuck: 1, stuckRecovered: 0 });
+    await h.raw.capture([], NOW + 86_400_001 + 3600_000, []);
+    expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 0, stuckRecovered: 1 });
+    expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz.manifest.json'))).toBe(true);
+  });
+  it('never drops a stuck manifest: with the list full, the next one stays pending (CodeRabbit, #321)', async () => {
+    const h = await harness();
+    h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
+    const filler = structuredClone(h.state.pending[0]!);
+    h.state.stuck = Array.from({ length: 64 }, (_, i) => ({ ...filler, key: filler.key + '-filler-' + i }));
+    h.state.stuckTriedAt = NOW + 86_400_001;
+    await h.raw.capture([], NOW + 86_400_001, []);
+    expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 64 });
   });
   it('shows how many records each stream last saved, so an empty source reads 0 instead of passing on saves', async () => {
     const h = await harness(), empty = new Uint8Array(binaryFeed([]));

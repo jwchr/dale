@@ -28,7 +28,7 @@ interface Manifest extends Counts {
 }
 interface Pending { key: string; manifest: Manifest }
 /** A pending original still failing recovery a day after it was received (Neon DEEP Nov 26). */
-const STUCK_MS = 86_400_000, STUCK_KEPT = 500, UPLOAD_CONNECTIONS = 4;
+const STUCK_MS = 86_400_000, STUCK_KEPT = 64, STUCK_RETRY_MS = 3_600_000, UPLOAD_CONNECTIONS = 4;
 interface Ledger { hour: string; feeds: Partial<Record<RawFeed, Counts>>; events?: Partial<Record<RawFeed, Record<string, number>>> }
 export interface RawArchiveState {
   v: 1; credit: { bytes: number; a: number; b: number; writes: number; day: string };
@@ -40,8 +40,10 @@ export interface RawArchiveState {
   /** Records in each stream's last saved answer, for the status page (absent in older checkpoints). */
   records?: Record<string, RecordCount>;
   /** Originals moved out of pending after a day of failed recovery, so they stop holding their hour and
-   *  feed open. Kept on record (newest STUCK_KEPT keys, every one counted); the R2 objects are never touched. */
-  stuck?: { key: string; receivedAt: number }[]; stuckCount?: number;
+   *  feed open. Each keeps its whole manifest (the only copy until it is in R2) and is retried once an
+   *  hour; none is ever dropped, so at STUCK_KEPT the next one stays pending (CodeRabbit, #321).
+   *  The R2 originals are never touched. */
+  stuck?: Pending[]; stuckCount?: number; stuckRecovered?: number; stuckTriedAt?: number;
 }
 export const newRawArchiveState = (): RawArchiveState => ({ v: 1, credit: { bytes: 0, a: 0, b: 0, writes: 0, day: '' },
   last: {}, lastAt: {}, ledgers: {}, pending: [], reason: 'waiting', failures: 0, missing: 0, blockedSecrets: 0 });
@@ -151,10 +153,30 @@ export class RawArchive {
     for (const name of ['count', 'rawBytes', 'gzipBytes', 'identical'] as const) counts[name] += m[name];
     this.state.pending = this.state.pending.filter(p => p !== item);
   }
+  /** One stuck original an hour gets its manifest written. Its hour already closed, so its ledger is not
+   *  reopened (that would write a second ledger for a finished hour): it is counted as recovered instead. */
+  private async retryStuck(now: number) {
+    const stuck = this.state.stuck, item = stuck?.[0];
+    if (!stuck || !item || now - (this.state.stuckTriedAt ?? -Infinity) < STUCK_RETRY_MS) return;
+    if (!this.credit(0, 1, 2, now)) return;
+    this.state.stuckTriedAt = now;
+    await this.checkpoint();
+    try {
+      const object = await bounded(this.bucket.get(item.key));
+      if (!object) this.state.missing++;
+      else {
+        await this.verifyObject(object, item.manifest.gzipBytes, item.manifest.gzipSHA256);
+        await this.put(item.key + '.manifest.json', encode(JSON.stringify(item.manifest)), 'application/json');
+        this.state.stuckRecovered = (this.state.stuckRecovered ?? 0) + 1;
+      }
+      stuck.shift();
+    } catch { this.state.failures++; stuck.push(stuck.shift()!); }
+    await this.checkpoint();
+  }
   /** Only safe totals leave the private checkpoint. Hashes, keys and bodies stay private. */
   status() {
     return { configured: true, reason: this.state.reason, failures: this.state.failures, missing: this.state.missing,
-      blockedSecrets: this.state.blockedSecrets, pending: this.state.pending.length, stuck: this.state.stuckCount ?? 0,
+      blockedSecrets: this.state.blockedSecrets, pending: this.state.pending.length, stuck: this.state.stuck?.length ?? 0, stuckRecovered: this.state.stuckRecovered ?? 0,
       hoursUTC: Object.values(this.state.ledgers), records: this.state.records ?? {} };
   }
   /** Fixed codes only, never upstream error text. Oversized streams have no saved/truncated original. */
@@ -211,16 +233,16 @@ export class RawArchive {
           this.acknowledge(item);
         } catch {
           this.state.failures++;
-          if (now - item.manifest.receivedAt > STUCK_MS) {
-            const stuck = this.state.stuck ??= [];
-            stuck.push({ key: item.key, receivedAt: item.manifest.receivedAt });
-            if (stuck.length > STUCK_KEPT) stuck.splice(0, stuck.length - STUCK_KEPT);
+          const stuck = this.state.stuck ??= [];
+          if (now - item.manifest.receivedAt > STUCK_MS && stuck.length < STUCK_KEPT) {
+            stuck.push(item);
             this.state.stuckCount = (this.state.stuckCount ?? 0) + 1;
             this.state.pending = this.state.pending.filter(p => p !== item);
           }
         }
       }
     }
+    await this.retryStuck(now);
     // An hour closes only when nothing from it is pending, including originals received in it this
     // poll before the clock crossed the hour (Neon, #278).
     const closingHours = new Set(Object.keys(this.state.ledgers).filter(h => h < hour(now)
