@@ -235,6 +235,8 @@ export class RawArchive {
           this.state.failures++;
           const stuck = this.state.stuck ??= [];
           if (now - item.manifest.receivedAt > STUCK_MS && stuck.length < STUCK_KEPT) {
+            // This failure counts as the list's first try, so it is not tried again this same poll (Neon Nov26 h).
+            if (!stuck.length) this.state.stuckTriedAt = now;
             stuck.push(item);
             this.state.stuckCount = (this.state.stuckCount ?? 0) + 1;
             this.state.pending = this.state.pending.filter(p => p !== item);

@@ -101,8 +101,12 @@ describe('private as-received raw archives', () => {
     h.fail('.manifest.json'); await h.raw.capture([input()], NOW, []);
     await h.raw.capture([], NOW + 3600_000, []);
     expect(h.raw.status()).toMatchObject({ pending: 1, stuck: 0 });
+    const failed = h.raw.status().failures, gets = () => h.calls.filter(c => c.startsWith('get:')).length, before = gets();
     await h.raw.capture([], NOW + 86_400_001, []);
     expect(h.raw.status()).toMatchObject({ pending: 0, stuck: 1 });
+    // The failure that moves it counts as its first try: it is not tried again in the same poll (Neon Nov26 h).
+    expect(h.raw.status().failures).toBe(failed + 1);
+    expect(gets() - before).toBe(1);
     // The whole manifest is kept: it is the only copy until it is in R2 (CodeRabbit, #321).
     expect(h.state.stuck).toEqual([{ key: expect.stringMatching(/\.pb\.gz$/), manifest: expect.objectContaining({ receivedAt: NOW, sha256: expect.any(String), gzipSHA256: expect.any(String) }) }]);
     expect([...h.objects.keys()].some(k => k.endsWith('.pb.gz'))).toBe(true);
