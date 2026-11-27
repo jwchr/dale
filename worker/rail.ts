@@ -141,7 +141,10 @@ async function railFetch(method: string, fields: Record<string, string>, fetchIm
     });
     // A refusal is final without its body, so a body that cannot be read still clears the token.
     if (response.status === 401 || response.status === 403) { void response.body?.cancel().catch(() => {}); throw new RailError('access-denied'); }
-    const statusFailure: RailFailure | undefined = response.status === 429 ? 'rate-limited' : response.ok ? undefined : 'http-error';
+    // A rate limit is final without its body too, so a body that never ends cannot turn it into a timeout
+    // and skip the pause (CodeRabbit, #324).
+    if (response.status === 429) { void response.body?.cancel().catch(() => {}); throw new RailError('rate-limited'); }
+    const statusFailure: RailFailure | undefined = response.ok ? undefined : 'http-error';
     if (!response.body) throw new RailError(statusFailure ?? 'unexpected-response');
     const reader = response.body.getReader(), chunks: Uint8Array[] = [];
     let size = 0;
@@ -236,7 +239,7 @@ export class RailBoards {
   /** Exactly one schedule request per call. A refused token is dropped; the next minute may mint a new one. */
   private async fetchBoard(station: string): Promise<RailBoard> {
     const saved = await this.state();
-    const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.token();
+    const token = saved.token && this.clock() - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value : await this.newToken(saved);
     try {
       return normalizeRailBoard(await railRequest('getTrainSchedule19Rec', { token, station, line: RAIL_STATIONS[station]! }, this.fetchImpl), station, this.clock());
     } catch (error) { await this.refused(error, token, saved); throw error; }
@@ -252,7 +255,7 @@ export class RailBoards {
     const began = this.clock();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const token = saved.token && began - saved.token.at < TOKEN_REFRESH_MS ? saved.token.value
-      : await Promise.race([this.token(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new RailError('timed-out')), timeoutMs); })])
+      : await Promise.race([this.newToken(saved), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new RailError('timed-out')), timeoutMs); })])
         .finally(() => clearTimeout(timer));
     const left = timeoutMs - (this.clock() - began);
     if (left <= 0) throw new RailError('timed-out');
@@ -266,6 +269,11 @@ export class RailBoards {
     // A rate limit pauses every station, and survives a restart. The token is kept: replacing it would spend the daily allowance.
     // Once only: a second refused call in the same pause writes nothing more (Neon, #303).
     if (error instanceof RailError && error.code === 'rate-limited' && (saved.pausedUntil ?? 0) <= this.clock()) { saved.pausedUntil = this.clock() + RAIL_PAUSE_MS; await this.storage.put(RAIL_KEY, saved); }
+  }
+
+  /** A new token; a rate limit on the mint itself pauses every station like one on a data call (CodeRabbit, #324). */
+  private async newToken(saved: RailSaved): Promise<string> {
+    try { return await this.token(); } catch (error) { await this.refused(error, '', saved); throw error; }
   }
 
   /** A new token, shared by concurrent callers. Never more than RAIL_MINTS_PER_DAY a day or one an hour. */

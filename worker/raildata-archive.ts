@@ -31,14 +31,19 @@ interface BundleEntry { method: RailArchiveMethod; station?: string; receivedAt:
 const count = (plan: RailDataPlan) => (plan.vehicles ? 1 : 0) + plan.boards.length + (plan.messages ? 1 : 0) + (plan.list ? 1 : 0) + (plan.schedule ? 1 : 0);
 const daily = (s: RailDataState, step: Step, now: number) => now - (s.ok[step] ?? -Infinity) >= DAY && now - (s.tried[step] ?? -Infinity) >= HOUR;
 
-/** Station codes from getStationList's answer. Anything unexpected keeps the previous list. */
-export function stationCodes(bytes: Uint8Array): string[] | undefined {
+/** Station codes from getStationList's answer. Anything unexpected keeps the previous list. A reply
+ *  with some rows lacking a valid STATION_2CHAR only adds its good codes to the previous list and
+ *  never drops a station, so a partly broken reply cannot stop boards for the rest (CodeRabbit, #324).
+ *  A fully valid reply replaces the list. Fewer than 10 good codes is never a list. */
+export function stationCodes(bytes: Uint8Array, previous?: readonly string[]): string[] | undefined {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder().decode(bytes)); } catch { return; }
   if (!Array.isArray(value)) return;
-  const codes = [...new Set(value.map(row => row && typeof row === 'object' ? (row as Record<string, unknown>).STATION_2CHAR : undefined)
-    .filter((code): code is string => typeof code === 'string' && /^[A-Z0-9]{2}$/.test(code.trim())).map(code => code.trim()))].sort();
-  return codes.length >= 10 ? codes : undefined;
+  const raw = value.map(row => row && typeof row === 'object' ? (row as Record<string, unknown>).STATION_2CHAR : undefined);
+  const good = raw.filter((code): code is string => typeof code === 'string' && /^[A-Z0-9]{2}$/.test(code.trim())).map(code => code.trim());
+  if (new Set(good).size < 10) return;
+  const partial = good.length < raw.length && previous?.length;
+  return [...new Set([...(partial ? previous : []), ...good])].sort();
 }
 
 /** Exact text when it is valid UTF-8 (the JSON NJ Transit sends), otherwise base64, so every byte can be rebuilt. */
@@ -86,12 +91,13 @@ export class RailDataArchive {
   async collect(plan: RailDataPlan): Promise<{ responses: RawResponse[]; failures: RailDataFailure[]; secrets: string[] }> {
     const responses: RawResponse[] = [], failures: RailDataFailure[] = [], secrets = new Set<string>(), entries: BundleEntry[] = [];
     const started = this.clock();
+    const unstarted: string[] = [];
     const call = async (method: RailArchiveMethod, fields: Record<string, string>, max: number, station?: string) => {
       try {
         // The live bus poll waits for this turn, so a slow NJ Transit answer cannot hold it (Neon, #303):
         // nothing starts after ARCHIVE_START_MS, and nothing runs past ARCHIVE_TURN_MS.
         const elapsed = this.clock() - started;
-        if (elapsed >= ARCHIVE_START_MS) throw new RailError('timed-out');
+        if (elapsed >= ARCHIVE_START_MS) { if (method === 'getTrainSchedule' && station) unstarted.push(station); throw new RailError('timed-out'); }
         const { bytes, token } = await this.source.archiveRequest(method, fields, max, ARCHIVE_TURN_MS - elapsed);
         secrets.add(token);
         // Checked on the exact answer, before preserve() may turn it into base64 the bundle's own scan
@@ -113,9 +119,15 @@ export class RailDataArchive {
     const whole = async (method: 'getStationList' | 'getStationSchedule', fields: Record<string, string>, step: Step) => {
       const bytes = await call(method, fields, DAILY_MAX_BYTES);
       if (!bytes) return;
-      responses.push({ feed: `raildata-${method}`, bytes, receivedAt: this.clock() });
-      this.state.ok[step] = this.clock();
-      if (method === 'getStationList') { const codes = stationCodes(bytes); if (codes) this.state.stations = codes; }
+      const receivedAt = this.clock();
+      // An empty or unreadable station list is still saved exactly, but is not the day's list: it is
+      // asked again in an hour, and boards keep the last good list (CodeRabbit, #324).
+      const codes = method === 'getStationList' ? stationCodes(bytes, this.state.stations) : undefined;
+      if (method === 'getStationList' && !codes) failures.push({ feed: `raildata-${method}`, code: 'invalid-response', at: receivedAt });
+      if (codes) this.state.stations = codes;
+      const done = method === 'getStationSchedule' || codes !== undefined;
+      // Done only once the archive has the answer (CodeRabbit, #324): see RawResponse.onAccepted.
+      responses.push({ feed: `raildata-${method}`, bytes, receivedAt, ...(done ? { onAccepted: () => { this.state.ok[step] = receivedAt; } } : {}) });
     };
     // Two at a time, so queued calls never spend their timeout waiting for one of the Worker's 6 connections.
     const tasks: (undefined | (() => Promise<void>))[] = [
@@ -128,6 +140,11 @@ export class RailDataArchive {
       ...plan.boards.map(station => () => bundled('getTrainSchedule', { station }, 'boards', station)),
     ];
     await inPool(tasks.filter(task => task !== undefined), ARCHIVE_CONNECTIONS, task => task());
+    // Boards that never started go first next time, so a slow NJ Transit cannot skip the same stations
+    // every cycle (CodeRabbit, #324). Their requests stay counted: they were reserved.
+    const first = plan.boards.find(station => unstarted.includes(station));
+    const list = this.state.stations?.length ? this.state.stations : Object.keys(RAIL_STATIONS);
+    if (first !== undefined && list.includes(first)) this.state.cursor = list.indexOf(first);
     // One saved object per poll instead of one per answer keeps R2 operations near the bus feeds' rate.
     // Failed requests stay in the bundle as fixed codes, so a gap is visible inside the evidence too.
     if (entries.some(e => e.status === 'ok')) {

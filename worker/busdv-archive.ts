@@ -82,9 +82,11 @@ export function busDvCoverage(bytes: Uint8Array): Omit<BusDvCoverage, 'at'> | un
   }
   return { vehicles, maxMiles, lat, lon };
 }
-/** A copy for the public status page: never the private state itself (it holds the token). */
-export const busDvCoverageStatus = (state: BusDvState | undefined) =>
-  state?.coverage ? JSON.parse(JSON.stringify(state.coverage)) as Partial<Record<Mode, BusDvCoverage>> : null;
+/** Totals for the public status page: counts and reach only, never the private state (it holds the token)
+ *  and no map box, since anything public shows totals only (AGENTS.md; CodeRabbit, #324). */
+export const busDvCoverageStatus = (state: BusDvState | undefined) => state?.coverage
+  ? Object.fromEntries(Object.entries(state.coverage).map(([mode, c]) => [mode, { at: c!.at, vehicles: c!.vehicles, maxMiles: c!.maxMiles }])) as Partial<Record<Mode, Pick<BusDvCoverage, 'at' | 'vehicles' | 'maxMiles'>>>
+  : null;
 
 /** A bad or partially malformed list must not silently remove previously discovered boards. */
 export function busDvLocationCodes(bytes: Uint8Array): string[] | undefined {
@@ -313,7 +315,8 @@ export class BusDvArchive {
           if (containsSecret(bytes, [...secrets])) throw new NjtError('invalid-response');
           const receivedAt = this.clock();
           if (r.method === 'getLocations' || r.method === 'getBusRoutes') {
-            responses.push({ feed: `busdv-${r.method}`, label: r.mode!, bytes, receivedAt });
+            const response: LocalResponse = { feed: `busdv-${r.method}`, label: r.mode!, bytes, receivedAt };
+            responses.push(response);
             let valid = true;
             if (r.method === 'getLocations' && r.mode === 'BUS') {
               const codes = busDvLocationCodes(bytes);
@@ -323,7 +326,10 @@ export class BusDvArchive {
                 failures.push({ feed: 'busdv-getLocations', mode: 'BUS', code: 'invalid-response', at: receivedAt });
               }
             }
-            if (valid) s.ok[`${r.method}:${r.mode!}`] = receivedAt;
+            // Done only once the raw archive has the answer, so one it could not take is asked again in an
+            // hour (CodeRabbit, #324; see RawResponse.onAccepted).
+            const step = `${r.method}:${r.mode!}` as const;
+            if (valid) response.onAccepted = () => { s.ok[step] = receivedAt; };
           } else {
             entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
             const coverage = r.method === 'getVehicleLocations' ? busDvCoverage(bytes) : undefined;

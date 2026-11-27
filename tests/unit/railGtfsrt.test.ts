@@ -5,6 +5,7 @@ import { binaryFeed, NOW } from '../helpers/liveBus';
 
 function harness() {
   let now = NOW, state = newRailGtfsrtState(), saved = structuredClone(state), refuse = '', failSave = false, open = 0, maxOpen = 0;
+  let slow: Record<string, number> = {};
   const calls: { url: string; fields: Record<string, string> }[] = [];
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const fields = Object.fromEntries((init!.body as FormData).entries()) as Record<string, string>;
@@ -12,6 +13,8 @@ function harness() {
     expect(String(url)).toMatch(/^https:\/\/raildata\.njtransit\.com\/api\/GTFSRT\/(getToken|getVehiclePositions|getTripUpdates|getAlerts)$/);
     expect(init?.redirect).toBe('manual');
     const method = String(url).split('/').pop();
+    // Time passes while the answer is on its way, so a call beside it starts first.
+    if (slow[method!]) { await Promise.resolve(); now += slow[method!]!; }
     if (method === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
     expect(fields).toEqual({ token: 'synthetic-token' });
     open++; maxOpen = Math.max(maxOpen, open); await Promise.resolve(); open--;
@@ -23,7 +26,7 @@ function harness() {
   }) as typeof fetch;
   const checkpoint = async () => { if (failSave) throw new Error('synthetic storage failure'); saved = structuredClone(state); };
   return { calls, get maxOpen() { return maxOpen; }, get state() { return state; }, time: (at: number) => { now = at; }, refuse: (value: string) => { refuse = value; },
-    failSave: () => { failSave = true; }, restart: () => { state = structuredClone(saved); },
+    failSave: () => { failSave = true; }, slow: (value: Record<string, number>) => { slow = value; }, restart: () => { state = structuredClone(saved); },
     async run() {
       const rail = new RailGtfsrt(state, { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password' }, checkpoint, fetchImpl, () => now);
       const plan = rail.prepare(now);
@@ -59,6 +62,17 @@ describe('rail GTFS-RT token and independent feeds', () => {
     const h = harness();
     expect((await h.run())?.responses).toHaveLength(3);
     expect(h.maxOpen).toBe(2);
+  });
+  it.each([
+    ['a slow first feed', { getVehiclePositions: 12_000 }],
+    ['a slow token request', { getToken: 6_000, getVehiclePositions: 6_000 }],
+  ])('starts nothing 12 seconds into its turn after %s, so rider requests never wait 45 seconds (CodeRabbit, #324)', async (_, slow) => {
+    const h = harness(); h.slow(slow);
+    const result = await h.run();
+    const started = h.calls.filter(c => !c.url.endsWith('getToken')).length;
+    expect(started).toBe(2);
+    expect(result?.responses).toHaveLength(2);
+    expect(result?.failures.map(f => f.code)).toEqual(['timed-out']);
   });
   it.each(['getVehiclePositions', 'getTripUpdates', 'getAlerts'])('still saves the other rail feeds when %s fails', async method => {
     const h = harness(); h.refuse(method);

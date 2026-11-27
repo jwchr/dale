@@ -19,7 +19,11 @@ export interface RawResponse { feed: RawFeed; bytes: Uint8Array<ArrayBuffer>; re
   /** Original bus bytes are checked for secrets but never saved after filtering. */
   sourceBytes?: Uint8Array<ArrayBuffer>; filtered?: RegionFilter;
   /** Which variant of a daily answer this is (BUSDV2 mode: BUS, NLR, HBLR, RL). */
-  label?: string }
+  label?: string;
+  /** Called once capture has the answer: saved before, or written into the checkpoint for upload. A daily
+   *  answer counts as done only here, so one the archive could not take is asked again in an hour, not a
+   *  day (CodeRabbit, #324). Not called for an answer dropped for a full queue, a secret or no budget. */
+  onAccepted?: () => void }
 interface Counts { count: number; rawBytes: number; gzipBytes: number; identical: number }
 interface Manifest extends Counts {
   v: 1; feed: RawFeed; receivedAt: number; sha256: string; gzipSHA256: string;
@@ -194,10 +198,10 @@ export class RawArchive {
     // Stage receipt comparisons until credit and recovery allow the new intents to commit.
     const last = { ...this.state.last }, lastAt = { ...this.state.lastAt }, records = { ...this.state.records };
     // Prepare bounded originals independently; a bad/failed feed never prevents the other.
-    const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer>; gzipSum: ArrayBuffer }[] = [];
+    const prepared: { item: Pending; gzip: Uint8Array<ArrayBuffer>; gzipSum: ArrayBuffer; response: RawResponse }[] = [];
     for (const response of responses) {
       // A label (BUSDV2 mode) makes answers received in the same millisecond distinct responses.
-      if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt && p.manifest.label === response.label)) continue;
+      if (this.state.pending.some(p => p.manifest.feed === response.feed && p.manifest.receivedAt === response.receivedAt && p.manifest.label === response.label)) { response.onAccepted?.(); continue; }
       if (this.state.pending.filter(p => p.manifest.feed === response.feed).length >= 8) { this.state.missing++; continue; }
       if (containsSecret(response.sourceBytes ?? response.bytes, secrets)) { this.state.blockedSecrets++; this.state.reason = 'secret-response-rejected'; continue; }
       try {
@@ -205,7 +209,7 @@ export class RawArchive {
         const sha256 = await hash(response.bytes), gzipSum = await digest(gzip);
         // Each BUSDV2 mode is its own stream, compared only with its own last answer (Flash, #304).
         const stream = response.label ? `${response.feed}:${response.label}` : response.feed;
-        if (lastAt[stream] === response.receivedAt && last[stream] === sha256) continue;
+        if (lastAt[stream] === response.receivedAt && last[stream] === sha256) { response.onAccepted?.(); continue; }
         const feedInfo = isJson(response.feed) ? undefined : decodeFeed(response.bytes);
         const manifest: Manifest = { v: 1, feed: response.feed, receivedAt: response.receivedAt,
           count: 1, rawBytes: response.bytes.byteLength, gzipBytes: gzip.byteLength, sha256, gzipSHA256: hex(gzipSum),
@@ -217,7 +221,7 @@ export class RawArchive {
         // A readable bundle's per-answer counts replace an older whole-bundle count (Neon Nov27 a).
         if (!(stream in counted)) delete records[stream];
         Object.assign(records, counted);
-        prepared.push({ gzipSum, item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip });
+        prepared.push({ gzipSum, item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip, response });
       } catch { this.state.failures++; }
     }
     // Recovery runs first and buys no new bytes: each original's manifest was reserved when it
@@ -276,6 +280,7 @@ export class RawArchive {
       this.state.pending.push(...prepared.map(p => p.item));
     }
     await this.checkpoint();
+    if (admitted) for (const p of prepared) p.response.onAccepted?.();
     // Pending originals from an older hour must be reconciled before closing it. Ledgers
     // remain in the checkpoint until readback, so a crash retries the exact same body.
     if (closing) for (const h of closingHours) {

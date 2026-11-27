@@ -30,12 +30,15 @@ function harness() {
   }) as typeof fetch;
   const rail = new RailBoards(storage, { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password' }, fetchImpl, () => now);
   return { calls, answers, get state() { return state; }, time: (at: number) => { now = at; }, restart: () => { state = structuredClone(saved); },
-    async run() {
+    /** accept: whether the raw archive takes this poll's answers (service.ts calls onAccepted from capture). */
+    async run(accept = true) {
       const archive = new RailDataArchive(state, rail, () => now);
       const plan = archive.prepare(now);
       saved = structuredClone(state); // Same pre-I/O checkpoint as service.ts.
       if (typeof plan !== 'object') return plan;
-      const result = await archive.collect(plan); saved = structuredClone(state); return result;
+      const result = await archive.collect(plan);
+      if (accept) for (const response of result.responses) response.onAccepted?.();
+      saved = structuredClone(state); return result;
     } };
 }
 const bundle = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes));
@@ -166,6 +169,11 @@ describe('RailData raw archive (D84)', () => {
     expect(stationCodes(enc([{ STATION_2CHAR: 'NY' }]))).toBeUndefined();
     expect(stationCodes(enc({ errorMessage: 'x' }))).toBeUndefined();
     expect(stationCodes(new Uint8Array([1, 2]))).toBeUndefined();
+    // A partly broken reply adds its good codes but never drops a station from the previous list (CodeRabbit, #324).
+    const rows = [...STATIONS.slice(1).map(c => ({ STATION_2CHAR: c })), { STATION_2CHAR: 42 }, { STATIONNAME: 'x' }, { STATION_2CHAR: 'ZZ' }];
+    expect(stationCodes(enc(rows), STATIONS)).toEqual([...STATIONS, 'ZZ'].sort());
+    expect(stationCodes(enc(rows))).toEqual([...STATIONS.slice(1), 'ZZ'].sort());
+    expect(stationCodes(enc(STATIONS.slice(1).map(c => ({ STATION_2CHAR: c }))), STATIONS)).toEqual(STATIONS.slice(1));
   });
 
   // Neon review of #303, Nov 26, 2026.
@@ -219,5 +227,70 @@ describe('RailData raw archive (D84)', () => {
     expect(result.failures.length).toBeGreaterThan(0);
     expect(result.failures.every(f => f.code === 'timed-out')).toBe(true);
     expect(result.responses.some(r => r.feed === 'raildata-poll')).toBe(true);
+  });
+  it('asks a daily answer again in an hour when the raw archive could not take it (CodeRabbit, #324)', async () => {
+    const h = harness();
+    await h.run(false);
+    h.time(NOW + 42_000); await h.run();
+    expect(h.calls.filter(c => c.method === 'getStationList')).toHaveLength(1);
+    h.time(NOW + 3_600_000); const again = await h.run();
+    if (typeof again !== 'object') throw new Error('refused');
+    expect(again.responses.map(r => r.feed)).toEqual(expect.arrayContaining(['raildata-getStationList', 'raildata-getStationSchedule']));
+    // Taken this time, so it is not asked again for a day.
+    h.time(NOW + 2 * 3_600_000); await h.run();
+    h.time(NOW + 25 * 3_600_000 - 1); await h.run();
+    expect(h.calls.filter(c => c.method === 'getStationList')).toHaveLength(2);
+  });
+  it('saves an empty station list exactly but asks again in an hour and keeps the old list (CodeRabbit, #324)', async () => {
+    const h = harness();
+    await h.run();
+    expect(h.state.stations).toEqual(STATIONS);
+    h.answers.getStationList = () => Response.json([]);
+    h.time(NOW + 86_400_000); const empty = await h.run();
+    if (typeof empty !== 'object') throw new Error('refused');
+    expect(empty.responses.find(r => r.feed === 'raildata-getStationList')?.bytes).toEqual(new TextEncoder().encode('[]'));
+    expect(empty.failures).toContainEqual({ feed: 'raildata-getStationList', code: 'invalid-response', at: NOW + 86_400_000 });
+    expect(h.state.stations).toEqual(STATIONS);
+    h.time(NOW + 86_400_000 + 3_600_000); await h.run();
+    expect(h.calls.filter(c => c.method === 'getStationList')).toHaveLength(3);
+  });
+  it('puts boards that never started first in the next poll, so a slow NJ Transit skips no station (CodeRabbit, #324)', async () => {
+    const h = harness();
+    await h.run();
+    let first = true;
+    h.answers.getTrainSchedule = () => { if (first) { first = false; h.time(NOW + 42_000 + 12_000); } return Response.json({ ITEMS: [] }); };
+    h.time(NOW + 42_000); const slow = await h.run();
+    if (typeof slow !== 'object') throw new Error('refused');
+    const asked = h.calls.filter(c => c.method === 'getTrainSchedule').map(c => c.fields.station!);
+    const lastBefore = asked[asked.length - 1]!;
+    delete h.answers.getTrainSchedule;
+    h.time(NOW + 42_000 + 42_000); await h.run();
+    const next = h.calls.filter(c => c.method === 'getTrainSchedule').map(c => c.fields.station!).slice(asked.length);
+    expect(next[0]).toBe(STATIONS[(STATIONS.indexOf(lastBefore) + 1) % STATIONS.length]);
+  });
+  it('pauses on HTTP 429 even when its body never ends (CodeRabbit, #324)', async () => {
+    const h = harness();
+    await h.run();
+    h.answers.getTrainSchedule = () => new Response(new ReadableStream({ start() {} }), { status: 429 });
+    h.time(NOW + 42_000); const limited = await h.run();
+    if (typeof limited !== 'object') throw new Error('refused');
+    expect(limited.failures.map(f => f.code)).toContain('rate-limited');
+    expect(limited.failures.map(f => f.code)).not.toContain('timed-out');
+    const before = h.calls.length;
+    h.time(NOW + 84_000); const paused = await h.run();
+    if (typeof paused !== 'object') throw new Error('refused');
+    expect(h.calls.length).toBe(before);
+    expect(paused.failures.every(f => f.code === 'rate-limited')).toBe(true);
+  });
+  it('pauses when the token mint itself is rate limited, instead of reporting a token limit (CodeRabbit, #324)', async () => {
+    const h = harness();
+    h.answers.getToken = () => new Response('', { status: 429 });
+    const limited = await h.run();
+    if (typeof limited !== 'object') throw new Error('refused');
+    expect(limited.failures.every(f => f.code === 'rate-limited')).toBe(true);
+    h.time(NOW + 60_000); const paused = await h.run();
+    if (typeof paused !== 'object') throw new Error('refused');
+    expect(paused.failures.length).toBeGreaterThan(0);
+    expect(paused.failures.every(f => f.code === 'rate-limited')).toBe(true);
   });
 });
