@@ -628,6 +628,16 @@ describe('raw collection through the bus Worker', () => {
     h.restart(); h.time(NOW + 60_000); await h.poll(); expect(h.railCalls).toBe(3);
     h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll(); expect(h.railCalls).toBe(6);
   });
+  it('the hourly retry after a budget stop also polls traffic and weather in the same poll (Neon DEEP Nov 26)', async () => {
+    const h = await service(true, true, true, null, undefined, false, false, true, true); h.failAuth(); await h.poll();
+    const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };
+    state.rawArchive.reason = 'free-storage-budget'; state.rawArchive.budgetAt = NOW + 30_000;
+    const traffic = () => h.urls.filter(u => u.includes('panynj.gov')).length, weather = () => h.urls.filter(u => u.includes('api.weather.gov')).length;
+    const before = [traffic(), weather()];
+    h.restart(); h.time(NOW + 30_000 + 3_600_000); await h.poll();
+    expect(h.railCalls).toBe(6);
+    expect(traffic()).toBeGreaterThan(before[0]!); expect(weather()).toBeGreaterThan(before[1]!);
+  });
   it('waits another hour when the rail retry after a budget stop fails before saving anything (Neon Nov24 d, #278)', async () => {
     const h = await service(); h.failAuth(); await h.poll(); expect(h.railCalls).toBe(3);
     const state = h.saved.get('state-v1') as { rawArchive: RawArchiveState };

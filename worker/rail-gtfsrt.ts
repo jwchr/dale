@@ -1,6 +1,7 @@
 import { njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
 import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
+import { ARCHIVE_CONNECTIONS, inPool } from './pool';
 import type { RawResponse, RawFeed } from './raw-archive';
 
 const DAY = 86400_000, HOUR = 3600_000;
@@ -58,7 +59,9 @@ export class RailGtfsrt {
       return result;
     }
     let denied = false;
-    await Promise.all(methods.map(async method => {
+    // Two at a time: with RailData's two and BUSDV2's two, the poll holds at most the Worker's 6
+    // connections, so no call spends its timeout queued (Neon DEEP Nov 26: three here made 7).
+    await inPool(methods, ARCHIVE_CONNECTIONS, async method => {
       try {
         const bytes = await request(method, { token }, RAW_RESPONSE_MAX_BYTES);
         // The guide also documents HTTP-200 JSON error bodies. Never archive those as protobuf.
@@ -74,7 +77,7 @@ export class RailGtfsrt {
         if (code === 'rate-limited') this.state.pausedUntil = this.clock() + 15 * 60_000;
         result.failures.push({ feed: `rail-${method}`, code, at: this.clock() });
       }
-    }));
+    });
     if (denied && !result.responses.length) this.state.token = undefined;
     this.state.reason = result.failures[0]?.code ?? 'ready';
     return result;
