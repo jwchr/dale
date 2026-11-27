@@ -103,6 +103,28 @@ describe('verified permanent private archive', () => {
     await h.archive.flush(NOW); expect(h.calls).toEqual([]); expect(h.journal.nextUnarchived()).toBeDefined();
     expect(h.archive.status(NOW).reason).toBe(budget === 'bytes' ? 'free-storage-budget' : budget === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
   });
+  it('retries a refused operation budget at the next UTC midnight, when the 33-day window drops a day (Neon DEEP Nov 26, B1-5)', async () => {
+    const h = await harness();
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 3_000_000, 0);
+    await h.archive.flush(NOW);
+    const midnight = Date.parse(new Date(NOW).toISOString().slice(0, 10) + 'T00:00:00Z') + 86400_000;
+    expect(JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body)).nextAt).toBe(midnight);
+    h.db.exec('DELETE FROM dale_archive_days');
+    await h.archive.flush(midnight - 1); expect(h.calls).toEqual([]);
+    await h.archive.flush(midnight); expect(h.calls.length).toBeGreaterThan(0);
+  });
+  it('steps over a batch whose receipt cannot be proven and still cleans up the verified ones after it (Neon DEEP Nov 26)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first, second] = rows();
+    h.db.prepare('UPDATE dale_history_batches SET archive_receipt=? WHERE attempt=?').run('not json', first!);
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toEqual([first]); expect(second).toBeDefined();
+  });
   it('keeps archiving corridor history inside the reserve that statewide raw saving cannot use', async () => {
     const h = await harness();
     h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 499_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
