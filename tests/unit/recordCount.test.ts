@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countJson, jsonRecords, textRecords } from '../../worker/record-count';
+import { COUNT_MAX_BYTES, countJson, jsonRecords, textRecords } from '../../worker/record-count';
 
 const bytes = (value: unknown) => new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value));
 
@@ -52,5 +52,14 @@ describe('record counts for the status page', () => {
     expect(countJson('busdv-getBusRoutes:BUS', new Uint8Array([0xff, 0xfe]), 1)).toEqual({ 'busdv-getBusRoutes:BUS': { at: 1, records: null } });
     expect(countJson('traffic-poll', bytes('not json'), 1)).toEqual({ 'traffic-poll': { at: 1, records: null } });
     expect(countJson('traffic-poll', bytes({ v: 1 }), 1)).toEqual({ 'traffic-poll': { at: 1, records: null } });
+  });
+  it('counts an empty bundle as 0 and leaves an answer over the size limit uncounted (Neon Nov27 a)', () => {
+    expect(countJson('weather-poll', bytes({ v: 1, responses: [] }), 1)).toEqual({ 'weather-poll': { at: 1, records: 0 } });
+    expect(countJson('weather-poll', bytes({ v: 1, responses: [{ status: 'ok', text: '[1]' }] }), 1)).toEqual({ 'weather-poll': { at: 1, records: 0 } });
+    const big = new Uint8Array(COUNT_MAX_BYTES + 1).fill(0x20); big[0] = 0x5b; big[big.length - 1] = 0x5d;
+    expect(countJson('raildata-getStationSchedule', big, 1)).toEqual({ 'raildata-getStationSchedule': { at: 1, records: null, tooLarge: true } });
+    expect(countJson('raildata-getStationSchedule', big.subarray(1), 1)['raildata-getStationSchedule']).toEqual({ at: 1, records: null });
+    const fits = new Uint8Array(COUNT_MAX_BYTES).fill(0x20); fits[0] = 0x5b; fits[fits.length - 1] = 0x5d;
+    expect(countJson('raildata-getStationSchedule', fits, 1)).toEqual({ 'raildata-getStationSchedule': { at: 1, records: 0 } });
   });
 });

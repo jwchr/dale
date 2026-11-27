@@ -8,7 +8,13 @@ export interface RecordCount {
   records: number | null;
   /** Answers of this kind inside one poll bundle, and how many of them failed. */
   answers?: number; failed?: number;
+  /** Set when the answer was larger than COUNT_MAX_BYTES and left uncounted (it is still saved). */
+  tooLarge?: true;
 }
+
+/** Counting decodes and parses the answer in Worker memory, so larger answers are not counted
+ *  (Neon Nov27 a). The largest real JSON answers average about 2 MiB (hour ledgers, Nov 26 to 27). */
+export const COUNT_MAX_BYTES = 16 * 1024 * 1024;
 
 /** A list's length, or the summed lengths of an object's top-level lists ('@' keys such as JSON-LD
  *  @context left out). An object with no list is one record; an empty object, null or a bare value none. */
@@ -30,8 +36,10 @@ export function textRecords(text: string): number | null {
 interface BundleEntry { method?: unknown; source?: unknown; kind?: unknown; mode?: unknown; status?: unknown; text?: unknown }
 
 /** Counts for one saved JSON answer. A poll bundle ({ responses: [...] }) is counted per kind of answer
- *  inside it, keyed `<stream>/<method, source or kind>[:mode]`; any other answer is keyed by its stream. */
+ *  inside it, keyed `<stream>/<method, source or kind>[:mode]`; any other answer, and a bundle that cannot be
+ *  read or holds no named answer, is keyed by its stream. */
 export function countJson(stream: string, bytes: Uint8Array, at: number): Record<string, RecordCount> {
+  if (bytes.byteLength > COUNT_MAX_BYTES) return { [stream]: { at, records: null, tooLarge: true } };
   let text: string;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return { [stream]: { at, records: null } }; }
   if (!stream.endsWith('-poll')) return { [stream]: { at, records: textRecords(text) } };
@@ -52,5 +60,6 @@ export function countJson(stream: string, bytes: Uint8Array, at: number): Record
     const records = typeof entry.text === 'string' ? textRecords(entry.text) : null;
     if (records !== null) count.records = (count.records ?? 0) + records;
   }
-  return out;
+  // An empty bundle still replaces the last count, so the status page shows 0, not an old number.
+  return Object.keys(out).length ? out : { [stream]: { at, records: 0 } };
 }
