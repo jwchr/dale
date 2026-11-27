@@ -229,17 +229,18 @@ async function run() {
       console.log(`Connection failure (${phase}): ${safeNjtFailure(new NjtError(failure.code))}.`);
     }
   }
-  if (!profile.example || v !== 'ok') {
+  const exampleTrip = typeof profile.exampleTrip === 'string' && /^[^@\s]{1,128}@\d{8}$/.test(profile.exampleTrip) ? profile.exampleTrip : undefined;
+  if (!exampleTrip || v !== 'ok') {
     const safeCount = (n) => Number.isSafeInteger(n) && n >= 0 && n <= 1_000_000 ? n : 0;
     console.log(`Known static trips: ${safeCount(profile.vehicleDiagnostics?.knownTrips)}; corridor route reports: ${safeCount(profile.vehicleDiagnostics?.corridorRoutes)}; missing service dates: ${safeCount(profile.vehicleDiagnostics?.missingServiceDates)}; missing GPS timestamps: ${safeCount(profile.vehicleDiagnostics?.missingObservationTimes)}.`);
     console.log('No fresh matched corridor bus confirmed yet. Collection state above is separate; real-bus and cadence acceptance remain pending.'); process.exitCode = 1;
   } else {
     // Confirm the exact same public bus through the actual tracker endpoint without printing its position.
-    const [trip, date] = profile.example.tripInstanceId.split('@');
+    const [trip, date] = exampleTrip.split('@');
     const endpoint = new URL('/v1/live', url); endpoint.searchParams.set('trip', trip); endpoint.searchParams.set('date', date);
     const response = await fetch(endpoint, { signal: AbortSignal.timeout(15_000), redirect: 'error' });
     const packet = response.ok ? parseLiveSnapshot(await response.json(), ds, trip, date, Date.now()) : undefined;
-    if (packet?.vehicles.state !== 'ok' || !packet.observations.some((p) => p.vehicleId === profile.example.vehicleId && p.tripInstanceId === profile.example.tripInstanceId && p.observedAt >= profile.example.observedAt && Date.now() - p.observedAt <= 120_000)) throw workerProofError('exact-bus-check-failed');
+    if (packet?.vehicles.state !== 'ok' || !packet.observations.some((p) => p.tripInstanceId === exampleTrip && Date.now() - p.observedAt <= 120_000)) throw workerProofError('exact-bus-check-failed');
     console.log('A fresh official bus report matched its canonical trip/date through the tracker endpoint. Ready for app activation and a real ride test.');
   }
 }

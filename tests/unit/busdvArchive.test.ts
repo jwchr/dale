@@ -288,6 +288,15 @@ describe('BUSDV2 private raw archive', () => {
     expect(h.calls).toHaveLength(4);
   });
 
+  it('a short login outage spends two logins and keeps the third for an hour later (Neon DEEP Nov 26)', async () => {
+    const h = harness(); h.answers.authenticateUser = () => new Response('', { status: 401 });
+    for (const offset of [0, 42_000, 84_000]) { h.time(NOW + offset); await h.run(); }
+    expect(h.calls.filter(c => c.method === 'authenticateUser')).toHaveLength(2);
+    expect(h.state.mints).toEqual([NOW, NOW + 42_000]);
+    h.time(NOW + 42_000 + HOUR); await h.run();
+    expect(h.calls.filter(c => c.method === 'authenticateUser')).toHaveLength(3);
+  });
+
   it('keeps conservative hourly requests across the rolling boundary', async () => {
     const h = harness();
     h.state.budget.hours[Math.floor((NOW - DAY) / HOUR)] = BUSDV_REQUEST_LIMIT;

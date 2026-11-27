@@ -44,7 +44,12 @@ export function stationCodes(bytes: Uint8Array): string[] | undefined {
 /** Exact text when it is valid UTF-8 (the JSON NJ Transit sends), otherwise base64, so every byte can be rebuilt. */
 function preserve(bytes: Uint8Array): Pick<BundleEntry, 'text' | 'base64'> {
   try { return { text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }; }
-  catch { let s = ''; for (const n of bytes) s += String.fromCharCode(n); return { base64: btoa(s) }; }
+  catch {
+    // In chunks: one string join per 32 KB instead of one per byte (Neon DEEP Nov 26).
+    const parts: string[] = [];
+    for (let i = 0; i < bytes.length; i += 0x8000) parts.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
+    return { base64: btoa(parts.join('')) };
+  }
 }
 
 export class RailDataArchive {
@@ -66,7 +71,13 @@ export class RailDataArchive {
     };
     if (!plan.vehicles) plan.boards = [];
     if (!count(plan)) return;
-    if (!reserveRequests(s.budget, count(plan), now, RAILDATA_REQUEST_LIMIT)) return s.reason = 'request-ceiling';
+    // Near the daily ceiling, boards give way first, so train positions and the daily files still fit
+    // (Neon DEEP Nov 26: all or nothing refused the positions too).
+    if (!reserveRequests(s.budget, count(plan), now, RAILDATA_REQUEST_LIMIT)) {
+      if (!plan.boards.length) return s.reason = 'request-ceiling';
+      plan.boards = [];
+      if (!count(plan) || !reserveRequests(s.budget, count(plan), now, RAILDATA_REQUEST_LIMIT)) return s.reason = 'request-ceiling';
+    }
     for (const step of ['vehicles', 'messages', 'list', 'schedule'] as const) if (plan[step]) s.tried[step] = now;
     if (plan.boards.length) { s.tried.boards = now; s.cursor = (cursor + plan.boards.length) % stations.length; }
     return plan;
@@ -109,11 +120,12 @@ export class RailDataArchive {
     // Two at a time, so queued calls never spend their timeout waiting for one of the Worker's 6 connections.
     const tasks: (undefined | (() => Promise<void>))[] = [
       plan.vehicles ? () => bundled('getVehicleData', {}, 'vehicles') : undefined,
-      ...plan.boards.map(station => () => bundled('getTrainSchedule', { station }, 'boards', station)),
       // Blank station and line ask for every station's messages (not checked against a live answer yet).
       plan.messages ? () => bundled('getStationMSG', { station: '', line: '' }, 'messages') : undefined,
       plan.list ? () => whole('getStationList', {}, 'list') : undefined,
       plan.schedule ? () => whole('getStationSchedule', { station: '', NJTOnly: 'false' }, 'schedule') : undefined,
+      // Boards last: up to 16 catch-up boards must not push the hourly and daily calls past the start cutoff.
+      ...plan.boards.map(station => () => bundled('getTrainSchedule', { station }, 'boards', station)),
     ];
     await inPool(tasks.filter(task => task !== undefined), ARCHIVE_CONNECTIONS, task => task());
     // One saved object per poll instead of one per answer keeps R2 operations near the bus feeds' rate.
