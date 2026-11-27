@@ -134,6 +134,32 @@ describe('RailData raw archive (D84)', () => {
     expect(h.calls).toEqual([]);
   });
 
+  it('near its share drops the boards first, so positions and the daily calls still run (Neon DEEP Nov 26)', async () => {
+    const h = harness();
+    h.state.budget.hours[Math.floor(NOW / 3600_000)] = RAILDATA_REQUEST_LIMIT - 4;
+    const result = await h.run();
+    if (typeof result !== 'object') throw new Error('refused');
+    const methods = h.calls.map(c => c.method);
+    expect(methods).toContain('getVehicleData'); expect(methods).toContain('getStationSchedule');
+    expect(methods).not.toContain('getTrainSchedule');
+  });
+
+  it('starts the hourly and daily calls before any station board (Neon DEEP Nov 26)', async () => {
+    const h = harness(); await h.run();
+    const methods = h.calls.map(c => c.method).filter(m => m !== 'getToken');
+    const firstBoard = methods.indexOf('getTrainSchedule');
+    for (const m of ['getStationMSG', 'getStationList', 'getStationSchedule']) expect(methods.indexOf(m)).toBeLessThan(firstBoard);
+  });
+
+  it('keeps a large answer that is not UTF-8 byte for byte', async () => {
+    const h = harness(), big = new Uint8Array(200_000).map((_, i) => i ? (i * 7 + 255) % 256 : 0x7b); // Starts like JSON, as RailData answers must.
+    h.answers.getVehicleData = () => new Response(big);
+    const result = await h.run();
+    if (typeof result !== 'object') throw new Error('refused');
+    const entries = bundle(result.responses.find(r => r.feed === 'raildata-poll')!.bytes).responses;
+    expect(new Uint8Array(Buffer.from(entries.find((e: { method: string }) => e.method === 'getVehicleData').base64, 'base64'))).toEqual(big);
+  });
+
   it('reads station codes only from a sensible station list', () => {
     const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
     expect(stationCodes(enc(STATIONS.map(c => ({ STATION_2CHAR: c }))))).toEqual(STATIONS);

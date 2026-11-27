@@ -4,7 +4,7 @@ import { reserveRequests, NJT_REQUEST_LIMIT, type RequestBudget } from '../../wo
 import { binaryFeed, NOW } from '../helpers/liveBus';
 
 function harness() {
-  let now = NOW, state = newRailGtfsrtState(), saved = structuredClone(state), refuse = '', failSave = false;
+  let now = NOW, state = newRailGtfsrtState(), saved = structuredClone(state), refuse = '', failSave = false, open = 0, maxOpen = 0;
   const calls: { url: string; fields: Record<string, string> }[] = [];
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const fields = Object.fromEntries((init!.body as FormData).entries()) as Record<string, string>;
@@ -14,6 +14,7 @@ function harness() {
     const method = String(url).split('/').pop();
     if (method === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
     expect(fields).toEqual({ token: 'synthetic-token' });
+    open++; maxOpen = Math.max(maxOpen, open); await Promise.resolve(); open--;
     if (refuse === 'denied') return new Response('', { status: 401 });
     if (refuse === method) return new Response('', { status: 503 });
     if (refuse === 'json-error') return Response.json({ errorMessage: 'Invalid token.' });
@@ -21,7 +22,7 @@ function harness() {
     return new Response(new Uint8Array(binaryFeed([])));
   }) as typeof fetch;
   const checkpoint = async () => { if (failSave) throw new Error('synthetic storage failure'); saved = structuredClone(state); };
-  return { calls, get state() { return state; }, time: (at: number) => { now = at; }, refuse: (value: string) => { refuse = value; },
+  return { calls, get maxOpen() { return maxOpen; }, get state() { return state; }, time: (at: number) => { now = at; }, refuse: (value: string) => { refuse = value; },
     failSave: () => { failSave = true; }, restart: () => { state = structuredClone(saved); },
     async run() {
       const rail = new RailGtfsrt(state, { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password' }, checkpoint, fetchImpl, () => now);
@@ -53,6 +54,11 @@ describe('rail GTFS-RT token and independent feeds', () => {
     expect(tokenCalls.length).toBeLessThanOrEqual(10);
     h.time(start + 86400_000); await h.run();
     expect(h.calls.filter(call => call.url.endsWith('/getToken'))).toHaveLength(RAIL_GTFSRT_MINT_LIMIT + 1);
+  });
+  it('holds at most two rail connections at once (Neon DEEP Nov 26: three made the poll pass 6)', async () => {
+    const h = harness();
+    expect((await h.run())?.responses).toHaveLength(3);
+    expect(h.maxOpen).toBe(2);
   });
   it.each(['getVehiclePositions', 'getTripUpdates', 'getAlerts'])('still saves the other rail feeds when %s fails', async method => {
     const h = harness(); h.refuse(method);
