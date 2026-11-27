@@ -34,11 +34,14 @@ interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_R
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
 interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState;
   /** Private: holds BUSDV2's own token. Never exposed by any endpoint. */
-  busDv?: BusDvState; traffic?: TrafficState; weather?: WeatherState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+  busDv?: BusDvState; traffic?: TrafficState; weather?: WeatherState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; authMints?: number[]; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
 /** Raw-only bus alerts give up sooner than the live feeds' 15 seconds (Neon Nov26 e, #301 P2). */
 const ALERTS_TIMEOUT_MS = 8_000;
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
+/** Bus logins per rolling day. NJ Transit's RailData guide allows ten token calls a day; the bus guide's own
+ * figure is not checked, so bus uses the same ten (Neon DEEP Nov 26: hourly retries alone allowed 24). */
+const AUTH_DAILY_LIMIT = 10, AUTH_DAY_MS = 86_400_000;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
 const aged = (feed: NormalizedFeed, now: number) => ({ ...feed.feed, ...(feed.feed.timestamp && now - feed.feed.timestamp > 120_000 ? { state: 'stale' as const } : {}) });
 
@@ -211,7 +214,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.historyAt = null;
           await this.poll(true);
           if (this.archive) await this.archive.flush(clock());
-          this.journal?.pruneVerified(clock());
+          // Cleanup never stops the derived work below (Neon DEEP Nov 26); it retries at the next run.
+          try { this.journal?.pruneVerified(clock()); } catch { /* rows stay until proven saved */ }
           // Derived work last, from spare write margin only; it never throws into collection.
           const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
           try { this.earlier?.fold(clock(), spare); } catch { /* independent derived work */ }
@@ -285,24 +289,27 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const now = clock(); this.saved.pollAt = now;
       // Only a switched-on archive saves or counts new responses; a draining one just finishes old work.
       const saving = this.rawSaving ? this.rawArchive : undefined;
-      const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      // Decide the budget pause once: the hourly retry below restarts the pause clock, and a second
+      // check after it would skip every feed decided later in this poll.
+      const rawOpen = !!saving && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const railDue = rawOpen && this.env.RAIL_GTFSRT_RAW === 'enabled';
       // D84: RailData (train positions, every station's board, messages, schedules) is a separate switch.
-      const railDataDue = !!saving && this.env.RAILDATA_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
-      if (railDue || railDataDue) startRailBudgetRetry(this.saved.rawArchive, now);
+      const railDataDue = rawOpen && this.env.RAILDATA_RAW === 'enabled';
       const railData = railDataDue ? new RailDataArchive(this.saved.railData ??= newRailDataState(), this.rail, clock) : undefined;
       const railDataPlan = railData?.prepare(now);
       if (railDataPlan === 'request-ceiling') saving?.recordFailure('raildata-poll', 'request-ceiling', now);
       // D84: BUSDV2 (every bus stop's departure board, bus and light rail vehicle locations) is its own
       // NJ Transit API with its own 40,000 a day; it shares only the raw archive's guards.
-      const busDvDue = !!saving && this.env.BUSDV_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const busDvDue = rawOpen && this.env.BUSDV_RAW === 'enabled';
       const busDv = busDvDue ? new BusDvArchive(this.saved.busDv ??= newBusDvState(), this.env, fetchImpl, clock) : undefined;
       const busDvPlan = busDv?.prepare(now);
       if (busDvPlan === 'request-ceiling') saving?.recordFailure('busdv-poll', 'request-ceiling', now);
       // Port Authority crossings and 511NJ incidents: once a minute, under the same raw guards.
-      const trafficDue = !!saving && this.env.TRAFFIC_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const trafficDue = rawOpen && this.env.TRAFFIC_RAW === 'enabled';
       const traffic = trafficDue ? new TrafficArchive(this.saved.traffic ??= {}, fetchImpl, clock) : undefined;
       const trafficSlot = traffic?.prepare(now);
-      const weatherDue = !!saving && this.env.WEATHER_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const weatherDue = rawOpen && this.env.WEATHER_RAW === 'enabled';
+      if (railDue || railDataDue || busDvDue || trafficDue || weatherDue) startRailBudgetRetry(this.saved.rawArchive, now);
       const weather = weatherDue ? new WeatherArchive(this.saved.weather ??= {}, fetchImpl, clock) : undefined;
       const weatherPlan = weather?.prepare(now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
@@ -317,7 +324,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
       // Bus alerts are saved whole, raw only, while statewide saving is on (no region file).
       const busAlerts = !!saving && !regionRoutes;
-      const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
+      const authMints = this.saved.authMints = (this.saved.authMints ?? []).filter(at => at <= now && now - at < AUTH_DAY_MS);
+      const authCooldown = needsAuth && (now - this.saved.authAt < AUTH_RETRY_MS || authMints.length >= AUTH_DAILY_LIMIT);
       // Live buses reserve first; alerts take one more request only if it still fits (Neon Nov26 e, #301 P2).
       const busBudget = this.saved.busBudget ??= { hours: {} };
       const busAllowed = !authCooldown && reserveRequests(busBudget, needsAuth ? 3 : 2, now);
@@ -330,7 +338,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (authCooldown) throw new NjtError('authentication-cooldown');
         if (!busAllowed) throw new NjtError('request-ceiling');
         if (!this.saved.token || this.saved.token.expiresAt <= now) {
-          this.saved.authAt = now;
+          this.saved.authAt = now; authMints.push(now);
           await this.ctx.storage.put('state-v1', this.saved);
           this.saved.token = { value: await authenticate(this.env, fetchImpl), expiresAt: now + 20 * 3600_000 };
           delete this.saved.failures.authentication;
@@ -494,7 +502,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         return Response.json({ v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, collection, rideAlerts: this.rideHealth(), rail,
         connectionFailures: this.saved.failures ?? {},
         vehicles: age(vehicles), updates: age(updates), vehicleDiagnostics: vehicles.diagnostics, updateDiagnostics: updates.diagnostics, reportingBuses: new Set(vehicles.observations.filter((o) => now - o.observedAt <= 120_000).map((o) => o.vehicleId)).size,
-        example: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0],
+        // The newest fresh bus's trip and service date only (schedule data, no vehicle or position), for the deploy's
+        // tracker check through the public /v1/live endpoint (Codex, #322).
+        exampleTrip: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0]?.tripInstanceId ?? null,
       }, { headers: { 'cache-control': 'no-store' } });
       }
       return Response.json(this.snapshot(trip, date, vehicle, now), { headers: { 'cache-control': 'no-store' } });

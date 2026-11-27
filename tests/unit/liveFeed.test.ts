@@ -118,8 +118,11 @@ describe('single paced private live relay', () => {
       expect.objectContaining({ vehicleId: 'bus-B' }),
       expect.objectContaining({ vehicleId: 'locked-bus', tripInstanceId: 'T2@20261104' }),
     ]));
-    const profile = await (await h.object.fetch(request('/v1/status'))).json();
-    expect(profile.example.vehicleId).toBe('bus-B');
+    // The public status page names no vehicle (Neon DEEP Nov 26: it used to show the newest one).
+    const profile = await (await h.object.fetch(request('/v1/status'))).text();
+    expect(profile).not.toContain('bus-B'); expect(profile).not.toContain('locked-bus');
+    // The deploy check gets only the newest fresh bus's trip and date, then reads it through public /v1/live (Codex, #322).
+    expect(JSON.parse(profile).exampleTrip).toMatch(/^T[12]@20261104$/);
     for (let i = 0; i < 15; i++) reports.push({ id: 'extra-' + i, vehicle: vehicle({ vehicle: { id: 'extra-' + i } }) });
     const crowded = harness(() => binaryFeed(reports));
     const limited = parseLiveSnapshot(await (await crowded.object.fetch(request('/v1/live?trip=T1&date=20261104&vehicle=locked-bus'))).json(), ds, 'T1', '20261104', NOW);
@@ -187,7 +190,7 @@ describe('single paced private live relay', () => {
     expect(h.calls).toHaveLength(0);
     const schedule = await router.fetch(request('/v1/schedule'), h.env); expect(await schedule.json()).toMatchObject({ meta: { realtime: { provider: 'njt-bus-g2' } } });
     const options = await router.fetch(new Request(request(), { method: 'OPTIONS' }), h.env); expect(options.status).toBe(204);
-    const status = await (await router.fetch(request('/v1/status'), h.env)).json(); expect(status.reportingBuses).toBe(1); expect(status.example.tripInstanceId).toBe('T1@20261104');
+    const status = await (await router.fetch(request('/v1/status'), h.env)).json(); expect(status.reportingBuses).toBe(1); expect(status.example).toBeUndefined();
   });
 });
 
@@ -307,6 +310,22 @@ describe('fixed secret-safe connection diagnostics', () => {
     expect(retry.connectionFailures.vehicles).toBeUndefined();
     expect(retry.connectionFailures.updates).toEqual({ code: 'rate-limited', at: now });
     expect(text).not.toContain('private-token'); expect(text).not.toContain('private-error-body');
+  });
+  it('logs in at most ten times a rolling day while every token is refused (Neon DEEP Nov 26)', async () => {
+    let now = NOW, logins = 0;
+    const saved = new Map<string, unknown>();
+    const ctx = { storage: { get: async <T,>(k: string) => structuredClone(saved.get(k)) as T | undefined, put: async (k: string, v: unknown) => { saved.set(k, structuredClone(v)); } }, blockConcurrencyWhile: async <T,>(f: () => Promise<T>) => f() };
+    const Feed = createFeedClass(ds, (async (url: RequestInfo | URL) => {
+      if (String(url).endsWith('authenticateUser')) { logins++; return Response.json({ Authenticated: true, UserToken: 'private-token' }); }
+      return new Response('refused', { status: 403 });
+    }) as typeof fetch, () => now);
+    const object = new Feed(ctx, { ...creds, FEED: { idFromName: () => '', get: () => object } });
+    // One status read an hour for a day: the hourly cooldown alone would allow 24 logins.
+    for (let hour = 0; hour < 24; hour++) { now = NOW + hour * 3600_000; await object.fetch(request('/v1/status')); }
+    expect(logins).toBe(10);
+    // A day after the first login, its slot frees up again.
+    now = NOW + 24 * 3600_000; await object.fetch(request('/v1/status'));
+    expect(logins).toBe(11);
   });
   it('allows only fixed NjtError categories and discards arbitrary error messages and codes', async () => {
     const { safeNjtFailure, NjtError } = await import('../../worker/njt-client');

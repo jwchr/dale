@@ -210,7 +210,9 @@ export class BusDvArchive {
     if (now - (s.lastPollAt ?? -Infinity) < HISTORY_INTERVAL_MS) return;
     const mint = !s.token || now - s.token.mintedAt >= TOKEN_AGE_MS || now < s.token.mintedAt;
     s.mints = s.mints.filter(at => at > now - DAY);
-    if (mint && s.mints.length >= 3) return refusal('token-limit');
+    // Three logins a day. One refused token re-logs in at once, but the last login waits an hour after
+    // the one before it, so a short outage cannot spend all three in a minute (Neon DEEP Nov 26).
+    if (mint && (s.mints.length >= 3 || (s.mints.length >= 2 && s.mints.some(at => now - at < HOUR)))) return refusal('token-limit');
 
     const hour = Math.floor(now / HOUR), oldest = Math.floor((now - DAY) / HOUR);
     for (const key of Object.keys(s.budget.hours)) if (Number(key) < oldest) delete s.budget.hours[key];

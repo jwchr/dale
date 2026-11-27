@@ -56,11 +56,13 @@ export class ArrivalBackfill {
     if (value !== undefined && (value.v !== 1 || typeof value.lease !== 'string')) throw new Error('backfill-state-invalid');
     return value;
   }
-  /** Shared R2 ledger: the same 34-day buckets as the archive. The backfill may use at most half of each free cap. */
+  /** Shared R2 ledger: the same 34-day buckets as the archive. The backfill's Class B reads may use at most half of that cap. */
   private reserveOperations(a: number, b: number, now: number): boolean {
     return this.storage.transactionSync(() => {
       const row = this.storage.sql.exec('SELECT COALESCE(SUM(class_a),0) AS a,COALESCE(SUM(class_b),0) AS b FROM dale_archive_days WHERE day>=?', utcDay(now - 33 * DAY)).toArray()[0]!;
-      if (Number(row.a) + a > A_LIMIT / 2 || Number(row.b) + b > B_LIMIT / 2) return false;
+      // Class A here is one list per step and is checked against the full cap: raw saving alone passes half
+      // of it within about a month, which would stop the backfill for good (Neon DEEP Nov 26, B1-4).
+      if (Number(row.a) + a > A_LIMIT || Number(row.b) + b > B_LIMIT / 2) return false;
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', utcDay(now), a, b);
       return true;
     });
