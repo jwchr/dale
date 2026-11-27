@@ -74,7 +74,8 @@ export class HistoryArchive {
       const state = this.read(), totals = this.totals(now);
       if (state.reservedBytes + bytes > BYTE_LIMIT || totals.a + 2 > A_LIMIT || totals.b + 2 > B_LIMIT) {
         state.reason = state.reservedBytes + bytes > BYTE_LIMIT ? 'free-storage-budget' : 'free-operation-budget';
-        state.nextAt = now + DAY; this.write(state); return false;
+        // The 33-day window drops a day only at UTC midnight, so retry then rather than a full day later (Neon DEEP Nov 26, B1-5).
+        state.nextAt = Date.parse(date(now) + 'T00:00:00Z') + DAY; this.write(state); return false;
       }
       state.reservedBytes += bytes; state.lastAttemptAt = now; state.reason = 'archiving';
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,2,2) ON CONFLICT(day) DO UPDATE SET class_a=class_a+2,class_b=class_b+2', date(now));

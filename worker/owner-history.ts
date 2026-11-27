@@ -57,7 +57,9 @@ export class OwnerHistory {
     // Check the shared R2 cap before charging writes; an absent ledger fails closed in read().
     // This synchronous check and reservation cannot interleave with another request. No R2 I/O before reservation.
     const row = this.storage.sql.exec('SELECT COALESCE(SUM(class_a),0) AS a,COALESCE(SUM(class_b),0) AS b FROM dale_archive_days WHERE day>=?', day(now - 33 * 86400_000)).toArray()[0]!;
-    if (Number(row.a) + a > A_LIMIT / 2 || Number(row.b) + b > B_LIMIT / 2) return false;
+    // Only the class this read charges is checked, against the shared full cap: raw saving alone passes half
+    // the 33-day Class A cap in about a month, which would otherwise lock the owner out (Neon DEEP Nov 26, B1-4).
+    if ((a > 0 && Number(row.a) + a > A_LIMIT) || (b > 0 && Number(row.b) + b > B_LIMIT)) return false;
     if (!spare(2, now)) return false;
     return this.storage.transactionSync(() => {
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', day(now), a, b);
@@ -80,7 +82,7 @@ export class OwnerHistory {
       try {
         const result = await Promise.race([(async () => {
           if (query.kind === 'list') {
-            const listing = await this.bucket!.list({ prefix: `v1/${query.day}/batches/`, limit: 20, ...(query.after ? { startAfter: query.after } : {}) });
+            const listing = await this.bucket!.list({ prefix: `v1/${query.day}/batches/`, limit: 1000, ...(query.after ? { startAfter: query.after } : {}) });
             const listed = listing.objects.map(o => o.key).filter(k => validCursor(k) && k.startsWith(`v1/${query.day}/batches/`));
             const keys = listed.filter(validKey);
             // Advance past manifests too, including pages containing only manifests.

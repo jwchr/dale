@@ -156,7 +156,7 @@ it('reads immutable archive evidence with checksum/size limits, field whitelist,
   expect([gets, lists]).toEqual([1, 1]);
   expect(db.prepare('SELECT class_a,class_b FROM dale_archive_days').get()).toEqual({ class_a: 1, class_b: 1 });
   expect((await door.read({ kind: 'object', key }, NOW, () => false)).status).toBe(503);
-  db.prepare('UPDATE dale_archive_days SET class_a=?,class_b=?').run(A_LIMIT / 2, B_LIMIT / 2);
+  db.prepare('UPDATE dale_archive_days SET class_a=?,class_b=?').run(A_LIMIT, B_LIMIT);
   expect((await door.read({ kind: 'object', key }, NOW, () => true)).status).toBe(503);
   expect(gets).toBe(1);
   db.exec('DELETE FROM dale_archive_days');
@@ -175,6 +175,21 @@ it('reads immutable archive evidence with checksum/size limits, field whitelist,
 
 });
 
+it('keeps owner reads open once raw saving passes half of each cap (Neon DEEP Nov 26, B1-4)', async () => {
+  const { db, storage } = harness();
+  // A month of raw saving: Class A past half, Class B nearly full. A list charges only Class A,
+  // an object read only Class B, so each is checked against its own class only.
+  db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-11-04', A_LIMIT / 2 + 1000, B_LIMIT);
+  let calls = 0;
+  const door = new OwnerHistory(storage, {
+    list: async () => { calls++; return { objects: [], truncated: false }; },
+    get: async () => { calls++; return null; },
+  });
+  expect((await door.read({ kind: 'list', day: '2026-11-04' }, NOW, () => true)).status).toBe(200);
+  expect((await door.read({ kind: 'object', key: `v1/2026-11-04/batches/${NOW}-${'0'.repeat(64)}.json.gz` }, NOW, () => true)).status).toBe(503);
+  expect(calls).toBe(1);
+});
+
 it('rejects arbitrary object paths, invalid dates, duplicate/unknown params and cross-day cursors', () => {
   for (const q of ['key=rides/a', 'day=2026-02-30', 'day=2026-11-04&after=bad', 'after=-1', 'after=1&trip=x', 'key=x&key=y', 'secret=x'])
     expect(ownerQuery(new URL(`https://x/?${q}`))).toBeUndefined();
@@ -184,7 +199,7 @@ it.each(['classA', 'classB', 'missing-ledger'])('charges no spare writes or R2 o
   const { db, storage } = harness();
   if (reason === 'missing-ledger') db.exec('DROP TABLE dale_archive_days');
   else db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)')
-    .run('2026-11-04', reason === 'classA' ? A_LIMIT / 2 : 0, reason === 'classB' ? B_LIMIT / 2 : 0);
+    .run('2026-11-04', reason === 'classA' ? A_LIMIT : 0, reason === 'classB' ? B_LIMIT : 0);
   let reserves = 0, calls = 0;
   const door = new OwnerHistory(storage, {
     list: async () => { calls++; return { objects: [], truncated: false }; },
@@ -201,7 +216,7 @@ it.each(['classA', 'classB', 'missing-ledger'])('charges no spare writes or R2 o
   expect(calls).toBe(0);
   if (reason === 'missing-ledger') expect(db.prepare("SELECT name FROM sqlite_master WHERE name='dale_archive_days'").get()).toBeUndefined();
   else expect(db.prepare('SELECT class_a,class_b FROM dale_archive_days').get()).toEqual({
-    class_a: reason === 'classA' ? A_LIMIT / 2 : 0, class_b: reason === 'classB' ? B_LIMIT / 2 : 0,
+    class_a: reason === 'classA' ? A_LIMIT : 0, class_b: reason === 'classB' ? B_LIMIT : 0,
   });
 });
 

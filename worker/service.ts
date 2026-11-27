@@ -211,7 +211,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           this.historyAt = null;
           await this.poll(true);
           if (this.archive) await this.archive.flush(clock());
-          this.journal?.pruneVerified(clock());
+          // Cleanup never stops the derived work below (Neon DEEP Nov 26); it retries at the next run.
+          try { this.journal?.pruneVerified(clock()); } catch { /* rows stay until proven saved */ }
           // Derived work last, from spare write margin only; it never throws into collection.
           const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
           try { this.earlier?.fold(clock(), spare); } catch { /* independent derived work */ }
