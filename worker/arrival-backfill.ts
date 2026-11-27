@@ -168,8 +168,9 @@ export class ArrivalBackfill {
         }
       } catch (error) {
         if (!(error instanceof Transient)) throw error;
-        // The cursor stays before this object, so it is read again after the back-off.
-        failed = true; break;
+        // The cursor stays before this object. Running out of step time after real progress is a normal end
+        // (the next step reads it again with no back-off); an R2 error, or no progress at all, backs off.
+        failed = !(processed > 0 && error.message === 'backfill-timeout' && this.timer() >= this.stepEnd); break;
       }
       next.startAfter = key; processed++;
     }
