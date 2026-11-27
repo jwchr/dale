@@ -46,57 +46,42 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     }
     expect(new Set(Object.values(TRAFFIC_SOURCES).map(s => s.url(SLOT))).size).toBe(Object.keys(TRAFFIC_SOURCES).length);
   });
-  it('keeps every answer exactly as sent, and drops only the staff name from both alert feeds', async () => {
+  it('keeps every answer exactly as sent, staff names included (Jeff, Nov 26, 2026: "Keep exact")', async () => {
     const { saved, failures } = await bundle(archive(ok));
     expect(failures).toEqual([]);
     expect(saved.slot).toBe('2026-11-26T22:15Z');
     expect(saved.responses.map((r: { source: string }) => r.source)).toEqual(DUE);
     expect(saved.responses[0]).toMatchObject({ source: 'crossingTimes', status: 'ok', text: '[{"routeTravelTime":7}]', url: 'https://www.panynj.gov/bin/portauthority/crossingtimesapi.json' });
-    expect(saved.responses[1]).toMatchObject({ source: 'crossingAlerts', status: 'ok', dropped: ['SentBy'] });
+    expect(saved.responses[1]).toMatchObject({ source: 'crossingAlerts', status: 'ok', text: '[{"messageid":1,"Subject":"synthetic","SentBy":"Synthetic Staff"}]' });
     expect(saved.responses[1].url).toContain('start_date=11%2F26%2F2026');
-    expect(JSON.parse(saved.responses[1].text)).toEqual([{ messageid: 1, Subject: 'synthetic' }]);
     expect(saved.responses[2]).toMatchObject({ source: 'incidents', status: 'ok', text: RSS });
     expect(saved.responses[3]).toMatchObject({ source: 'crossingIncidents', status: 'ok', text: EVERBRIDGE });
-    expect(saved.responses[3].dropped).toBeUndefined();
-    expect(saved.responses[6]).toMatchObject({ source: 'pathAlerts', status: 'ok', dropped: ['SentBy'] });
-    expect(JSON.parse(saved.responses[6].text)).toEqual([{ messageid: 2, Subject: 'synthetic path' }]);
+    expect(saved.responses[6]).toMatchObject({ source: 'pathAlerts', status: 'ok', text: '[{"messageid":2,"Subject":"synthetic path","SentBy":"Synthetic Staff"}]' });
     expect(saved.responses[7]).toMatchObject({ source: 'njtBusAdvisories', status: 'ok', text: RSS, url: 'https://www.njtransit.com/rss/BusAdvisories_feed.xml' });
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+    expect(saved.responses.some((r: Record<string, unknown>) => 'dropped' in r)).toBe(false);
   });
-  it('drops the staff name at any depth and in any letter case', async () => {
-    const nested = [{ messageid: 1, sentby: 'Synthetic Staff', detail: { SENTBY: 'Synthetic Staff', notes: [{ SentBy: 'Synthetic Staff', note: 'kept' }] } }];
-    const { saved } = await bundle(archive(url => url.includes('crossingtimesalert') ? Response.json(nested) : ok(url)));
-    expect(JSON.parse(saved.responses[1].text)).toEqual([{ messageid: 1, detail: { notes: [{ note: 'kept' }] } }]);
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+  it('changes no byte of a JSON answer: spacing, key order, nesting and every staff-name spelling stay', async () => {
+    const alerts = '[ {"messageid":1, "sentby":"Synthetic Staff", "detail":{"SENTBY":"Synthetic Staff","notes":[{"SentBy":"Synthetic Staff","note":"kept"}]}} ]';
+    const times = '[{"routeTravelTime":7,"sent_by":"Synthetic Staff"}]';
+    const incidents = '{"status":"Success","data":[{"incidentMessage":{"subject":"kept","CreatedBy":"Synthetic Staff","Updated-By":"Synthetic Staff"},"CreatedDate":1}]}';
+    const path = '\ufeff{"results":[{"label":"kept","ModifiedBy":"Synthetic Staff","messages":[{"Author":"Synthetic Staff","PostedBy":"Synthetic Staff"}]}]}';
+    const { saved } = await bundle(archive(url => url.includes('crossingtimesalert') ? new Response(alerts) : url.includes('crossingtimesapi') ? new Response(times)
+      : url.includes('department=BTT') ? new Response(incidents) : url.includes('ridepath') ? new Response(path) : ok(url)));
+    expect(saved.responses[1]).toMatchObject({ source: 'crossingAlerts', status: 'ok', text: alerts });
+    expect(saved.responses[0]).toMatchObject({ source: 'crossingTimes', status: 'ok', text: times });
+    expect(saved.responses[3]).toMatchObject({ source: 'crossingIncidents', status: 'ok', text: incidents });
+    expect(saved.responses[5]).toMatchObject({ source: 'pathArrivals', status: 'ok', text: path });
+    expect(saved.responses.some((r: Record<string, unknown>) => 'dropped' in r)).toBe(false);
   });
-  it('drops other staff-name spellings from every JSON feed, and keeps an answer without them exactly as sent', async () => {
-    const times = [{ routeTravelTime: 7, sent_by: 'Synthetic Staff' }];
-    const incidents = { status: 'Success', data: [{ incidentMessage: { subject: 'kept', CreatedBy: 'Synthetic Staff', 'Updated-By': 'Synthetic Staff' }, CreatedDate: 1 }] };
-    const path = { results: [{ label: 'kept', ModifiedBy: 'Synthetic Staff', messages: [{ Author: 'Synthetic Staff', PostedBy: 'Synthetic Staff' }] }] };
-    const { saved } = await bundle(archive(url => url.includes('crossingtimesapi') ? Response.json(times)
-      : url.includes('department=BTT') ? Response.json(incidents) : url.includes('ridepath') ? Response.json(path) : ok(url)));
-    expect(saved.responses[0]).toMatchObject({ source: 'crossingTimes', status: 'ok', dropped: ['sent_by'] });
-    expect(JSON.parse(saved.responses[0].text)).toEqual([{ routeTravelTime: 7 }]);
-    expect(saved.responses[3]).toMatchObject({ source: 'crossingIncidents', status: 'ok', dropped: ['CreatedBy', 'Updated-By'] });
-    expect(JSON.parse(saved.responses[3].text)).toEqual({ status: 'Success', data: [{ incidentMessage: { subject: 'kept' }, CreatedDate: 1 }] });
-    expect(saved.responses[5]).toMatchObject({ source: 'pathArrivals', status: 'ok', dropped: ['Author', 'ModifiedBy', 'PostedBy'] });
-    expect(JSON.parse(saved.responses[5].text)).toEqual({ results: [{ label: 'kept', messages: [{}] }] });
-    // The terminal incidents answered the usual way: no staff field, so the exact text and no `dropped`.
-    expect(saved.responses[4]).toEqual(expect.objectContaining({ source: 'terminalIncidents', text: EVERBRIDGE }));
-    expect(saved.responses[4].dropped).toBeUndefined();
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
-  });
-  it('drops the RSS tags that name a person, and refuses an RSS answer cut off before </rss>', async () => {
+  it('keeps the RSS tags that name a person, and refuses an RSS answer cut off before </rss>', async () => {
     const named = '<?xml version="1.0"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><managingEditor>Synthetic Staff</managingEditor>'
       + '<webMaster>Synthetic Staff</webMaster><item><title>kept</title><author>Synthetic Staff</author><dc:creator><![CDATA[Synthetic Staff]]></dc:creator><author/></item></channel></rss>\n';
     const cut = RSS.slice(0, -12);
     const { saved, failures } = await bundle(archive(url => url.includes('RSSAllNJ') ? new Response(named) : url.includes('BusAdvisories') ? new Response(cut) : ok(url)));
-    expect(saved.responses[2]).toMatchObject({ source: 'incidents', status: 'ok', dropped: ['author', 'dc:creator', 'managingEditor', 'webMaster'] });
-    expect(saved.responses[2].text).toBe('<?xml version="1.0"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item><title>kept</title></item></channel></rss>\n');
+    expect(saved.responses[2]).toMatchObject({ source: 'incidents', status: 'ok', text: named });
     expect(failures).toEqual([{ feed: 'njt-rss', code: 'invalid-response', at: SLOT + 1_000 }]);
     expect(status(saved, 'njtBusAdvisories')).toBe('invalid-response');
     expect(saved.responses[7].text).toBeUndefined();
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
   });
   it('reads JSON that starts with a byte-order mark and saves it exactly as sent', async () => {
     const withBom = '\uFEFF[{"routeTravelTime":7}]', everbridge = '\uFEFF' + EVERBRIDGE;
@@ -130,7 +115,6 @@ describe('Port Authority, PATH, NJ Transit advisories and 511NJ, saved raw once 
     const entry = saved.responses.find((r: { source: string }) => r.source === source);
     expect(entry.status).toBe(code);
     expect(entry.text).toBeUndefined();
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
   });
   it('stops reading an oversized answer at 4 MB', async () => {
     let sent = 0;

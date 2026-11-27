@@ -493,17 +493,16 @@ describe('raw collection through the bus Worker', () => {
     const h = await service(true, true, false, null, undefined, false, true); await h.poll();
     expect(h.urls.some(u => u.includes('/BUSDV2/'))).toBe(false);
   });
-  it('saves one crossings and incidents bundle per minute when TRAFFIC_RAW is on, without the staff name', async () => {
+  it('saves one crossings and incidents bundle per minute when TRAFFIC_RAW is on, exactly as sent', async () => {
     const h = await service(true, true, true, null, undefined, false, false, true); await h.poll();
     const bundles = () => [...h.objects.keys()].filter(k => k.includes('/traffic-poll/') && k.endsWith('.json.gz'));
     expect(bundles()).toHaveLength(1);
     const saved = JSON.parse(new TextDecoder().decode(gunzipSync(h.objects.get(bundles()[0]!)!)));
     expect(saved.responses.map((r: { source: string; status: string }) => `${r.source}:${r.status}`)).toEqual(dueSources(Math.floor(NOW / 60_000) * 60_000).map(s => `${s}:ok`));
     expect(saved.slot).toBe(new Date(Math.floor(NOW / 60_000) * 60_000).toISOString().slice(0, 16) + 'Z');
-    expect(JSON.parse(saved.responses[1].text)).toEqual([{ synthetic: 'crossing' }]);
-    // Every crossings feed drops the staff name now, not only the alert feeds (Neon Nov26 g).
-    expect(JSON.parse(saved.responses[0].text)).toEqual([{ synthetic: 'crossing' }]);
-    expect(JSON.stringify(saved)).not.toContain('Synthetic Staff');
+    // Saved exactly as sent, staff name included (Jeff, Nov 26, 2026: "Keep exact").
+    expect(JSON.parse(saved.responses[1].text)).toEqual([{ synthetic: 'crossing', SentBy: 'Synthetic Staff' }]);
+    expect(JSON.parse(saved.responses[0].text)).toEqual([{ synthetic: 'crossing', SentBy: 'Synthetic Staff' }]);
     expect(saved.responses[2].text).toContain('<rss');
     // A second poll in the same minute fetches nothing; the next minute fetches again.
     const calls = () => h.urls.filter(u => u.includes('panynj.gov') || u.includes('511nj.org') || u.includes('njtransit.com/rss')).length;
