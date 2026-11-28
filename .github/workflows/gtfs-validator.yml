@@ -59,7 +59,7 @@ jobs:
           # v8 returns success for feed notices, including ERROR; a nonzero exit is a tool failure.
           # Keep upstream row details out of the public log; retain only the requested reports.
           if ! java -Duser.timezone=America/New_York -jar "$RUNNER_TEMP/gtfs-validator.jar" \
-            --input "$RUNNER_TEMP/bus_data.zip" --output "$RUNNER_TEMP/gtfs-validation" \
+            --input "$RUNNER_TEMP/bus_data.zip" --output_base "$RUNNER_TEMP/gtfs-validation" \
             --country_code us --skip_validator_update > "$RUNNER_TEMP/gtfs-validator.log" 2>&1; then
             echo '::error::GTFS validator could not finish; check the report artifact if available, then retry.'
             exit 1
