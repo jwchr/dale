@@ -921,11 +921,10 @@ describe('raw collection through the bus Worker', () => {
       h.restart(); h.time(NOW + 15_000); await h.alarm();
       expect(bus(h, 'getVehiclePositions')).toBe(2); expect(h.alarmAt).toBe(NOW + 30_000);
     });
-    it('a late wake close to the next poll skips the halfway answer, runs no history work and leaves no alarm loop', async () => {
+    it('a late wake close to the next poll skips the halfway answer and leaves no alarm loop', async () => {
       const h = await service(true, false, true, null); await h.alarm();
-      const prune = vi.spyOn(h.feed().journal, 'pruneVerified');
       h.time(NOW + 28_500); await h.alarm();
-      expect(bus(h, 'getVehiclePositions')).toBe(1); expect(h.alarmAt).toBe(NOW + 30_000); expect(prune).not.toHaveBeenCalled();
+      expect(bus(h, 'getVehiclePositions')).toBe(1); expect(h.alarmAt).toBe(NOW + 30_000);
     });
     it('does nothing extra while raw saving is off', async () => {
       const h = await service(true, false, false, null); await h.alarm();

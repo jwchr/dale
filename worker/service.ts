@@ -221,9 +221,10 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
       // A halfway wake (no ride, the history run not yet due) only saves bus positions: no flush, prune or folds.
       const half = collecting && rideAt === null && this.midPositionsDue(clock());
-      // With no ride, a wake before the history run is due (a late halfway wake) runs no history work either
-      // (CodeRabbit on #327); arm only ever sets the history alarm at or after that due time.
-      const collect = !half && collecting && (rideAt === null ? !this.historyNotDue(clock()) : !this.journal || this.historyAt === null || this.historyAt <= clock());
+      // A halfway wake that arrives too late (within 2 seconds of the next poll) is not gated here: the journal's
+      // due time cannot gate history work, because at the storage limit it always reads an hour ahead, so the
+      // late wake runs one extra flush and prune pass and its poll waits for the pace (CodeRabbit on #327).
+      const collect = !half && collecting && (rideAt === null || !this.journal || this.historyAt === null || this.historyAt <= clock());
       try {
         if (half) {
           // With no ride the history time is recomputed from the journal, so a restart that read this
