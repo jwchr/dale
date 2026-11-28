@@ -256,7 +256,8 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
         ? riderReport(session, 'capacity', now, session.phase, event.level) : session;
     }
     case 'boarded':
-      return (session.phase === 'waiting' || session.phase === 'arrived') && now >= session.lastActionAt
+      // A rider who boarded but tapped late, after the feed showed the bus beyond their stop, can still say so (passed).
+      return (session.phase === 'waiting' || session.phase === 'arrived' || session.phase === 'passed') && now >= session.lastActionAt
         ? riderReport(session, 'boarded', now, 'onboard') : session;
     case 'left': {
       if ((session.phase !== 'waiting' && session.phase !== 'arrived') || now < session.lastActionAt) return session;

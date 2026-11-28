@@ -67,8 +67,14 @@ describe('anywhere and passed locks', () => {
     expect(reduceBusSession(s, { type: 'tick', now: NOW + 60_000 }).phase).toBe('passed');
     expect(reduceBusSession(s, { type: 'start_waiting', now: NOW }).phase).toBe('passed');
     expect(reduceBusSession(s, { type: 'arrived', now: NOW }).reports).toEqual([]);
-    expect(reduceBusSession(s, { type: 'boarded', now: NOW })).toBe(s);
+    expect(reduceBusSession(s, { type: 'boarded', now: NOW }).phase).toBe('onboard'); // a late "I boarded" tap still counts
     expect(tripUpdate(dataset(), s, 3, NOW).update.kind).toBe('planning');
+    // Like an unboarded viewing lock, a passed lock still records the bus's official arrival at the drop-off (bus evidence, not a boarding claim).
+    const atD = observe(s, 3, NOW + 60_000);
+    expect(atD.phase).toBe('passed');
+    const arrival = { tripInstanceId: dep.tripInstanceId, stopId: 'D', stopIndex: 3, destination: 'D', route: '165',
+      source: 'njt_stopped_at' as const, at: NOW + 60_000, recordedAt: NOW + 60_000, vehicleId: 'synthetic-vehicle' };
+    expect(reduceBusSession(atD, { type: 'destination_arrival', arrival, now: NOW + 60_000 }).destinationArrival).toEqual(arrival);
     // Selecting a stop supplies its scheduled departure, so its clock is never borrowed from B.
     const later = lockableTrips(dataset(), { stopId: 'C' }, NOW).find(d => d.tripInstanceId === dep.tripInstanceId)! as Departure;
     const waiting = reduceBusSession(s, { type: 'choose_stop', departure: later, now: NOW });
@@ -91,6 +97,9 @@ describe('anywhere and passed locks', () => {
     expect(observe(waiting, 99).phase).toBe('waiting');
     expect(observe(waiting, 2, NOW, 'official', 'overnight@20261104').phase).toBe('waiting');
     expect(observe(waiting, 2).phase).toBe('passed');
+    const late = reduceBusSession(observe(waiting, 2), { type: 'boarded', now: NOW });
+    expect(late.phase).toBe('onboard');
+    expect(late.departure.stopIndex).toBe(1);
     const onboard = reduceBusSession(waiting, { type: 'boarded', now: NOW });
     expect(observe(onboard, 2).phase).toBe('onboard');
   });
