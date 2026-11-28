@@ -160,7 +160,7 @@ describe('published Port Authority gates', () => {
     expect(at('T', 3, 0, 'weekday')).toBeUndefined();
   });
   it('is a last resort: a posted or learned gate wins, and with no rule the answer stays unknown', () => {
-    const posted = [{ tripInstanceId: 'X@20261104', gate: '218', observedAt: 1, source: 'demo' as const }];
+    const posted = [{ tripInstanceId: 'X@20261104', boardingIndex: 0, ageMs: 0, gate: '218', observedAt: 1, source: 'demo' as const }];
     expect(gateFor('X@20261104', 'p', 1020, 'weekday', posted, [], g, 'P')).toMatchObject({ status: 'posted', gate: '218' });
     expect(gateFor('Y@20261104', 'p', 1020, 'weekday', [], [], g, 'P')).toMatchObject({ status: 'published', gate: '311', effective: '20250315' });
     expect(gateFor('Y@20261104', 'p', 1020, 'weekday', [], [], g, 'FP')).toEqual({ status: 'unknown' });

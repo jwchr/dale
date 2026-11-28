@@ -4,6 +4,7 @@ import type { Dataset } from '../src/domain/types';
 import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
 import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
+import { GateCollector } from './gate-collector';
 import { NJT_REQUEST_LIMIT, reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
 import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
@@ -30,9 +31,9 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; BUSDV_RAW?: string; TRAFFIC_RAW?: string; WEATHER_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { LIVE_GATES?: string; RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; BUSDV_RAW?: string; TRAFFIC_RAW?: string; WEATHER_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState;
+interface Saved { gateBudget?: RequestBudget; busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState;
   /** Private: holds BUSDV2's own token. Never exposed by any endpoint. */
   busDv?: BusDvState; traffic?: TrafficState; weather?: WeatherState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; authMints?: number[]; pollAt: number; historyAt?: number;
   /** The poll whose extra halfway bus positions answer was already tried (Jeff, Nov 27, 2026: "Yes, every 15 s"). */
@@ -58,6 +59,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
   return class Feed {
     private saved: Saved = { transportVersion: 2, feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
     private pending?: Promise<void>;
+    private gates!: GateCollector;
+    private budgetPending: Promise<unknown> = Promise.resolve();
     /** The halfway positions work in flight; a regular poll's archive capture waits for it (Codex and CodeRabbit on #327). */
     private midWork?: Promise<void>;
     private ready: Promise<void>;
@@ -105,6 +108,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           if (stored.transportVersion === undefined && !stored.token && stored.failures?.authentication?.code === 'network-error') this.saved.authAt = 0;
           if (stored.transportVersion !== 2) await ctx.storage.put('state-v1', this.saved);
         }
+        this.gates = new GateCollector(ds, ctx.storage, env, (count) => this.reserveGate(count), fetchImpl, clock, () => this.gateWrites(3, clock()));
+        await this.gates.load();
         if (ctx.storage.sql && ctx.storage.transactionSync && ctx.storage.getAlarm && ctx.storage.setAlarm && ctx.storage.deleteAlarm) {
           // Locked-phone stop alerts (#176 step C) keep their short-lived rides in the same SQLite storage.
           try { this.rides = new RideAlerts(ctx.storage as HistoryStorage, ds, { snapshot: (...a) => this.snapshot(...a), arm: (changed) => this.arm(changed) }, clock, fetchImpl); }
@@ -144,8 +149,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             }
             if (env.HISTORY_COLLECTION === 'enabled') {
               // A halfway bus positions alarm is not the history time, so a ride starting after a restart cannot
-              // run history 15 seconds early (Neon Nov27 b).
-              const alarm = this.rideWake() === null ? await ctx.storage.getAlarm() : null;
+              // run history 15 seconds early (Neon Nov27 b). With gates on, the alarm may be a gate alarm, so the
+              // history time comes from the journal (arm below sets it).
+              const alarm = this.rideWake() === null && env.LIVE_GATES !== 'enabled' ? await ctx.storage.getAlarm() : null;
               this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null : alarm !== null && alarm === this.midPositionsAt(clock()) ? null : alarm;
             }
             // With collection off, an alarm runs only while a ride needs checking.
@@ -154,6 +160,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             } else await this.arm();
           } catch { this.collectionError = true; }
         } else if (env.HISTORY_COLLECTION === 'enabled') this.collectionError = true;
+        if (env.LIVE_GATES === 'enabled') await this.arm();
       });
     }
     /** When rides next need the alarm: the global poll pace while one is active; null with no ride. */
@@ -180,7 +187,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       const collecting = !!this.journal && this.env.HISTORY_COLLECTION === 'enabled', rideAt = this.rideWake();
       if (!this.ctx.storage.getAlarm || !this.ctx.storage.setAlarm) return;
       // Collection off and no ride: no alarm, so nothing polls NJ Transit in the background.
-      if (!collecting && rideAt === null) {
+      if (!collecting && rideAt === null && this.env.LIVE_GATES !== 'enabled') {
         if (ridesChanged && this.ctx.storage.deleteAlarm && await this.ctx.storage.getAlarm() !== null) await this.ctx.storage.deleteAlarm();
         return;
       }
@@ -192,6 +199,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // With no ride, the extra halfway bus positions answer wakes the alarm first; a ride keeps the 30-second pace.
       const mid = rideAt === null && next !== null ? this.midPositionsAt(clock()) : null;
       if (mid !== null && next !== null && mid < next) next = mid;
+      if (this.env.LIVE_GATES === 'enabled') next = next === null ? clock() + 60_000 : Math.min(next, clock() + 60_000);
       if (next !== null) {
         const desired = Math.max(clock() + 1000, next), existing = await this.ctx.storage.getAlarm();
         // Moved later only when rides changed, so an ended ride leaves no early alarm behind.
@@ -220,7 +228,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     async alarm(): Promise<void> {
       await this.ready;
       const collecting = this.env.HISTORY_COLLECTION === 'enabled', rideAt = this.rideWake();
-      if (!collecting && rideAt === null) return;
+      if (!collecting && rideAt === null && this.env.LIVE_GATES !== 'enabled') return;
       // History runs (collection, archive flush, prune) only at their own due time, exactly as with no ride:
       // an alarm that fired for a ride leaves them alone, and a ride never makes them later. With no ride the
       // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
@@ -229,7 +237,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // A halfway wake that arrives too late (within 2 seconds of the next poll) is not gated here: the journal's
       // due time cannot gate history work, because at the storage limit it always reads an hour ahead, so the
       // late wake runs one extra flush and prune pass and its poll waits for the pace (CodeRabbit on #327).
-      const collect = !half && collecting && (rideAt === null || !this.journal || this.historyAt === null || this.historyAt <= clock());
+      // With gates on, the alarm also fires every minute for gates, so history waits for its own time (Neon review #296).
+      const onlyHistory = rideAt === null && this.env.LIVE_GATES !== 'enabled';
+      const collect = !half && collecting && (onlyHistory || !this.journal || this.historyAt === null || this.historyAt <= clock());
+      // Gates run beside history, so a slow DepartureVision board never delays a history poll; gate failures
+      // never interrupt the G2 collector or archive. Reads never invoke this.
+      const gatesRun = this.gates.poll().catch(() => { /* the next paced alarm retries */ });
       try {
         if (half) {
           // With no ride the history time is recomputed from the journal, so a restart that read this
@@ -251,17 +264,20 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         }
       }
       finally {
-        // Ride checks never throw into collection; they piggyback on the poll above when it ran. The next
-        // history run is fixed first, so the time a ride's pushes take never moves it, and the rides stop
-        // starting new checks once it is due (the rest are checked first at the next alarm).
-        if (rideAt !== null) {
-          let deadline: number | null = null;
-          try { deadline = await this.planHistory(rideAt); } catch { /* arm below retries and throws if storage is failing */ }
-          await this.watchRides(deadline);
-        }
-        // Normal feed failures are persisted gaps. Unexpected storage/alarm errors
-        // still throw so the platform's bounded retries remain available.
-        await this.arm(rideAt !== null);
+        try {
+          // Ride checks never throw into collection; they piggyback on the poll above when it ran. The next
+          // history run is fixed first, so the time a ride's pushes take never moves it, and the rides stop
+          // starting new checks once it is due (the rest are checked first at the next alarm).
+          if (rideAt !== null) {
+            let deadline: number | null = null;
+            try { deadline = await this.planHistory(rideAt); } catch { /* arm below retries and throws if storage is failing */ }
+            await this.watchRides(deadline);
+          }
+          // Normal feed failures are persisted gaps. Unexpected storage/alarm errors
+          // still throw so the platform's bounded retries remain available.
+          await this.arm(rideAt !== null);
+          // Gates are awaited last, so a slow board never delays ride alerts or the next alarm (CodeRabbit #296).
+        } finally { await gatesRun; }
       }
     }
     private async watchRides(deadline: number | null) {
@@ -311,6 +327,42 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         ...(update?.cancelled ? { cancelledAt: update.observedAt } : {}),
         predictions: update?.predictions ?? [], skippedStops: update?.skippedStops ?? [],
       };
+    }
+    /** alarmAt is the history alarm: with collection off an alarm never runs history (gates or rides only), so
+     * the stop and restore checks still prove no history alarm remains (CodeRabbit #296). wakeAt is the raw alarm. */
+    private async alarms() {
+      const wakeAt = await this.ctx.storage.getAlarm?.() ?? null;
+      return { alarmAt: this.env.HISTORY_COLLECTION === 'enabled' ? wakeAt : null, wakeAt };
+    }
+    private gateWrites(units: number, now: number): boolean {
+      return !this.journal || (this.env.HISTORY_COLLECTION === 'enabled'
+        ? this.journal.reserveSpareWrites(units, now) : this.journal.reserveReadWrites(units, now));
+    }
+    /** Gate requests share BUSDV2's own rolling 40,000 a day with the BUSDV2 board sampler (busdv-archive.ts, at most
+     * 30,000 of it), plus the gates' own 6,500 cap; bus GTFS-RT keeps its separate 40,000. Serialized and persisted
+     * before any gate I/O. */
+    private reserveGate(count: number): Promise<boolean> {
+      const work = this.budgetPending.then(async () => {
+        // The time is read in turn, so a caller that waited behind another never looks like a backwards clock (Neon review #296).
+        const now = clock();
+        const dv = structuredClone(this.saved.busDv?.budget ?? { hours: {} });
+        const gate = structuredClone(this.saved.gateBudget ?? { hours: {} });
+        const combined: RequestBudget = { hours: {}, lastAt: Math.max(dv.lastAt ?? 0, gate.lastAt ?? 0) };
+        for (const b of [dv, gate]) for (const [hour, used] of Object.entries(b.hours)) combined.hours[hour] = (combined.hours[hour] ?? 0) + used;
+        if (!reserveRequests(combined, count, now) || !reserveRequests(gate, count, now, 6500)) return false;
+        if (!this.gateWrites(3, now)) throw new NjtError('sql-write-budget');
+        // Memory changes before the write, so any other state-v1 save that starts meanwhile carries these requests too; a failed
+        // write puts the old budget back, so it never spends requests later (Neon reviews #296, Nov26 b P3 and Nov26 c P2).
+        const before = this.saved.gateBudget;
+        this.saved.gateBudget = gate;
+        try { await this.ctx.storage.put('state-v1', this.saved); }
+        catch (error) {
+          if (this.saved.gateBudget === gate) this.saved.gateBudget = before;
+          throw error;
+        }
+        return true;
+      });
+      this.budgetPending = work.catch(() => {}); return work;
     }
     /** When the extra halfway bus positions answer is due, or null when there is none for the latest poll. */
     private midPositionsAt(now: number): number | null {
@@ -536,13 +588,19 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         if (this.rides) return this.rides.handle(request, this.env);
         return Response.json({ v: 1, available: false }, { status: url.pathname === '/v1/ride-alerts/config' ? 200 : 503, headers: { 'cache-control': 'no-store' } });
       }
+      if (url.pathname === '/v1/gates') {
+        const headers = { 'cache-control': 'no-store' };
+        if (request.method !== 'GET') return Response.json({ error: 'invalid-method' }, { status: 405, headers });
+        if (url.search) return Response.json({ error: 'invalid-query' }, { status: 400, headers });
+        return Response.json(this.gates.answer(), { headers });
+      }
       // Health reads never create evidence or trigger a demand refresh.
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          ...await this.alarms(), rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
-        return Response.json({ v: 1, collection, rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
+        return Response.json({ v: 1, collection, gates: this.gates.health(), rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
       if (url.pathname === '/v1/earlier-buses') {
         if (this.env.EARLIER_BUSES !== 'public') return new Response('Not found', { status: 404 });
@@ -580,7 +638,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            alarmAt: await this.ctx.storage.getAlarm?.() ?? null, rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            ...await this.alarms(), rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };
@@ -722,7 +780,8 @@ export function createRouter(ds: Dataset, rawGeometry?: unknown, rawRescue?: unk
           return reply(await response.text(), response.status);
         } catch { return reply('Arrival confidence unavailable', 503); }
       }
-      if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection', '/v1/rail'].includes(url.pathname)) return reply('Not found', 404);
+      if (!['/v1/live', '/v1/status', '/v1/departures', '/v1/collection', '/v1/rail', '/v1/gates'].includes(url.pathname)) return reply('Not found', 404);
+      if (url.pathname === '/v1/gates' && url.search) return reply('Invalid gates query', 400);
       if (url.pathname === '/v1/rail') {
         const station = url.searchParams.get('station');
         if (!station || !Object.hasOwn(RAIL_STATIONS, station) || [...url.searchParams.keys()].length !== 1) return reply('Invalid station', 400);

@@ -244,9 +244,9 @@ describe('gates', () => {
   });
   it('prefers the newest posting for the exact trip, then a well-supported usual gate, else unknown', () => {
     const postings = [
-      { tripInstanceId: 'A@1', gate: '212', observedAt: 1, source: 'demo' as const },
-      { tripInstanceId: 'A@1', gate: '215', door: '1', observedAt: 2, source: 'demo' as const },
-      { tripInstanceId: 'B@1', gate: '999', observedAt: 3, source: 'demo' as const },
+      { tripInstanceId: 'A@1', boardingIndex: 0, ageMs: 0, gate: '212', observedAt: 1, source: 'demo' as const },
+      { tripInstanceId: 'A@1', boardingIndex: 0, ageMs: 0, gate: '215', door: '1', observedAt: 2, source: 'demo' as const },
+      { tripInstanceId: 'B@1', boardingIndex: 0, ageMs: 0, gate: '999', observedAt: 3, source: 'demo' as const },
     ];
     expect(gateFor('A@1', 'L1', 600, 'weekday', postings, demoUsualGates)).toMatchObject({ status: 'posted', gate: '215', door: '1' });
     expect(gateFor('C@1', 'L1', 600, 'weekday', postings, demoUsualGates)).toMatchObject({ status: 'usual', gate: '212' });

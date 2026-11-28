@@ -58,7 +58,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:uploaded&&scenario==='namespace-change'?'changed':'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'},{name:'RAILDATA_RAW',type:'plain_text',text:'enabled'},{name:'BUSDV_RAW',type:'plain_text',text:'enabled'},{name:'TRAFFIC_RAW',type:'plain_text',text:'enabled'},{name:'WEATHER_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[])];
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'LIVE_GATES',type:'plain_text',text:scenario==='gates-mismatch'?'off':'enabled'},{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'},{name:'RAILDATA_RAW',type:'plain_text',text:'enabled'},{name:'BUSDV_RAW',type:'plain_text',text:'enabled'},{name:'TRAFFIC_RAW',type:'plain_text',text:'enabled'},{name:'WEATHER_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[])];
       let result;
       if(path==='/deployments')result={deployments:[{versions:[{version_id:id,percentage:100}]}]};
       else if(path==='/versions')result={items:[{id}]};
@@ -97,7 +97,7 @@ it.each(['ok', 'slow-ack', 'late-valid', 'raw-already-on', 'guard-500'])('actual
   expect(r.stdout).toContain('Existing enabled collector preserved'); expect(r.stdout).toContain('not proof of zero interruption');
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError/);
 });
-it.each(['wrong-version', 'local-context-change', 'disabled', 'quota', 'served-context-change', 'archive-regression', 'namespace-change', 'no-native-progress', 'early-only', 'old-actor-late-receipt', 'raw-off', 'raw-before-bad', 'guard-20'])('actual native preservation refuses %s without any stop/activation/automatic rollback or secret leak', scenario => {
+it.each(['wrong-version', 'local-context-change', 'disabled', 'quota', 'served-context-change', 'archive-regression', 'namespace-change', 'no-native-progress', 'early-only', 'old-actor-late-receipt', 'raw-off', 'raw-before-bad', 'guard-20','gates-mismatch'])('actual native preservation refuses %s without any stop/activation/automatic rollback or secret leak', scenario => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status).toBe(1);
   expect(r.stdout).not.toContain('Existing enabled collector preserved');
   expect(r.stdout + r.stderr).not.toMatch(/PRIVATE_SENTINEL|FORBIDDEN|AssertionError|https:/);

@@ -1,5 +1,10 @@
 # Live Port Authority gates: GATE-01/03
 
+## Slice 1 built (November 26, 2026)
+
+Implemented in the Worker and app, waiting on independent review and deploy. `LIVE_GATES` is `enabled` in this slice (Jeff, Nov 26, 2026: "let's get the gate data into the app asap"); the first deploy's `/v1/gates` diagnostics check the unknowns below. Direction is sent empty because valid API direction values are not checked; outbound canonical candidates are identified by PABT origin and a non-PABT destination, since GTFS direction IDs vary by route. The public posting contains the task's minimal fields and served `ageMs`, without the plan's redundant timestamps. Swagger confirms `DVResponse.DVTrip`; a real response envelope remains not checked. Also not checked: actual schedule-text/timezone encoding, full timing-point allowlist, variant mapping, and live gate/door semantics. No live agency calls or activation were performed. Test evidence is in the pull request.
+
+
 Docs-only proposal, November 23, 2026. No implementation or activation authorized here.
 Required first slice: an exact departure's fresh posted gate and door, or an honest fallback.
 Later slices: locked-ride gate-change notices and learned usual gates. Neither is done by slice 1.

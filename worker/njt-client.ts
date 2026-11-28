@@ -1,5 +1,5 @@
 // Used by the private Worker and its deployment-time static-feed builder. Fixed official host only.
-export type NjtEndpoint = 'authenticateUser' | 'getToken' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts';
+export type NjtEndpoint = 'authenticateUser' | 'getToken' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'getBusDV';
 export const RAW_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
 export interface Credentials { NJT_API_USERNAME: string; NJT_API_PASSWORD: string }
 export class NjtError extends Error {
@@ -11,12 +11,13 @@ const SAFE_FAILURES = new Set(['configuration-missing', 'authentication-cooldown
 export function safeNjtFailure(error: unknown): string {
   return error instanceof NjtError && SAFE_FAILURES.has(error.code) ? error.code : 'unknown-error';
 }
-export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, string>, maxBytes: number, fetchImpl: typeof fetch = fetch, timeoutMs = 15_000, api: 'bus' | 'rail-gtfsrt' = 'bus'): Promise<Uint8Array<ArrayBuffer>> {
+export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, string>, maxBytes: number, fetchImpl: typeof fetch = fetch, timeoutMs = 15_000, api: 'bus' | 'bus-dv' | 'rail-gtfsrt' = 'bus'): Promise<Uint8Array<ArrayBuffer>> {
+  if (endpoint === 'getBusDV') maxBytes = Math.min(maxBytes, 256 * 1024);
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const body = new FormData();
     for (const [key, value] of Object.entries(fields)) body.set(key, value);
-    const base = api === 'rail-gtfsrt' ? 'https://raildata.njtransit.com/api/GTFSRT' : 'https://pcsdata.njtransit.com/api/GTFSG2';
+    const base = api === 'rail-gtfsrt' ? 'https://raildata.njtransit.com/api/GTFSRT' : api === 'bus-dv' ? 'https://pcsdata.njtransit.com/api/BUSDV2' : 'https://pcsdata.njtransit.com/api/GTFSG2';
     const response = await fetchImpl(`${base}/${endpoint}`, {
       method: 'POST', body, redirect: 'manual', cache: 'no-store', signal: ctl.signal,
     });
@@ -41,9 +42,9 @@ export async function njtRequest(endpoint: NjtEndpoint, fields: Record<string, s
     throw new NjtError(ctl.signal.aborted ? 'timed-out' : 'network-error');
   } finally { clearTimeout(timer); ctl.abort(); }
 }
-export async function authenticate(env: Credentials, fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function authenticate(env: Credentials, fetchImpl: typeof fetch = fetch, api: 'bus' | 'bus-dv' = 'bus'): Promise<string> {
   if (!env.NJT_API_USERNAME?.trim() || !env.NJT_API_PASSWORD?.trim()) throw new NjtError('configuration-missing');
-  const bytes = await njtRequest('authenticateUser', { username: env.NJT_API_USERNAME, password: env.NJT_API_PASSWORD }, 16_384, fetchImpl);
+  const bytes = await njtRequest('authenticateUser', { username: env.NJT_API_USERNAME, password: env.NJT_API_PASSWORD }, 16_384, fetchImpl, 15_000, api);
   try {
     const value = JSON.parse(new TextDecoder().decode(bytes));
     if (value?.Authenticated !== true && String(value?.Authenticated).toLowerCase() !== 'true') throw new NjtError('access-denied');
@@ -51,3 +52,5 @@ export async function authenticate(env: Credentials, fetchImpl: typeof fetch = f
     return value.UserToken;
   } catch (error) { throw error instanceof NjtError ? error : new NjtError('invalid-response'); }
 }
+
+export const authenticateBusDv = (env: Credentials, fetchImpl: typeof fetch = fetch) => authenticate(env, fetchImpl, 'bus-dv');
