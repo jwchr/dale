@@ -54,7 +54,10 @@ export function createNormalizer(ds: Dataset) {
           if (feedRoutes.has(report.trip.routeId ?? '')) diagnostics.corridorRoutes++;
           if (trips.has(report.trip.tripId ?? '')) {
             diagnostics.knownTrips++;
-            if (!report.trip.startDate && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, skewed(seconds(report.timestamp), now)) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
+            const reportedAt = skewed(seconds(report.timestamp), now);
+            // A timestamped report too old to count as live says nothing about today's trip, so it never hides fresh GPS as date-unknown (CodeRabbit, #323).
+            const stale = reportedAt !== undefined && now - reportedAt > LIVE_MAX_AGE_MS;
+            if (!report.trip.startDate && !stale && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, reportedAt) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
             if (!report.trip.startDate) diagnostics.missingServiceDates++;
             if (!seconds(report.timestamp)) diagnostics.missingObservationTimes++;
           }

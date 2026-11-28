@@ -15,7 +15,7 @@ const MAX_BATCH_BYTES = 128_000, MAX_JOURNAL_BYTES = 250_000_000, MAX_DATABASE_B
 // a month). Writes this counter does not see (alarms, small state saves) also count toward the account. Statewide raw saving gets its own share of each interval, RAW_LANE, which
 // other optional work must leave free (Jeff, Nov 26, 2026, P0: "Nothing is more important than getting this data
 // saved"; raw saving had been squeezed out of the 75,000 cap from about 8:50 AM ET).
-const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6;
+const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6, ARCHIVE_PASS_WRITES = 8 + 8 + 2;
 export const HISTORY_HOT_MS = 6 * 3600_000;
 export interface ArchiveReceipt { key: string; manifestKey: string; rawSHA256: string; gzipSHA256: string; rawBytes: number; gzipBytes: number; contextManifestKey?: string }
 export async function historyContextKey(ds: Dataset) {
@@ -292,12 +292,14 @@ export class HistoryJournal {
       state.reservedWrites += units; this.write(state); return true;
     });
   }
-  canCatchUpArchive(now: number) {
+  canCatchUpArchive(now: number, passWrites = ARCHIVE_PASS_WRITES) {
     const state = this.read(now), used = state.budgetDay === day(now) ? state.reservedWrites : 0;
     const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
     // Keep the rest of today's normal collection/archive/prune reservations, and raw saving's own lane,
     // ahead of optional backlog catch-up work (CodeRabbit, #324: the same reserve the catch-up step itself uses).
-    return DAILY_WRITE_BUDGET - used >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
+    // The whole catch-up pass (a schedule context and a batch, 8 writes each, plus a 2-write failure record)
+    // must fit above that reserve, not just start above it (CodeRabbit, #323).
+    return DAILY_WRITE_BUDGET - used - passWrites >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
   }
   storageWritesRemaining(now: number) {
     const state = this.read(now);

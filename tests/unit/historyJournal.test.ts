@@ -83,8 +83,10 @@ describe('private SQLite history journal', () => {
       state.budgetDay = new Date(NOW).toISOString().slice(0, 10); state.reservedWrites = 1_000_000 - left;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     };
-    set(intervals * 30 + 16); expect(h.journal.canCatchUpArchive(NOW)).toBe(true);
-    set(intervals * 30 + 15); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
+    // The whole pass (schedule context 8 + batch 8 + failure record 2) must fit above the reserve (CodeRabbit, #323).
+    set(intervals * 30 + 16 + 18); expect(h.journal.canCatchUpArchive(NOW)).toBe(true);
+    set(intervals * 30 + 16 + 17); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
+    set(intervals * 30 + 16); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
     set(intervals * 24 + 16); expect(h.journal.canCatchUpArchive(NOW)).toBe(false);
   });
   it('fails closed on oversized evidence without advancing its dedupe checkpoint', () => {

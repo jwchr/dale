@@ -91,12 +91,15 @@ describe('exact stop-specific upcoming arrivals', () => {
     expect(departureEvidence(duplicates, duplicates.items[0], NOW).kind).toBe('ambiguous');
   });
   it('explains an actually observed unresolved trip date without inferring today', () => {
-    // 2:20 AM: outside every active day's window for the 7:00 AM trip, so no date fits.
-    const v = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { tripId: 'T1', routeId: '10' }, timestamp: NOW / 1000 - 5 * 3600 }) }]), 'vehicles', NOW);
+    // A fresh report at 2:20 AM: outside every active day's window for the 7:00 AM trip, so no date fits.
+    const early = NOW - 5 * 3600_000 + 5_000;
+    const v = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { tripId: 'T1', routeId: '10' }, timestamp: NOW / 1000 - 5 * 3600 }) }], { timestamp: NOW / 1000 - 5 * 3600 }), 'vehicles', early);
     expect(v.observations).toEqual([]);
     expect(v.unresolvedDateTrips).toEqual(['T1']);
     const u = { ...updates(), updates: [] }, b = { ...batch(), items: summarizeDepartures(ds,[q], v, u, NOW) };
     expect(departureEvidence(b, b.items[0], NOW).kind).toBe('date-unknown');
+    // The same report read five hours later is too old to be live, so it no longer hides the trip as date-unknown (CodeRabbit, #323).
+    expect(normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: { tripId: 'T1', routeId: '10' }, timestamp: NOW / 1000 - 5 * 3600 }) }]), 'vehicles', NOW).unresolvedDateTrips).toEqual([]);
   });
   it('rejects incompatible/malformed/misbound response fields before rendering', () => {
     const b = batch();
