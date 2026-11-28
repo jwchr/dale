@@ -283,13 +283,15 @@ export class BusDvArchive {
       Math.floor(credit), remaining - mandatory);
     const cursor = s.cursor % locations.length;
     for (let n = 0; n < boardCount; n++) requests.push({ method: 'getBusDV', stop: locations[(cursor + n) % locations.length]! });
-    // One route 165 stop list a poll, at most four an hour, only in room left after vehicles, daily calls and boards.
+    // One route 165 stop list a poll, at most four an hour, only in room left after vehicles, daily calls and boards,
+    // both this poll's and the ones reserved until the budget horizon (Neon Nov28 d).
     const trips = s.trips ??= { queue: [], seen: {} };
     trips.queue = trips.queue.filter(q => q.at <= now && now - q.at < TRIP_QUEUE_MS);
     for (const [key, at] of Object.entries(trips.seen)) if (!(at <= now && now - at < DAY)) delete trips.seen[key];
     if (trips.hour !== hour) { trips.hour = hour; trips.count = 0; }
     const trip = trips.queue[0];
-    if (trip && (trips.count ?? 0) < TRIP_STOPS_PER_HOUR && remaining - mandatory - boardCount >= 1) {
+    if (trip && (trips.count ?? 0) < TRIP_STOPS_PER_HOUR && remaining - mandatory - boardCount >= 1
+      && remaining - futureVehicles - futureDaily - 3 - boardCount >= 1) {
       requests.push({ method: 'getTripStops', trip: { timing_point_id: trip.timing_point_id,
         sched_dep_time: trip.sched_dep_time, internal_trip_number: trip.internal_trip_number } });
     }

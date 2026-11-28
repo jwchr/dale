@@ -578,5 +578,14 @@ describe('BUSDV2 private raw archive', () => {
       expect(asked(h)).toEqual([]);
       expect(h.state.trips!.queue).toHaveLength(1);
     });
+    it('sends no stop list ask that would take a call reserved for later vehicle polls (Neon Nov28 d)', async () => {
+      const h = board([trip(1)]);
+      result(await h.run());
+      h.time(NOW + HISTORY_INTERVAL_MS);
+      h.state.budget.hours[Math.floor(NOW / HOUR)] = BUSDV_REQUEST_LIMIT - 8 - (h.state.token ? 0 : 1);
+      result(await h.run());
+      expect(asked(h)).toEqual([]);
+      expect(h.state.trips!.queue).toHaveLength(1);
+    });
   });
 });
