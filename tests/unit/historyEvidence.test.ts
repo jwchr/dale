@@ -20,6 +20,8 @@ describe('private history evidence selection', () => {
     const first = select(feedAt(NOW), NOW);
     expect(first.records.map(r => r.observation.observedAt)).toEqual([NOW]);
     expect(first.early).toBe(1);
+    // NJ Transit's own time stays on the saved record, so a reader can tell it from the clock time (CodeRabbit #323).
+    expect(first.records[0]!.observation.sourceAt).toBe(NOW + 25_000);
     const second = select(feedAt(NOW + 15_000), NOW + 15_000, JSON.parse(JSON.stringify(first.watermarks)));
     // Counted only when saved: a report seen before is not early again (Neon Nov27 b).
     expect(second).toMatchObject({ records: [], duplicates: 1, conflicts: 0, early: 0 });

@@ -64,7 +64,9 @@ export function createHistorySelector(ds: Dataset) {
         result.rejected++; continue;
       }
       // Copy only normalized bus fields, never arbitrary feed extensions or credentials.
-      const observation: VehicleObservation = { tripInstanceId: point.tripInstanceId, vehicleId: point.vehicleId, observedAt: point.observedAt, lat: point.lat, lon: point.lon };
+      const observation: VehicleObservation = { tripInstanceId: point.tripInstanceId, vehicleId: point.vehicleId, observedAt: point.observedAt, lat: point.lat, lon: point.lon,
+        // NJ Transit's own time is kept next to the clock time, so an early report stays traceable (CodeRabbit #323).
+        ...(point.sourceAt !== undefined ? { sourceAt: point.sourceAt } : {}) };
       if (point.stopCall) {
         const call = point.stopCall;
         if (call.status !== 'stopped_at' || !Number.isSafeInteger(call.stopIndex) || call.stopIndex < 0
@@ -75,7 +77,10 @@ export function createHistorySelector(ds: Dataset) {
       }
       const key = JSON.stringify([ds.meta.feedVersion, point.tripInstanceId, point.vehicleId]);
       // Compared by NJ Transit's own time, so the moving clock time of an early report never reads as a change.
-      const fingerprint = JSON.stringify({ ...observation, observedAt: sourceAt }), saved = watermarks[key];
+      // Without the kept NJ Transit time, so the same report matches before and after it stops being early,
+      // and checkpoints saved before that time was kept still match.
+      const { sourceAt: _kept, ...compared } = observation;
+      const fingerprint = JSON.stringify({ ...compared, observedAt: sourceAt }), saved = watermarks[key];
       if (saved && sourceAt <= saved.observedAt) {
         if (sourceAt === saved.observedAt && fingerprint !== saved.fingerprint) result.conflicts++;
         else if (sourceAt < saved.observedAt) result.outOfOrder++;

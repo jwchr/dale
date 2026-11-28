@@ -159,3 +159,22 @@ it('keeps the phone mark when the bus fix is already further along', () => {
     { index: 2, at: now, source: 'bus_gps' },
   ] });
 });
+
+it('names the tapped stop, not a newer expired GPS stop, beside the tap time (CodeRabbit #323)', () => {
+  const ds = structuredClone(liveDataset);
+  ds.stops = ['A', 'B', 'C', 'D'].map((id, i) => ({ id, name: `Stop ${id}`, lat: 40.8 + i * .01, lon: -74 }));
+  ds.patterns = [{ ...ds.patterns[0]!, stopIds: ['A', 'B', 'C', 'D'] }];
+  ds.trips = [{ ...ds.trips[0]!, patternId: ds.patterns[0]!.id, times: [30000, 30600, 31200, 31800] }];
+  const dep = departuresOn(ds, { stopId: 'A', date: '20261104' })[0]!;
+  const now = dep.departs + 1200_000;
+  const session = createBusSession(dep, now, 'tap-label-expired-gps');
+  // The tap is 10 minutes old (still used); the bus mark at the next stop is 5 minutes old (past its 2-minute limit).
+  hooks.states[0] = { milestones: [
+    { index: 1, at: now - 600_000, source: 'tap' },
+    { index: 2, at: now - 300_000, source: 'bus_gps' },
+  ], follow: true };
+  hooks.stateIndex = 0;
+  const view = text(StripMap({ ds, session, alightIndex: 3, now, t: strings.en, lang: 'en' }));
+  expect(view).toContain('From your tap at Stop B,');
+  expect(view).not.toContain('From your tap at Stop C,');
+});
