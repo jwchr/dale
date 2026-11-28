@@ -58,6 +58,8 @@ export function createHistorySelector(ds: Dataset) {
       if (!trip || !pattern || !route || !allowed.has(route.shortName) || !validServiceDate(serviceDate)
         || !isServiceActive(ds.calendars[trip.serviceId], serviceDate) || !validVehicleId(point.vehicleId)
         || !Number.isSafeInteger(point.observedAt) || point.observedAt <= 0 || point.observedAt > receivedAt || receivedAt - point.observedAt > LIVE_MAX_AGE_MS
+        // NJ Transit's own time is kept only when it is a whole number just ahead of the clock time (Neon Nov27 c).
+        || (point.sourceAt !== undefined && (!Number.isSafeInteger(point.sourceAt) || point.sourceAt <= point.observedAt || point.sourceAt > receivedAt + CLOCK_SKEW_MS))
         || !Number.isFinite(point.lat) || !Number.isFinite(point.lon) || Math.abs(point.lat!) > 90 || Math.abs(point.lon!) > 180) {
         result.rejected++; continue;
       }

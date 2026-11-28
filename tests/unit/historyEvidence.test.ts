@@ -83,6 +83,13 @@ describe('private history evidence selection', () => {
       const result = select(feed, NOW); expect(result.records).toEqual([]); expect(result.rejected).toBe(1);
     }
   });
+  it('rejects a report whose NJ Transit time is broken, not ahead of its clock time, or too far ahead (Neon Nov27 c)', () => {
+    for (const sourceAt of [NOW + 0.5, NOW - 1000, NOW + 31_000]) {
+      const feed = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 }), 'vehicles', NOW);
+      feed.observations[0]!.sourceAt = sourceAt;
+      expect(select(feed, NOW)).toMatchObject({ records: [], rejected: 1 });
+    }
+  });
   it('rejects conflicting same-time bus positions rather than selecting whichever is last', () => {
     const feed = sample(); feed.observations.push({ ...feed.observations[0]!, lat: 40.5 });
     const result = select(feed, NOW); expect(result.records).toEqual([]); expect(result.conflicts).toBe(1);
