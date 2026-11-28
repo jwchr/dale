@@ -21,8 +21,18 @@ describe('private history evidence selection', () => {
     expect(first.records.map(r => r.observation.observedAt)).toEqual([NOW]);
     expect(first.early).toBe(1);
     const second = select(feedAt(NOW + 15_000), NOW + 15_000, JSON.parse(JSON.stringify(first.watermarks)));
-    expect(second).toMatchObject({ records: [], duplicates: 1, conflicts: 0 });
+    // Counted only when saved: a report seen before is not early again (Neon Nov27 b).
+    expect(second).toMatchObject({ records: [], duplicates: 1, conflicts: 0, early: 0 });
     expect(select(feedAt(NOW + 30_000), NOW + 30_000, second.watermarks)).toMatchObject({ records: [], duplicates: 1, conflicts: 0 });
+  });
+  it('saves two reports from one poll in NJ Transit time order, so the early one is not saved again (Neon Nov27 b)', () => {
+    const feed = normalize(binaryFeed([{ id: 'early', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }, { id: 'now', vehicle: vehicle({ timestamp: NOW / 1000 }) }],
+      { timestamp: NOW / 1000 }), 'vehicles', NOW);
+    const first = select(feed, NOW);
+    expect(first.records).toHaveLength(2); expect(first.early).toBe(1);
+    expect(Object.values(first.watermarks).map(mark => mark.observedAt)).toEqual([NOW + 25_000]);
+    const again = normalize(binaryFeed([{ id: 'early', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 + 15 }), 'vehicles', NOW + 15_000);
+    expect(select(again, NOW + 15_000, first.watermarks)).toMatchObject({ records: [], duplicates: 1 });
   });
   it('keeps every report from a bus whose clock runs steadily ahead (Neon Nov27 a)', () => {
     // NJ Transit stamps each new position 20 seconds ahead of the Worker, and the bus moves on every 15 seconds.

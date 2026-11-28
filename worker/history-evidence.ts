@@ -45,14 +45,13 @@ export function createHistorySelector(ds: Dataset) {
       || !Number.isSafeInteger(receivedAt) || receivedAt <= 0 || feed.feed.state !== 'ok' || generatedAt === undefined
       || !Number.isSafeInteger(generatedAt) || generatedAt > receivedAt || receivedAt - generatedAt > LIVE_MAX_AGE_MS) return result;
     result.feedUsable = true;
-    const candidates = new Map<string, { key: string; evidence: HistoryEvidence; sourceAt: number; fingerprint: string; conflict: boolean }>();
+    const candidates = new Map<string, { key: string; evidence: HistoryEvidence; sourceAt: number; fingerprint: string; conflict: boolean; early: boolean }>();
     for (const point of feed.observations) {
       // A time ahead of the clock reads as now, which moves each poll. The report is saved the first time it is
       // seen, at that now, and later polls know it by NJ Transit's own time, so it is saved once. Waiting for the
       // clock to pass that time instead lost every report from a bus whose clock runs steadily ahead (Codex,
       // CodeRabbit #323; Neon Nov27 a).
       const sourceAt = point.sourceAt ?? point.observedAt;
-      if (point.sourceAt !== undefined) result.early++;
       const split = point.tripInstanceId.lastIndexOf('@');
       const trip = trips.get(point.tripInstanceId.slice(0, split)), serviceDate = point.tripInstanceId.slice(split + 1);
       const pattern = trip && patterns.get(trip.patternId), route = pattern && routes.get(pattern.routeId);
@@ -88,10 +87,14 @@ export function createHistorySelector(ds: Dataset) {
         continue;
       }
       candidates.set(sampleKey, { key, evidence: { source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, generatedAt, receivedAt,
-        route: route.shortName, direction: pattern.directionId, serviceDate, observation }, sourceAt, fingerprint, conflict: false });
+        route: route.shortName, direction: pattern.directionId, serviceDate, observation }, sourceAt, fingerprint, conflict: false, early: point.sourceAt !== undefined });
     }
-    for (const candidate of [...candidates.values()].sort((a, b) => a.evidence.observation.observedAt - b.evidence.observation.observedAt)) {
+    // In NJ Transit's own time order, so an early report (read as now) never lands after a later one and the
+    // watermark always ends on the newest report (Neon Nov27 b).
+    for (const candidate of [...candidates.values()].sort((a, b) => a.sourceAt - b.sourceAt || a.evidence.observation.observedAt - b.evidence.observation.observedAt)) {
       if (candidate.conflict) { result.conflicts++; continue; }
+      // Counted only for reports actually saved, not ones rejected or seen before (Neon Nov27 b).
+      if (candidate.early) result.early++;
       result.records.push(candidate.evidence);
       watermarks[candidate.key] = { observedAt: candidate.sourceAt, fingerprint: candidate.fingerprint };
     }
