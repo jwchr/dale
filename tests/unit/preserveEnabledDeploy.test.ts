@@ -42,7 +42,7 @@ function deployment(scenario: string) {
         byteLimit:250000000,databaseByteLimit:500000000,dailyWriteReservationLimit:75000,budgetDay:'2026-11-04',
         archive:{configured:true,reason:'ready',failures:0,verifiedObjects:uploaded&&scenario==='archive-regression'?20:21+progress,lastSuccessAt:archiveSuccess,
           reservedBytes:5000+progress*500,classAReserved32Days:30,classBReserved32Days:30,sqlWriteBudgetRemaining:74000,oldestUnarchivedAt:null,backlogAgeMs:0,
-          byteLimit:uploaded&&scenario==='guard-39'?39000000000:uploaded&&scenario==='guard-20'?20000000000:9000000000,classALimit32Days:800000,classBLimit32Days:8000000}};
+          byteLimit:uploaded&&scenario==='guard-500'?500000000000:uploaded&&scenario==='guard-20'?20000000000:9000000000,classALimit32Days:800000,classBLimit32Days:8000000}};
     }
     const calls=[];
     globalThis.fetch=async(input, options={})=>{
@@ -58,7 +58,7 @@ function deployment(scenario: string) {
       const path=url.pathname.split('/dale-live')[1], id=uploaded?newVersion:oldVersion;
       const bindings=[{name:'FEED',type:'durable_object_namespace',namespace_id:uploaded&&scenario==='namespace-change'?'changed':'retained'},
         {name:'HISTORY_ARCHIVE',type:'r2_bucket',bucket_name:'dale-history'},{name:'NJT_API_USERNAME',type:'secret_text'},{name:'NJT_API_PASSWORD',type:'secret_text'},
-        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'LIVE_GATES',type:'plain_text',text:scenario==='gates-mismatch'?'off':'enabled'},{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[])];
+        {name:'HISTORY_COLLECTION',type:'plain_text',text:'enabled'},...(uploaded?[{name:'LIVE_GATES',type:'plain_text',text:scenario==='gates-mismatch'?'off':'enabled'},{name:'ARRIVAL_CONFIDENCE',type:'plain_text',text:scenario==='confidence-off'?'off':'public'}]:[]),...((uploaded&&scenario!=='raw-off')||scenario==='raw-already-on'?[{name:'RAW_ARCHIVE',type:'plain_text',text:'enabled'},{name:'RAIL_GTFSRT_RAW',type:'plain_text',text:'enabled'},{name:'RAILDATA_RAW',type:'plain_text',text:'enabled'},{name:'BUSDV_RAW',type:'plain_text',text:'enabled'},{name:'TRAFFIC_RAW',type:'plain_text',text:'enabled'},{name:'WEATHER_RAW',type:'plain_text',text:'enabled'}]:[]),...(scenario==='raw-before-bad'&&!uploaded?[{name:'RAW_ARCHIVE',type:'plain_text',text:'disabled'}]:[])];
       let result;
       if(path==='/deployments')result={deployments:[{versions:[{version_id:id,percentage:100}]}]};
       else if(path==='/versions')result={items:[{id}]};
@@ -85,7 +85,7 @@ function deployment(scenario: string) {
     HISTORY_COLLECTION_MODE: 'preserve-enabled', HISTORY_CANONICAL_CONTEXT: context, HISTORY_EXPECTED_WORKER_VERSION: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     CLOUDFLARE_API_TOKEN: 'PRIVATE_SENTINEL_TOKEN', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), DALE_WORKER_URL: 'https://dale-live.synthetic.workers.dev', NJT_API_USERNAME: 'PRIVATE_SENTINEL_USER', NJT_API_PASSWORD: 'PRIVATE_SENTINEL_PASSWORD' }, encoding: 'utf8', timeout: 10000 });
 }
-it.each(['ok', 'slow-ack', 'late-valid', 'raw-already-on', 'guard-39'])('actual native preservation waits beyond the acknowledged transition before proving native/archive progress: %s', scenario => {
+it.each(['ok', 'slow-ack', 'late-valid', 'raw-already-on', 'guard-500'])('actual native preservation waits beyond the acknowledged transition before proving native/archive progress: %s', scenario => {
   const r = deployment(scenario); expect(r.error).toBeUndefined(); expect(r.status, r.stderr).toBe(0);
   const proofLine = r.stdout.split('\n').find(line => line.startsWith('Post-deferral proof:'))!;
   const proof = Object.fromEntries([...proofLine.matchAll(/(\w+)=(\d+)/g)].map(m => [m[1]!, Number(m[2])]));

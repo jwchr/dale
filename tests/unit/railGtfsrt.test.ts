@@ -4,16 +4,20 @@ import { reserveRequests, NJT_REQUEST_LIMIT, type RequestBudget } from '../../wo
 import { binaryFeed, NOW } from '../helpers/liveBus';
 
 function harness() {
-  let now = NOW, state = newRailGtfsrtState(), saved = structuredClone(state), refuse = '', failSave = false;
+  let now = NOW, state = newRailGtfsrtState(), saved = structuredClone(state), refuse = '', failSave = false, open = 0, maxOpen = 0;
+  let slow: Record<string, number> = {};
   const calls: { url: string; fields: Record<string, string> }[] = [];
   const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const fields = Object.fromEntries((init!.body as FormData).entries()) as Record<string, string>;
     calls.push({ url: String(url), fields });
-    expect(String(url)).toMatch(/^https:\/\/raildata\.njtransit\.com\/api\/GTFSRT\/(getToken|getVehiclePositions|getTripUpdates)$/);
+    expect(String(url)).toMatch(/^https:\/\/raildata\.njtransit\.com\/api\/GTFSRT\/(getToken|getVehiclePositions|getTripUpdates|getAlerts)$/);
     expect(init?.redirect).toBe('manual');
     const method = String(url).split('/').pop();
+    // Time passes while the answer is on its way, so a call beside it starts first.
+    if (slow[method!]) { await Promise.resolve(); now += slow[method!]!; }
     if (method === 'getToken') return Response.json({ Authenticated: 'True', UserToken: 'synthetic-token' });
     expect(fields).toEqual({ token: 'synthetic-token' });
+    open++; maxOpen = Math.max(maxOpen, open); await Promise.resolve(); open--;
     if (refuse === 'denied') return new Response('', { status: 401 });
     if (refuse === method) return new Response('', { status: 503 });
     if (refuse === 'json-error') return Response.json({ errorMessage: 'Invalid token.' });
@@ -21,8 +25,8 @@ function harness() {
     return new Response(new Uint8Array(binaryFeed([])));
   }) as typeof fetch;
   const checkpoint = async () => { if (failSave) throw new Error('synthetic storage failure'); saved = structuredClone(state); };
-  return { calls, get state() { return state; }, time: (at: number) => { now = at; }, refuse: (value: string) => { refuse = value; },
-    failSave: () => { failSave = true; }, restart: () => { state = structuredClone(saved); },
+  return { calls, get maxOpen() { return maxOpen; }, get state() { return state; }, time: (at: number) => { now = at; }, refuse: (value: string) => { refuse = value; },
+    failSave: () => { failSave = true; }, slow: (value: Record<string, number>) => { slow = value; }, restart: () => { state = structuredClone(saved); },
     async run() {
       const rail = new RailGtfsrt(state, { NJT_API_USERNAME: 'synthetic-user', NJT_API_PASSWORD: 'synthetic-password' }, checkpoint, fetchImpl, () => now);
       const plan = rail.prepare(now);
@@ -38,10 +42,10 @@ describe('rail GTFS-RT token and independent feeds', () => {
     for (let i = 0; i < 2880; i++) {
       h.time(NOW + i * 30_000);
       if (i % 100 === 0) h.restart();
-      expect((await h.run())?.responses).toHaveLength(2);
+      expect((await h.run())?.responses).toHaveLength(3);
     }
     expect(h.calls.filter(call => call.url.endsWith('/getToken'))).toHaveLength(2);
-    expect(h.calls.filter(call => !call.url.endsWith('/getToken'))).toHaveLength(5760);
+    expect(h.calls.filter(call => !call.url.endsWith('/getToken'))).toHaveLength(8640);
     expect(h.calls[0]!.fields).toEqual({ username: 'synthetic-user', password: 'synthetic-password' });
   });
   it('persists failed-token attempts across restarts and never exceeds the allowance, including Eastern midnight and DST', async () => {
@@ -54,10 +58,26 @@ describe('rail GTFS-RT token and independent feeds', () => {
     h.time(start + 86400_000); await h.run();
     expect(h.calls.filter(call => call.url.endsWith('/getToken'))).toHaveLength(RAIL_GTFSRT_MINT_LIMIT + 1);
   });
-  it.each(['getVehiclePositions', 'getTripUpdates'])('still saves the other rail feed when %s fails', async method => {
+  it('holds at most two rail connections at once (Neon DEEP Nov 26: three made the poll pass 6)', async () => {
+    const h = harness();
+    expect((await h.run())?.responses).toHaveLength(3);
+    expect(h.maxOpen).toBe(2);
+  });
+  it.each([
+    ['a slow first feed', { getVehiclePositions: 12_000 }],
+    ['a slow token request', { getToken: 6_000, getVehiclePositions: 6_000 }],
+  ])('starts nothing 12 seconds into its turn after %s, so rider requests never wait 45 seconds (CodeRabbit, #324)', async (_, slow) => {
+    const h = harness(); h.slow(slow);
+    const result = await h.run();
+    const started = h.calls.filter(c => !c.url.endsWith('getToken')).length;
+    expect(started).toBe(2);
+    expect(result?.responses).toHaveLength(2);
+    expect(result?.failures.map(f => f.code)).toEqual(['timed-out']);
+  });
+  it.each(['getVehiclePositions', 'getTripUpdates', 'getAlerts'])('still saves the other rail feeds when %s fails', async method => {
     const h = harness(); h.refuse(method);
     const result = await h.run();
-    expect(result?.responses).toHaveLength(1);
+    expect(result?.responses).toHaveLength(2);
     expect(result?.failures).toEqual([{ feed: `rail-${method}`, code: 'http-error', at: NOW }]);
   });
   it('does not save documented JSON error bodies as rail protobuf or mint on every denial', async () => {
@@ -70,8 +90,8 @@ describe('rail GTFS-RT token and independent feeds', () => {
     const h = harness(); h.refuse('quota');
     expect((await h.run())?.responses).toEqual([]); h.restart();
     h.time(NOW + 30_000); expect(await h.run()).toBeUndefined();
-    expect(h.calls).toHaveLength(3);
-    h.refuse(''); h.time(NOW + 15 * 60_000); expect((await h.run())?.responses).toHaveLength(2);
+    expect(h.calls).toHaveLength(4);
+    h.refuse(''); h.time(NOW + 15 * 60_000); expect((await h.run())?.responses).toHaveLength(3);
     expect(h.calls.filter(call => call.url.endsWith('/getToken'))).toHaveLength(1);
   });
   it('reserves attempts before I/O and makes no data call if saving the minted token fails', async () => {
@@ -79,14 +99,14 @@ describe('rail GTFS-RT token and independent feeds', () => {
     const result = await h.run();
     expect(result?.responses).toEqual([]); expect(h.calls).toHaveLength(1);
     expect(h.state.mints).toEqual([NOW]);
-    expect(Object.values(h.state.budget.hours)).toEqual([3]);
+    expect(Object.values(h.state.budget.hours)).toEqual([4]);
     expect(result?.secrets).toContain('synthetic-token');
   });
   it('keeps its 30-second pace during the separate five-second bus cadence test and across eviction', async () => {
     const h = harness(); await h.run(); h.restart();
     h.time(NOW + 5000); expect(await h.run()).toBeUndefined();
-    h.time(NOW + 30_000); expect((await h.run())?.responses).toHaveLength(2);
-    expect(h.calls).toHaveLength(5);
+    h.time(NOW + 30_000); expect((await h.run())?.responses).toHaveLength(3);
+    expect(h.calls).toHaveLength(7);
   });
 });
 

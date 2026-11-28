@@ -67,7 +67,7 @@ describe('gates in the existing corridor alarm', () => {
     await h.cold().alarm(); expect(h.calls).toHaveLength(3); expect(h.calls.filter(c => c.url.endsWith('authenticateUser'))).toHaveLength(1);
     puts = 0; for (let i = 1; i <= 15; i++) { h.setTime(NOW + i * 60_000); await h.object.alarm(); }
     expect(h.calls).toHaveLength(18); expect(puts).toBeLessThanOrEqual(1);
-    const state = h.saved.get('state-v1') as Record<string, unknown>; expect(state.token).toBeUndefined(); expect(state.busBudget).toEqual({ hours: {} });
+    const state = h.saved.get('state-v1') as Record<string, unknown>; expect(state.token).toBeUndefined(); expect(Object.values((state.busBudget as { hours: Record<string, number> } | undefined)?.hours ?? {})).toEqual([]);
   });
   it('counts auth failure then enters a one-hour cooldown without a retry loop', async () => {
     const h = harness({ ds: fourRoutes(), authFail: true }); await h.object.alarm(); expect(h.calls).toHaveLength(1);
@@ -149,11 +149,16 @@ describe('gates in the existing corridor alarm', () => {
     const used = Object.values((h.saved.get('state-v1') as { gateBudget: { hours: Record<string, number> } }).gateBudget.hours).reduce((a, b) => a + b, 0);
     expect(used).toBeGreaterThanOrEqual(3);
   });
-  it('fails closed at DV and combined rolling ceilings, including across restart', async () => {
-    for (const [budget, count] of [['gateBudget', 6500], ['busBudget', 40_000]] as const) {
-      const h = harness(); await h.read(); h.saved.set('state-v1', { authAt: 0, pollAt: 0, feedVersion: dataset.meta.feedVersion, [budget]: { hours: { [Math.floor(NOW / 3600_000)]: count }, lastAt: NOW } });
+  it('fails closed at DV and combined BUSDV2 rolling ceilings, including across restart', async () => {
+    // Gates share BUSDV2's 40,000 with the BUSDV2 board sampler (busDv.budget), not the bus GTFS-RT budget.
+    const full = (count: number) => ({ hours: { [Math.floor(NOW / 3600_000)]: count }, lastAt: NOW });
+    for (const extra of [{ gateBudget: full(6500) }, { busDv: { budget: full(40_000) } }]) {
+      const h = harness(); await h.read(); h.saved.set('state-v1', { authAt: 0, pollAt: 0, feedVersion: dataset.meta.feedVersion, ...extra });
       h.cold(); await h.object.alarm(); expect(h.calls).toEqual([]); expect((await h.read()).routes[0].state).toBe('quota-paused');
     }
+    // A full bus GTFS-RT budget is a different NJ Transit API and does not stop gates.
+    const h = harness(); await h.read(); h.saved.set('state-v1', { authAt: 0, pollAt: 0, feedVersion: dataset.meta.feedVersion, busBudget: full(40_000) });
+    h.cold(); await h.object.alarm(); expect(h.calls.filter(c => c.url.endsWith('getBusDV'))).toHaveLength(1);
     const budget = { hours: {} }; for (let i = 0; i < 6500; i++) expect(reserveRequests(budget, 1, NOW, 6500)).toBe(true); expect(reserveRequests(budget, 1, NOW, 6500)).toBe(false);
   });
   const gateTotal = (h: ReturnType<typeof harness>) => Object.values((h.saved.get('state-v1') as { gateBudget?: { hours: Record<string, number> } } | undefined)?.gateBudget?.hours ?? {}).reduce((a, b) => a + b, 0);

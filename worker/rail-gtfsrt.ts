@@ -1,6 +1,7 @@
 import { njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
 import { HISTORY_INTERVAL_MS } from './history-journal';
 import { reserveRequests, type RequestBudget } from './request-budget';
+import { ARCHIVE_CONNECTIONS, ARCHIVE_START_MS, ARCHIVE_TURN_MS, inPool } from './pool';
 import type { RawResponse, RawFeed } from './raw-archive';
 
 const DAY = 86400_000, HOUR = 3600_000;
@@ -27,7 +28,7 @@ export class RailGtfsrt {
     const token = s.token && now >= s.token.at && now - s.token.at < 23 * HOUR ? s.token.value : undefined;
     s.mints = s.mints.filter(at => now - at < DAY);
     if (!token && (s.mints.length >= RAIL_GTFSRT_MINT_LIMIT || s.mints.some(at => now - at < HOUR))) { s.reason = 'token-limit'; return; }
-    if (!reserveRequests(s.budget, token ? 2 : 3, now)) { s.reason = 'request-ceiling'; return; }
+    if (!reserveRequests(s.budget, token ? 3 : 4, now)) { s.reason = 'request-ceiling'; return; }
     s.pollAt = now;
     if (!token) s.mints.push(now);
     return { token, mint: !token };
@@ -35,9 +36,15 @@ export class RailGtfsrt {
 
   async collect(plan: RailPlan): Promise<{ responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] }> {
     const result: { responses: RawResponse[]; failures: RailRawFailure[]; secrets: string[] } = { responses: [], failures: [], secrets: [] };
-    const methods = ['getVehiclePositions', 'getTripUpdates'] as const;
-    const request = (method: 'getToken' | typeof methods[number], fields: Record<string, string>, max: number) =>
-      njtRequest(method, fields, max, this.fetchImpl, 15_000, 'rail-gtfsrt');
+    const methods = ['getVehiclePositions', 'getTripUpdates', 'getAlerts'] as const;
+    // The same turn as RailData and BUSDV2 (CodeRabbit, #324): nothing starts 12 seconds in and nothing
+    // runs past 20, so a slow NJ Transit cannot hold rider requests or the next poll for 45 seconds.
+    const started = this.clock();
+    const request = (method: 'getToken' | typeof methods[number], fields: Record<string, string>, max: number) => {
+      const elapsed = this.clock() - started;
+      if (elapsed >= ARCHIVE_START_MS) throw new NjtError('timed-out');
+      return njtRequest(method, fields, max, this.fetchImpl, Math.min(15_000, ARCHIVE_TURN_MS - elapsed), 'rail-gtfsrt');
+    };
     let token = plan.token;
     if (token) result.secrets.push(token);
     try {
@@ -58,7 +65,9 @@ export class RailGtfsrt {
       return result;
     }
     let denied = false;
-    await Promise.all(methods.map(async method => {
+    // Two at a time: with RailData's two and BUSDV2's two, the poll holds at most the Worker's 6
+    // connections, so no call spends its timeout queued (Neon DEEP Nov 26: three here made 7).
+    await inPool(methods, ARCHIVE_CONNECTIONS, async method => {
       try {
         const bytes = await request(method, { token }, RAW_RESPONSE_MAX_BYTES);
         // The guide also documents HTTP-200 JSON error bodies. Never archive those as protobuf.
@@ -74,7 +83,7 @@ export class RailGtfsrt {
         if (code === 'rate-limited') this.state.pausedUntil = this.clock() + 15 * 60_000;
         result.failures.push({ feed: `rail-${method}`, code, at: this.clock() });
       }
-    }));
+    });
     if (denied && !result.responses.length) this.state.token = undefined;
     this.state.reason = result.failures[0]?.code ?? 'ready';
     return result;

@@ -41,6 +41,8 @@ const utcDay = (now: number) => new Date(now).toISOString().slice(0, 10);
 const nextDay = (day: string) => utcDay(Date.parse(day + 'T00:00:00Z') + DAY);
 /** Retryable R2 trouble (a timeout or an R2 error): the cursor stays before the object, and the step backs off. */
 class Transient extends Error {}
+/** This step's time ran out (not an R2 error), told apart by type rather than by message or clock (Neon Nov26 h). */
+class StepTimeout extends Transient { constructor() { super('backfill-timeout'); } }
 
 export class ArrivalBackfill {
   private pending?: Promise<void>;
@@ -56,11 +58,13 @@ export class ArrivalBackfill {
     if (value !== undefined && (value.v !== 1 || typeof value.lease !== 'string')) throw new Error('backfill-state-invalid');
     return value;
   }
-  /** Shared R2 ledger: the same 34-day buckets as the archive. The backfill may use at most half of each free cap. */
+  /** Shared R2 ledger: the same 34-day buckets as the archive. The backfill's Class B reads may use at most half of that cap. */
   private reserveOperations(a: number, b: number, now: number): boolean {
     return this.storage.transactionSync(() => {
       const row = this.storage.sql.exec('SELECT COALESCE(SUM(class_a),0) AS a,COALESCE(SUM(class_b),0) AS b FROM dale_archive_days WHERE day>=?', utcDay(now - 33 * DAY)).toArray()[0]!;
-      if (Number(row.a) + a > A_LIMIT / 2 || Number(row.b) + b > B_LIMIT / 2) return false;
+      // Class A here is one list per step and is checked against the full cap: raw saving alone passes half
+      // of it within about a month, which would stop the backfill for good (Neon DEEP Nov 26, B1-4).
+      if (Number(row.a) + a > A_LIMIT || Number(row.b) + b > B_LIMIT / 2) return false;
       this.storage.sql.exec('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET class_a=class_a+excluded.class_a,class_b=class_b+excluded.class_b', utcDay(now), a, b);
       return true;
     });
@@ -76,9 +80,9 @@ export class ArrivalBackfill {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const left = this.stepEnd - this.timer();
     try {
-      if (left <= 0) throw new Error('backfill-timeout');
-      return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('backfill-timeout')), left); })]);
-    } catch (error) { throw new Transient(error instanceof Error ? error.message : 'r2'); }
+      if (left <= 0) throw new StepTimeout();
+      return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new StepTimeout()), left); })]);
+    } catch (error) { throw error instanceof StepTimeout ? error : new Transient(error instanceof Error ? error.message : 'r2'); }
     finally { if (timer) clearTimeout(timer); }
   }
   /** Running out of step time is retryable; a corrupt stream or an oversized object is not. */
@@ -89,9 +93,9 @@ export class ArrivalBackfill {
     try {
       for (;;) {
         const left = this.stepEnd - this.timer();
-        if (left <= 0) throw new Transient('backfill-timeout');
+        if (left <= 0) throw new StepTimeout();
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const part = await Promise.race([reader.read(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Transient('backfill-timeout')), left); })])
+        const part = await Promise.race([reader.read(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new StepTimeout()), left); })])
           .finally(() => { if (timer) clearTimeout(timer); });
         if (part.done) break;
         total += part.value.byteLength; if (total > limit) throw new Error('backfill-expanded-size');
@@ -166,8 +170,9 @@ export class ArrivalBackfill {
         }
       } catch (error) {
         if (!(error instanceof Transient)) throw error;
-        // The cursor stays before this object, so it is read again after the back-off.
-        failed = true; break;
+        // The cursor stays before this object. Running out of step time after real progress is a normal end
+        // (the next step reads it again with no back-off); an R2 error, or no progress at all, backs off.
+        failed = !(processed > 0 && error instanceof StepTimeout); break;
       }
       next.startAfter = key; processed++;
     }

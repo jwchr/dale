@@ -5,8 +5,12 @@ import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
 import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
 import { GateCollector } from './gate-collector';
-import { reserveRequests, type RequestBudget } from './request-budget';
+import { NJT_REQUEST_LIMIT, reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
+import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
+import { BusDvArchive, busDvCoverageStatus, newBusDvState, type BusDvState } from './busdv-archive';
+import { TrafficArchive, type TrafficState } from './traffic-archive';
+import { WeatherArchive, type WeatherState } from './weather-archive';
 import { createNormalizer, type NormalizedFeed } from './normalize';
 import { readDepartureRequests } from '../src/domain/liveDepartures';
 import { summarizeDepartures } from './departures';
@@ -27,11 +31,24 @@ interface Storage extends Partial<HistoryStorage> {
   getAlarm?(): Promise<number | null>; setAlarm?(at: number): Promise<void>; deleteAlarm?(): Promise<void>;
 }
 interface State { storage: Storage; blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> }
-interface Env extends Credentials, RideEnv { LIVE_GATES?: string; RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
+interface Env extends Credentials, RideEnv { LIVE_GATES?: string; RAW_ARCHIVE?: string; RAIL_GTFSRT_RAW?: string; RAILDATA_RAW?: string; BUSDV_RAW?: string; TRAFFIC_RAW?: string; WEATHER_RAW?: string; HISTORY_COLLECTION?: string; HISTORY_CADENCE_TEST_UNTIL?: string; ARRIVAL_BACKFILL?: string; ARRIVAL_CONFIDENCE?: string; EARLIER_BUSES?: string; OWNER_HISTORY_SECRET?: string; HISTORY_ARCHIVE?: HistoryBucket; FEED: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } } }
 interface ConnectionFailures { authentication?: { code: string; at: number }; vehicles?: { code: string; at: number }; updates?: { code: string; at: number } }
-interface Saved { gateBudget?: RequestBudget; busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; pollAt: number; historyAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+interface Saved { gateBudget?: RequestBudget; busBudget?: RequestBudget; railGtfsrt?: RailGtfsrtState; railData?: RailDataState;
+  /** Private: holds BUSDV2's own token. Never exposed by any endpoint. */
+  busDv?: BusDvState; traffic?: TrafficState; weather?: WeatherState; rawArchive?: RawArchiveState; transportVersion?: number; failures?: ConnectionFailures; feedVersion?: string; token?: { value: string; expiresAt: number }; authAt: number; authMints?: number[]; pollAt: number; historyAt?: number;
+  /** The poll whose extra halfway bus positions answer was already tried (Jeff, Nov 27, 2026: "Yes, every 15 s"). */
+  midPollAt?: number; vehicles?: NormalizedFeed; updates?: NormalizedFeed }
+/** Raw-only bus alerts give up sooner than the live feeds' 15 seconds (Neon Nov26 e, #301 P2). */
+const ALERTS_TIMEOUT_MS = 8_000;
 const unavailable = (): NormalizedFeed => ({ feed: { state: 'unavailable' }, observations: [], updates: [] });
 const POLL_MS = HISTORY_INTERVAL_MS, AUTH_RETRY_MS = 3600_000;
+/** Bus positions change about every 15 seconds (Mac backup, Nov 27, 2026: report age p50 7 s, p90 13 s), so
+ * saving them every 30 seconds lost about half the reports. One extra raw-only answer halfway between polls
+ * (Jeff, Nov 27, 2026: "Yes, every 15 s"). Trip updates and everything else keep the 30-second pace. */
+const MID_POSITIONS_MS = 15_000, MID_POSITIONS_LATEST_MS = POLL_MS - 2_000;
+/** Bus logins per rolling day. NJ Transit's RailData guide allows ten token calls a day; the bus guide's own
+ * figure is not checked, so bus uses the same ten (Neon DEEP Nov 26: hourly retries alone allowed 24). */
+const AUTH_DAILY_LIMIT = 10, AUTH_DAY_MS = 86_400_000;
 // A successful fetch never refreshes the agency timestamps. Old retained data remains old.
 const aged = (feed: NormalizedFeed, now: number) => ({ ...feed.feed, ...(feed.feed.timestamp && now - feed.feed.timestamp > 120_000 ? { state: 'stale' as const } : {}) });
 
@@ -44,6 +61,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
     private pending?: Promise<void>;
     private gates!: GateCollector;
     private budgetPending: Promise<unknown> = Promise.resolve();
+    /** The halfway positions work in flight; a regular poll's archive capture waits for it (Codex and CodeRabbit on #327). */
+    private midWork?: Promise<void>;
     private ready: Promise<void>;
     private ctx: State;
     private env: Env;
@@ -55,8 +74,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (!this.rawArchive) return undefined;
       // A storage, budget or secret stop keeps its own reason; busRegion always shows the region state (Neon Nov25 k).
       const status = this.rawArchive.status();
-      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'unavailable' as const,
-        ...(this.rawSaving && !regionRoutes && (status.reason === 'ready' || status.reason === 'waiting') ? { reason: 'region-unavailable' } : {}) };
+      return { ...status, saving: this.rawSaving, busRegion: regionRoutes ? 'ready' as const : 'statewide' as const };
     }
     private collectionError = false;
     private upstreamVehicleAttempts = 0;
@@ -90,7 +108,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           if (stored.transportVersion === undefined && !stored.token && stored.failures?.authentication?.code === 'network-error') this.saved.authAt = 0;
           if (stored.transportVersion !== 2) await ctx.storage.put('state-v1', this.saved);
         }
-        this.gates = new GateCollector(ds, ctx.storage, env, (count) => this.reserveNjt('gate', count), fetchImpl, clock, () => this.gateWrites(3, clock()));
+        this.gates = new GateCollector(ds, ctx.storage, env, (count) => this.reserveGate(count), fetchImpl, clock, () => this.gateWrites(3, clock()));
         await this.gates.load();
         if (ctx.storage.sql && ctx.storage.transactionSync && ctx.storage.getAlarm && ctx.storage.setAlarm && ctx.storage.deleteAlarm) {
           // Locked-phone stop alerts (#176 step C) keep their short-lived rides in the same SQLite storage.
@@ -129,9 +147,13 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
               this.rawArchive = new RawArchive(this.saved.rawArchive, this.archive, env.HISTORY_ARCHIVE,
                 () => ctx.storage.put('state-v1', this.saved));
             }
-            // With gates on, the alarm may be a gate alarm, so the history time comes from the journal (arm below sets it).
-            if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null
-              : env.LIVE_GATES === 'enabled' ? null : await ctx.storage.getAlarm();
+            if (env.HISTORY_COLLECTION === 'enabled') {
+              // A halfway bus positions alarm is not the history time, so a ride starting after a restart cannot
+              // run history 15 seconds early (Neon Nov27 b). With gates on, the alarm may be a gate alarm, so the
+              // history time comes from the journal (arm below sets it).
+              const alarm = this.rideWake() === null && env.LIVE_GATES !== 'enabled' ? await ctx.storage.getAlarm() : null;
+              this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null : alarm !== null && alarm === this.midPositionsAt(clock()) ? null : alarm;
+            }
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
@@ -174,6 +196,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // the history run's turn at the global pace.
       let next = rideAt;
       if (history !== null) next = rideAt === null || history - Math.max(rideAt, clock()) < POLL_MS ? history : Math.min(history, rideAt);
+      // With no ride, the extra halfway bus positions answer wakes the alarm first; a ride keeps the 30-second pace.
+      const mid = rideAt === null && next !== null ? this.midPositionsAt(clock()) : null;
+      if (mid !== null && next !== null && mid < next) next = mid;
       if (this.env.LIVE_GATES === 'enabled') next = next === null ? clock() + 60_000 : Math.min(next, clock() + 60_000);
       if (next !== null) {
         const desired = Math.max(clock() + 1000, next), existing = await this.ctx.storage.getAlarm();
@@ -207,18 +232,30 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // History runs (collection, archive flush, prune) only at their own due time, exactly as with no ride:
       // an alarm that fired for a ride leaves them alone, and a ride never makes them later. With no ride the
       // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
+      // A halfway wake (no ride, the history run not yet due) only saves bus positions: no flush, prune or folds.
+      const half = collecting && rideAt === null && this.midPositionsDue(clock());
+      // A halfway wake that arrives too late (within 2 seconds of the next poll) is not gated here: the journal's
+      // due time cannot gate history work, because at the storage limit it always reads an hour ahead, so the
+      // late wake runs one extra flush and prune pass and its poll waits for the pace (CodeRabbit on #327).
       // With gates on, the alarm also fires every minute for gates, so history waits for its own time (Neon review #296).
       const onlyHistory = rideAt === null && this.env.LIVE_GATES !== 'enabled';
-      const collect = collecting && (onlyHistory || !this.journal || this.historyAt === null || this.historyAt <= clock());
+      const collect = !half && collecting && (onlyHistory || !this.journal || this.historyAt === null || this.historyAt <= clock());
       // Gates run beside history, so a slow DepartureVision board never delays a history poll; gate failures
       // never interrupt the G2 collector or archive. Reads never invoke this.
       const gatesRun = this.gates.poll().catch(() => { /* the next paced alarm retries */ });
       try {
-        if (collect) {
+        if (half) {
+          // With no ride the history time is recomputed from the journal, so a restart that read this
+          // halfway alarm as the history time cannot run history early.
+          this.historyAt = null;
+          await this.midPositions();
+        }
+        else if (collect) {
           this.historyAt = null;
           await this.poll(true);
           if (this.archive) await this.archive.flush(clock());
-          this.journal?.pruneVerified(clock());
+          // Cleanup never stops the derived work below (Neon DEEP Nov 26); it retries at the next run.
+          try { this.journal?.pruneVerified(clock()); } catch { /* rows stay until proven saved */ }
           // Derived work last, from spare write margin only; it never throws into collection.
           const spare = (units: number, now: number, keep?: number) => this.journal?.reserveSpareWrites(units, now, keep) ?? false;
           try { this.earlier?.fold(clock(), spare); } catch { /* independent derived work */ }
@@ -301,59 +338,142 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       return !this.journal || (this.env.HISTORY_COLLECTION === 'enabled'
         ? this.journal.reserveSpareWrites(units, now) : this.journal.reserveReadWrites(units, now));
     }
-    /** Shared rolling bus + DV ceiling, serialized and persisted before either API performs I/O. */
-    private reserveNjt(api: 'bus' | 'gate', count: number): Promise<boolean> {
+    /** Gate requests share BUSDV2's own rolling 40,000 a day with the BUSDV2 board sampler (busdv-archive.ts, at most
+     * 30,000 of it), plus the gates' own 6,500 cap; bus GTFS-RT keeps its separate 40,000. Serialized and persisted
+     * before any gate I/O. */
+    private reserveGate(count: number): Promise<boolean> {
       const work = this.budgetPending.then(async () => {
-        // The time is read in turn, so a caller that waited behind the other API never looks like a backwards clock (Neon review #296).
+        // The time is read in turn, so a caller that waited behind another never looks like a backwards clock (Neon review #296).
         const now = clock();
-        const bus = structuredClone(this.saved.busBudget ?? { hours: {} });
+        const dv = structuredClone(this.saved.busDv?.budget ?? { hours: {} });
         const gate = structuredClone(this.saved.gateBudget ?? { hours: {} });
-        const combined: RequestBudget = { hours: {}, lastAt: Math.max(bus.lastAt ?? 0, gate.lastAt ?? 0) };
-        for (const b of [bus, gate]) for (const [hour, used] of Object.entries(b.hours)) combined.hours[hour] = (combined.hours[hour] ?? 0) + used;
-        if (!reserveRequests(combined, count, now) || !reserveRequests(api === 'bus' ? bus : gate, count, now, api === 'gate' ? 6500 : 40_000)) return false;
-        if (api === 'gate' && !this.gateWrites(3, now)) throw new NjtError('sql-write-budget');
+        const combined: RequestBudget = { hours: {}, lastAt: Math.max(dv.lastAt ?? 0, gate.lastAt ?? 0) };
+        for (const b of [dv, gate]) for (const [hour, used] of Object.entries(b.hours)) combined.hours[hour] = (combined.hours[hour] ?? 0) + used;
+        if (!reserveRequests(combined, count, now) || !reserveRequests(gate, count, now, 6500)) return false;
+        if (!this.gateWrites(3, now)) throw new NjtError('sql-write-budget');
         // Memory changes before the write, so any other state-v1 save that starts meanwhile carries these requests too; a failed
-        // write puts the old budgets back, so it never spends requests later (Neon reviews #296, Nov26 b P3 and Nov26 c P2).
-        const before = { bus: this.saved.busBudget, gate: this.saved.gateBudget };
-        this.saved.busBudget = bus; this.saved.gateBudget = gate;
+        // write puts the old budget back, so it never spends requests later (Neon reviews #296, Nov26 b P3 and Nov26 c P2).
+        const before = this.saved.gateBudget;
+        this.saved.gateBudget = gate;
         try { await this.ctx.storage.put('state-v1', this.saved); }
         catch (error) {
-          if (this.saved.busBudget === bus) this.saved.busBudget = before.bus;
-          if (this.saved.gateBudget === gate) this.saved.gateBudget = before.gate;
+          if (this.saved.gateBudget === gate) this.saved.gateBudget = before;
           throw error;
         }
         return true;
       });
       this.budgetPending = work.catch(() => {}); return work;
     }
+    /** When the extra halfway bus positions answer is due, or null when there is none for the latest poll. */
+    private midPositionsAt(now: number): number | null {
+      const pollAt = this.saved.pollAt;
+      if (!this.rawSaving || !this.rawArchive || !this.journal || this.env.HISTORY_COLLECTION !== 'enabled') return null;
+      // Only at the normal 30-second pace (a cadence test already polls faster), once per poll, and never
+      // close to the next poll, so a stopped poll cannot leave a one-second alarm loop.
+      if (!pollAt || this.saved.midPollAt === pollAt || now >= pollAt + MID_POSITIONS_LATEST_MS) return null;
+      try { if (this.journal.intervalMs(now) !== POLL_MS) return null; } catch { return null; }
+      return pollAt + MID_POSITIONS_MS;
+    }
+    private historyNotDue(now: number): boolean {
+      if (!this.journal) return false;
+      try { const due = this.journal.status(now).nextAttemptAt; return due !== null && due > now; } catch { return false; }
+    }
+    private midPositionsDue(now: number): boolean {
+      const at = this.midPositionsAt(now);
+      return at !== null && at <= now && this.historyNotDue(now);
+    }
+    /**
+     * One extra bus positions answer, saved raw only. It never logs in, never changes live buses, the
+     * journal or the live failure status, and is tried once per poll whatever happens, so it cannot loop.
+     */
+    private async midPositions(): Promise<void> {
+      const now = clock(), saving = this.rawArchive, token = this.saved.token, pollAt = this.saved.pollAt;
+      if (!saving || !this.rawSaving) return;
+      this.saved.midPollAt = pollAt;
+      // A poll already running brings its own positions; extra data yields first under the archive's
+      // budget pause, and the regular bus answers keep priority.
+      const open = !this.pending && !this.midWork && !rawBudgetPausesRail(this.saved.rawArchive, now) && !!token && token.expiresAt > now;
+      // Leaves room for the next regular poll's largest reservation (login plus both feeds), so the extra
+      // answer can never push live buses over the ceiling (CodeRabbit on #327).
+      const allowed = open && reserveRequests(this.saved.busBudget ??= { hours: {} }, 1, now, NJT_REQUEST_LIMIT - 3);
+      if (open && !allowed) saving.recordFailure('getVehiclePositions', 'request-ceiling', now);
+      // Marked as running before the first wait, so a poll that starts meanwhile never captures alongside it (Neon Nov27 b).
+      const work = (async () => {
+        // Persist the once-per-poll mark, the request count and any refusal before I/O.
+        await this.ctx.storage.put('state-v1', this.saved);
+        if (!allowed) return;
+        const raw: RawResponse[] = [];
+        try {
+          // Ends before the next regular poll is due, so a slow answer never delays it (CodeRabbit on #327).
+          const timeout = Math.max(1_000, Math.min(15_000, pollAt + MID_POSITIONS_LATEST_MS - clock()));
+          const bytes = await njtRequest('getVehiclePositions', { token: token!.value }, RAW_RESPONSE_MAX_BYTES, fetchImpl, timeout), receivedAt = clock();
+          if (!regionRoutes) raw.push({ feed: 'getVehiclePositions', bytes, receivedAt });
+          else {
+            try { raw.push(await filterRegionRaw({ feed: 'getVehiclePositions', bytes, receivedAt }, regionRoutes)); }
+            catch { saving.recordFailure('getVehiclePositions', 'invalid-response', receivedAt); }
+          }
+        } catch (error) { saving.recordFailure('getVehiclePositions', safeNjtFailure(error), clock()); }
+        try { await saving.capture(raw, clock(), [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD, token!.value]); }
+        catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
+        await this.ctx.storage.put('state-v1', this.saved);
+      })();
+      this.midWork = work.finally(() => { this.midWork = undefined; });
+      await this.midWork;
+    }
     private async refresh(): Promise<void> {
       const now = clock(); this.saved.pollAt = now;
       // Only a switched-on archive saves or counts new responses; a draining one just finishes old work.
       const saving = this.rawSaving ? this.rawArchive : undefined;
-      const railDue = !!saving && this.env.RAIL_GTFSRT_RAW === 'enabled' && !rawBudgetPausesRail(this.saved.rawArchive, now);
-      if (railDue) startRailBudgetRetry(this.saved.rawArchive, now);
+      // Decide the budget pause once: the hourly retry below restarts the pause clock, and a second
+      // check after it would skip every feed decided later in this poll.
+      const rawOpen = !!saving && !rawBudgetPausesRail(this.saved.rawArchive, now);
+      const railDue = rawOpen && this.env.RAIL_GTFSRT_RAW === 'enabled';
+      // D84: RailData (train positions, every station's board, messages, schedules) is a separate switch.
+      const railDataDue = rawOpen && this.env.RAILDATA_RAW === 'enabled';
+      const railData = railDataDue ? new RailDataArchive(this.saved.railData ??= newRailDataState(), this.rail, clock) : undefined;
+      const railDataPlan = railData?.prepare(now);
+      if (railDataPlan === 'request-ceiling') saving?.recordFailure('raildata-poll', 'request-ceiling', now);
+      // D84: BUSDV2 (every bus stop's departure board, bus and light rail vehicle locations) is its own
+      // NJ Transit API with its own 40,000 a day; it shares only the raw archive's guards.
+      const busDvDue = rawOpen && this.env.BUSDV_RAW === 'enabled';
+      const busDv = busDvDue ? new BusDvArchive(this.saved.busDv ??= newBusDvState(), this.env, fetchImpl, clock) : undefined;
+      const busDvPlan = busDv?.prepare(now);
+      if (busDvPlan === 'request-ceiling') saving?.recordFailure('busdv-poll', 'request-ceiling', now);
+      // Port Authority crossings and 511NJ incidents: once a minute, under the same raw guards.
+      const trafficDue = rawOpen && this.env.TRAFFIC_RAW === 'enabled';
+      const traffic = trafficDue ? new TrafficArchive(this.saved.traffic ??= {}, fetchImpl, clock) : undefined;
+      const trafficSlot = traffic?.prepare(now);
+      const weatherDue = rawOpen && this.env.WEATHER_RAW === 'enabled';
+      if (railDue || railDataDue || busDvDue || trafficDue || weatherDue) startRailBudgetRetry(this.saved.rawArchive, now);
+      const weather = weatherDue ? new WeatherArchive(this.saved.weather ??= {}, fetchImpl, clock) : undefined;
+      const weatherPlan = weather?.prepare(now);
       const rail = railDue ? new RailGtfsrt(this.saved.railGtfsrt ??= newRailGtfsrtState(), this.env, async () => {
-        if (!this.journal?.reserveSpareWrites(3, clock())) throw new NjtError('sql-write-budget');
+        if (!this.journal?.reserveRawWrites(3, clock())) throw new NjtError('sql-write-budget');
         await this.ctx.storage.put('state-v1', this.saved);
       }, fetchImpl, clock) : undefined;
       const railPlan = rail?.prepare(now);
       const railReason = this.saved.railGtfsrt?.reason;
       if (rail && !railPlan && railReason && ['request-ceiling', 'token-limit', 'configuration-missing'].includes(railReason)) {
-        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates'] as const) saving?.recordFailure(feed, railReason, now);
+        for (const feed of ['rail-getVehiclePositions', 'rail-getTripUpdates', 'rail-getAlerts'] as const) saving?.recordFailure(feed, railReason, now);
       }
       const needsAuth = !this.saved.token || this.saved.token.expiresAt <= now;
-      const authCooldown = needsAuth && now - this.saved.authAt < AUTH_RETRY_MS;
-      const busAllowed = !authCooldown && await this.reserveNjt('bus', needsAuth ? 3 : 2);
-      // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests. An allowed
-      // reservation already saved it; one write per poll, not two (Flash review #296).
-      if (!busAllowed) await this.ctx.storage.put('state-v1', this.saved);
+      // Bus alerts are saved whole, raw only, while statewide saving is on (no region file).
+      const busAlerts = !!saving && !regionRoutes;
+      const authMints = this.saved.authMints = (this.saved.authMints ?? []).filter(at => at <= now && now - at < AUTH_DAY_MS);
+      const authCooldown = needsAuth && (now - this.saved.authAt < AUTH_RETRY_MS || authMints.length >= AUTH_DAILY_LIMIT);
+      // Live buses reserve first; alerts take one more request only if it still fits (Neon Nov26 e, #301 P2).
+      const busBudget = this.saved.busBudget ??= { hours: {} };
+      const busAllowed = !authCooldown && reserveRequests(busBudget, needsAuth ? 3 : 2, now);
+      const alertsAllowed = busAllowed && busAlerts && reserveRequests(busBudget, 1, now);
+      // Persist the pace limit before I/O, so an eviction cannot multiply upstream requests.
+      await this.ctx.storage.put('state-v1', this.saved);
       this.saved.failures = { ...this.saved.failures };
       const raw: RawResponse[] = [], rawSecrets = [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD];
       try {
         if (authCooldown) throw new NjtError('authentication-cooldown');
         if (!busAllowed) throw new NjtError('request-ceiling');
         if (!this.saved.token || this.saved.token.expiresAt <= now) {
-          this.saved.authAt = now;
+          this.saved.authAt = now; authMints.push(now);
           await this.ctx.storage.put('state-v1', this.saved);
           this.saved.token = { value: await authenticate(this.env, fetchImpl), expiresAt: now + 20 * 3600_000 };
           delete this.saved.failures.authentication;
@@ -370,7 +490,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           delete this.saved.failures![kind];
           if (endpoint === 'getVehiclePositions') this.upstreamVehicleAttempts++;
           try {
-            const bytes = await njtRequest(endpoint, { token }, saving && regionRoutes ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            const bytes = await njtRequest(endpoint, { token }, saving ? RAW_RESPONSE_MAX_BYTES : 8 * 1024 * 1024, fetchImpl), receivedAt = clock();
+            // D84: with no region file every statewide bus response is saved whole, as before D83.
+            if (saving && !regionRoutes) raw.push({ feed: endpoint, bytes, receivedAt });
             if (saving && regionRoutes) {
               // Filtering/decoding failure must never replace live data or interrupt corridor history.
               try { raw.push(await filterRegionRaw({ feed: endpoint, bytes, receivedAt }, regionRoutes)); }
@@ -385,16 +507,33 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             return unavailable();
           }
         };
+        // Raw only: an alerts failure is recorded for saving and never touches live buses or the shared token.
+        const saveAlerts = async () => {
+          try {
+            // Its own shorter limit, so a slow alerts answer never holds a poll for the bus feeds' 15 seconds.
+            const bytes = await njtRequest('getAlerts', { token }, RAW_RESPONSE_MAX_BYTES, fetchImpl, ALERTS_TIMEOUT_MS), receivedAt = clock();
+            if (bytes.byteLength <= 16_384 && new TextDecoder().decode(bytes.subarray(0, 32)).trimStart().startsWith('{')) throw new NjtError('invalid-response');
+            raw.push({ feed: 'getAlerts', bytes, receivedAt });
+          } catch (error) { saving?.recordFailure('getAlerts', safeNjtFailure(error), clock()); }
+        };
+        if (busAlerts && !alertsAllowed) saving?.recordFailure('getAlerts', 'request-ceiling', now);
+        const alerts = alertsAllowed ? saveAlerts() : undefined;
         const [vehicles, updates] = await Promise.all([fetchFeed('getVehiclePositions', 'vehicles'), fetchFeed('getTripUpdates', 'updates')]);
         if (denials > 0 && successes === 0) this.saved.token = undefined;
+        // Live buses are set before the alerts answer is awaited, so alerts never delay them.
         this.saved.vehicles = vehicles; this.saved.updates = updates;
+        await alerts;
       } catch (error) {
-        for (const feed of ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
+        for (const feed of busAlerts ? ['getVehiclePositions', 'getTripUpdates', 'getAlerts'] as const : ['getVehiclePositions', 'getTripUpdates'] as const) saving?.recordFailure(feed, safeNjtFailure(error), now);
         // Preserve the original failure throughout authentication cooldown instead of hiding it.
         if (!(error instanceof NjtError && error.code === 'authentication-cooldown' && this.saved.failures.authentication))
           this.saved.failures.authentication = { code: safeNjtFailure(error), at: now };
         this.saved.vehicles = unavailable(); this.saved.updates = unavailable();
       }
+      // Starts only after live buses are set: a Worker has 6 connections at a time, so archive calls
+      // started earlier could queue the live bus fetches behind them. Runs beside the rail GTFS-RT fetch.
+      const railDataWork = railData && typeof railDataPlan === 'object' ? railData.collect(railDataPlan).catch(() => undefined) : undefined;
+      const busDvWork = busDv && typeof busDvPlan === 'object' ? busDv.collect(busDvPlan).catch(() => undefined) : undefined;
       if (rail && railPlan) {
         try {
           const result = await rail.collect(railPlan);
@@ -402,7 +541,26 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
           for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
         } catch { this.saved.rawArchive!.failures++; }
       }
+      // After the rail feeds, so with RailData and BUSDV2 at most five connections are open at once.
+      // Weather waits for the crossings, so the two together still hold one connection, and both count
+      // their time budget from this one start, so the pair ends as RailData and BUSDV2 do (Neon on #307).
+      // The crossings stop starting calls 8 seconds in, so weather always gets its turn (Neon Nov26 g, #314).
+      const laneStart = clock();
+      const trafficWork = traffic && trafficSlot !== undefined ? traffic.collect(trafficSlot, laneStart).catch(() => undefined) : undefined;
+      const weatherWork = weather && weatherPlan ? (trafficWork ?? Promise.resolve()).then(() => weather.collect(weatherPlan, laneStart)).catch(() => undefined) : undefined;
+      for (const work of [railDataWork, busDvWork, trafficWork, weatherWork]) {
+        if (!work) continue;
+        const result = await work;
+        if (!result) this.saved.rawArchive!.failures++;
+        else {
+          raw.push(...result.responses); rawSecrets.push(...result.secrets);
+          for (const failure of result.failures) saving?.recordFailure(failure.feed, failure.code, failure.at);
+        }
+      }
       if (this.rawArchive) {
+        // One capture at a time: live buses above never wait, only this archive step does, so a receipt
+        // the halfway answer is still uploading is never recovered twice (Codex and CodeRabbit on #327).
+        if (this.midWork) await this.midWork.catch(() => undefined);
         // Raw writes cannot interrupt live buses or normalized corridor evidence.
         try { await this.rawArchive.capture(raw, clock(), rawSecrets); }
         catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
@@ -440,7 +598,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (url.pathname === '/v1/collection') {
         let collection: unknown;
         try { collection = this.journal ? { ...this.journal.status(clock()), error: this.collectionError,
-          ...await this.alarms(), rawArchive: this.rawStatus(), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
+          ...await this.alarms(), rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(clock()) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } } : { enabled: false, reason: this.collectionError ? 'storage-unavailable' : 'disabled' }; }
         catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         return Response.json({ v: 1, collection, gates: this.gates.health(), rideAlerts: this.rideHealth(), arrivalConfidence: this.confidenceHealth() }, { headers: { 'cache-control': 'no-store' } });
       }
@@ -480,7 +638,7 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         let collection: unknown = { enabled: false, reason: 'disabled' };
         try {
           if (this.journal) collection = { ...this.journal.status(now), error: this.collectionError,
-            ...await this.alarms(), rawArchive: this.rawStatus(), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
+            ...await this.alarms(), rawArchive: this.rawStatus(), busDvCoverage: busDvCoverageStatus(this.saved.busDv), archive: this.archive?.status(now) ?? { configured: !!this.env.HISTORY_ARCHIVE, enabled: false } };
           else if (this.collectionError) collection = { enabled: false, reason: 'storage-unavailable', error: true };
         } catch { collection = { enabled: this.env.HISTORY_COLLECTION === 'enabled', reason: 'storage-unavailable', error: true }; }
         let rail: unknown = { error: true };
@@ -488,7 +646,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         return Response.json({ v: 1, source: LIVE_SOURCE, feedVersion: ds.meta.feedVersion, collection, rideAlerts: this.rideHealth(), rail,
         connectionFailures: this.saved.failures ?? {},
         vehicles: age(vehicles), updates: age(updates), vehicleDiagnostics: vehicles.diagnostics, updateDiagnostics: updates.diagnostics, reportingBuses: new Set(vehicles.observations.filter((o) => now - o.observedAt <= 120_000).map((o) => o.vehicleId)).size,
-        example: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0],
+        // The newest fresh bus's trip and service date only (schedule data, no vehicle or position), for the deploy's
+        // tracker check through the public /v1/live endpoint (Codex, #322).
+        exampleTrip: vehicles.observations.filter((o) => now - o.observedAt <= 120_000).sort((a, b) => b.observedAt - a.observedAt)[0]?.tripInstanceId ?? null,
       }, { headers: { 'cache-control': 'no-store' } });
       }
       return Response.json(this.snapshot(trip, date, vehicle, now), { headers: { 'cache-control': 'no-store' } });

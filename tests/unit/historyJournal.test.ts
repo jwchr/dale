@@ -70,7 +70,7 @@ describe('private SQLite history journal', () => {
   it('pauses before the daily write reservation budget and resumes only after the UTC reset', () => {
     const h = harness(); h.journal.setEnabled(true, NOW);
     const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body));
-    state.reservedWrites = 75_000; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
+    state.reservedWrites = 1_000_000; h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
     expect(h.journal.beginAttempt(NOW)).toBeUndefined(); expect(h.journal.status(NOW).reason).toBe('quota-paused');
     const tomorrow = Date.parse('2026-11-05T00:00:00Z');
     expect(h.journal.beginAttempt(tomorrow)).toBe(tomorrow); expect(h.journal.status(tomorrow).reservedWrites).toBe(12);

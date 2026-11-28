@@ -70,15 +70,19 @@ export function preservesEnabled(before, after, progressSince) {
 }
 /** The cumulative/limit rules of preservesEnabled without its schedule-version equality.
  * A schedule rollover changes the version; these rules still hold across it. */
-// The archive byte ceiling may rise only to exactly the owner-approved 39 GB guard (D79, Jeff, Nov 24, 2026: "Yes, up to 40 GB"), never fall or stop in between.
-export const APPROVED_ARCHIVE_BYTE_LIMIT = 39_000_000_000;
+// D86 (paid R2, Jeff, Nov 26, 2026): each archive guard may rise only to exactly its approved fixed value, never fall or stop in between.
+export const APPROVED_ARCHIVE_BYTE_LIMIT = 500_000_000_000;
 const archiveByteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_BYTE_LIMIT);
-// D80: the shared Class A guard may rise only to this fixed value, inside R2's free 1,000,000 a month.
-export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 950_000;
+export const APPROVED_ARCHIVE_CLASS_A_LIMIT = 3_000_000;
 const archiveClassALimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_A_LIMIT);
-// D80: the one approved set of raw limits a live Worker may move to.
-export const APPROVED_RAW_LIMITS = { rawByteLimit: 37_000_000_000, rawClassALimit32Days: 800_000, rawClassBLimit32Days: 1_850_000 };
-// Statewide raw saving's own limits (D78): once live they change only to the approved D80 set, and they always leave
+export const APPROVED_ARCHIVE_CLASS_B_LIMIT = 9_000_000;
+const archiveClassBLimitOk = (before, after) => after === before || (after > before && after === APPROVED_ARCHIVE_CLASS_B_LIMIT);
+// D85: the daily SQL write counter may rise only to this fixed value; 31 days of it stay inside Workers Paid's 50 million included rows a month.
+export const APPROVED_DAILY_WRITE_LIMIT = 1_000_000;
+const dailyWriteLimitOk = (before, after) => after === before || (after > before && after === APPROVED_DAILY_WRITE_LIMIT);
+// D86: the one approved set of raw limits a live Worker may move to (each guard minus the corridor reserve).
+export const APPROVED_RAW_LIMITS = { rawByteLimit: 498_000_000_000, rawClassALimit32Days: 2_850_000, rawClassBLimit32Days: 8_850_000 };
+// Statewide raw saving's own limits (D78): once live they change only to the approved D86 set, and they always leave
 // corridor history its 2 GB and 150,000-operation reserve under the shared guard.
 export const CORRIDOR_RESERVE = { bytes: 2_000_000_000, a: 150_000, b: 150_000 };
 // A move to the approved set may only raise each limit, never lower one a later decision set higher (Neon Nov24 c).
@@ -89,13 +93,14 @@ export function continuesEnabled(before, after, progressSince) {
   // `batches` counts retained hot rows: HistoryJournal.pruneVerified decrements it after verified
   // archiving, so it is not cumulative evidence. `observations` only ever grows.
   if (!['observations', 'lastSuccessAt', 'lastAttemptAt', 'completedAttempt'].every(k => after[k] >= before[k])
-    || !['byteLimit', 'databaseByteLimit', 'dailyWriteReservationLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
+    || !['byteLimit', 'databaseByteLimit', 'effectiveIntervalMs'].every(k => after[k] === before[k])
+    || !dailyWriteLimitOk(before.dailyWriteReservationLimit, after.dailyWriteReservationLimit)
     || (before.budgetDay === after.budgetDay && after.reservedWrites < before.reservedWrites)
     || !['verifiedObjects', 'reservedBytes', 'lastSuccessAt'].every(k => after.archive[k] >= before.archive[k])
     || !archiveByteLimitOk(before.archive.byteLimit, after.archive.byteLimit)
     || !rawLimitsOk(before.archive, after.archive)
     || !archiveClassALimitOk(before.archive.classALimit32Days, after.archive.classALimit32Days)
-    || after.archive.classBLimit32Days !== before.archive.classBLimit32Days) fail();
+    || !archiveClassBLimitOk(before.archive.classBLimit32Days, after.archive.classBLimit32Days)) fail();
   // Hot bytes may decrease through the unchanged archive-before-prune path. Cumulative
   // evidence and verified archive reservations must never reset; do not turn unknown into0.
   return progressSince === undefined || (after.completedAttempt > before.completedAttempt && after.completedAttempt > progressSince && after.lastSuccessAt > progressSince
@@ -116,8 +121,19 @@ export async function readCollection(env, { net = fetch, timeoutMs = 15_000 } = 
   const url = liveApiUrl(env.DALE_WORKER_URL); if (!url) fail();
   return JSON.parse(await readBounded(url + '/v1/collection', 128_000, net, timeoutMs)).collection;
 }
-export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000 } = {}) {
-  const collection = await readCollection(env, { net, timeoutMs });
+// Cloudflare clears a Durable Object's alarm while its handler runs, so about 1 read in 10 during a
+// 30-second poll shows no next alarm (measured on the live Worker, Nov 26, 2026: 4 of 40). That is
+// a poll in progress, not a stopped collector: re-read a few times before calling it unhealthy.
+// Every other field is still checked on the read that is returned.
+export const ALARM_REREAD_ATTEMPTS = 5, ALARM_REREAD_MS = 2_000;
+const alarmInFlight = (c, now) => !!c && c.enabled === true && (c.alarmAt === null || (typeof c.alarmAt === 'number' && c.alarmAt <= now));
+export async function readEnabledCheckpoint(env, feedVersion, { net = fetch, clock = Date.now, timeoutMs = 15_000,
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  let collection = await readCollection(env, { net, timeoutMs });
+  for (let tries = 1; tries < ALARM_REREAD_ATTEMPTS && alarmInFlight(collection, clock()); tries++) {
+    await sleep(ALARM_REREAD_MS);
+    collection = await readCollection(env, { net, timeoutMs });
+  }
   return enabledCheckpoint(collection, feedVersion, clock());
 }
 export async function readCanonicalBytes(env, { net = fetch, expectedContext } = {}) {

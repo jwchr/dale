@@ -95,24 +95,70 @@ describe('verified permanent private archive', () => {
   });
   it.each(['bytes', 'classA', 'classB', 'sql'])('makes zero bucket calls when the %s free budget is exhausted', async budget => {
     const h = await harness();
-    if (budget === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 39_000_000_000, verifiedObjects: 0, failures: 0, reason: 'waiting' }));
+    if (budget === 'bytes') h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 500_000_000_000, verifiedObjects: 0, failures: 0, reason: 'waiting' }));
     else if (budget === 'sql') {
-      const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 75_000;
+      const state = JSON.parse(String(h.db.prepare('SELECT body FROM dale_history_meta').get()!.body)); state.reservedWrites = 1_000_000;
       h.db.prepare('UPDATE dale_history_meta SET body=?').run(JSON.stringify(state));
-    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', budget === 'classA' ? 950_000 : 0, budget === 'classB' ? 2_000_000 : 0);
+    } else h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', budget === 'classA' ? 3_000_000 : 0, budget === 'classB' ? 9_000_000 : 0);
     await h.archive.flush(NOW); expect(h.calls).toEqual([]); expect(h.journal.nextUnarchived()).toBeDefined();
     expect(h.archive.status(NOW).reason).toBe(budget === 'bytes' ? 'free-storage-budget' : budget === 'sql' ? 'sql-write-budget' : 'free-operation-budget');
   });
+  it('retries a refused operation budget at the next UTC midnight, when the 33-day window drops a day (Neon DEEP Nov 26, B1-5)', async () => {
+    const h = await harness();
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 3_000_000, 0);
+    await h.archive.flush(NOW);
+    const midnight = Date.parse(new Date(NOW).toISOString().slice(0, 10) + 'T00:00:00Z') + 86400_000;
+    expect(JSON.parse(String(h.db.prepare('SELECT body FROM dale_archive_meta').get()!.body)).nextAt).toBe(midnight);
+    h.db.exec('DELETE FROM dale_archive_days');
+    await h.archive.flush(midnight - 1); expect(h.calls).toEqual([]);
+    await h.archive.flush(midnight); expect(h.calls.length).toBeGreaterThan(0);
+  });
+  it('steps over a batch whose receipt cannot be proven and still cleans up the verified ones after it (Neon DEEP Nov 26)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first, second] = rows();
+    h.db.prepare('UPDATE dale_history_batches SET archive_receipt=? WHERE attempt=?').run('not json', first!);
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toEqual([first]); expect(second).toBeDefined();
+  });
+  it('steps over a batch whose receipt reads as JSON null instead of stopping cleanup (Neon Nov27 b)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first, second] = rows();
+    h.db.prepare('UPDATE dale_history_batches SET archive_receipt=? WHERE attempt=?').run('null', first!);
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toEqual([first]); expect(second).toBeDefined();
+  });
+  it('steps over a batch whose schedule context is missing and still cleans up the verified ones after it (Neon Nov26 h)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first, second] = rows();
+    h.db.prepare('UPDATE dale_history_batches SET context_key=? WHERE attempt=?').run('no-such-context', first!);
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toEqual([first]); expect(second).toBeDefined();
+  });
   it('keeps archiving corridor history inside the reserve that statewide raw saving cannot use', async () => {
     const h = await harness();
-    h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 38_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
-    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 850_000, 1_900_000);
+    h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 499_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 2_900_000, 8_900_000);
     expect(h.archive.reserveRaw(1, 2, 2, 0, NOW)).toBe('free-storage-budget');
     await h.archive.flush(NOW);
     expect(h.archive.status(NOW).verifiedObjects).toBe(2); expect(h.calls.length).toBeGreaterThan(0);
   });
   it('does not reset operation allowance across a calendar-month boundary', async () => {
-    const h = await harness(); h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 950_000, 0);
+    const h = await harness(); h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run('2026-10-31', 3_000_000, 0);
     await h.archive.flush(NOW); expect(h.calls).toEqual([]);
     await h.archive.flush(NOW + 35 * 86400_000); expect(h.archive.status(NOW + 35 * 86400_000).verifiedObjects).toBe(2);
   });

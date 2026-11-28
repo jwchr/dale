@@ -1,5 +1,5 @@
 // Used by the private Worker and its deployment-time static-feed builder. Fixed official host only.
-export type NjtEndpoint = 'authenticateUser' | 'getToken' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates' | 'getBusDV';
+export type NjtEndpoint = 'authenticateUser' | 'getToken' | 'getGTFS' | 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | 'getBusDV';
 export const RAW_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
 export interface Credentials { NJT_API_USERNAME: string; NJT_API_PASSWORD: string }
 export class NjtError extends Error {

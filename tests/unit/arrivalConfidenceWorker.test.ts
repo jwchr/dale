@@ -1,3 +1,4 @@
+import { A_LIMIT } from '../../worker/history-archive';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
@@ -10,7 +11,7 @@ import type { ConfidenceKey } from '../../src/domain/arrivalConfidence';
 import { liveDataset as ds, NOW } from '../helpers/liveBus';
 
 // Synthetic batches only: invented trips, a fake vehicle id and fake coordinates that must never reach any output.
-const DAILY_WRITE_BUDGET = 75_000, databases: DatabaseSync[] = [];
+const DAILY_WRITE_BUDGET = 1_000_000, databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function harness() {
   const db = new DatabaseSync(':memory:'); databases.push(db);
@@ -84,7 +85,8 @@ describe('live fold inside the collector', () => {
   });
   it('spare writes leave every remaining normal poll, the rollover margin and the caller keep untouched', () => {
     const h = harness();
-    const normal = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000) * 24 + 16;
+    // Every other optional use also leaves statewide raw saving its 6 writes per remaining poll (Jeff's P0, Nov 26).
+    const normal = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000) * (24 + 6) + 16;
     const room = DAILY_WRITE_BUDGET - h.journal.status(NOW).reservedWrites - normal;
     expect(h.journal.reserveSpareWrites(room - 10, NOW, 11)).toBe(false);
     expect(h.journal.reserveSpareWrites(room - 10, NOW, 10)).toBe(true);
@@ -93,6 +95,18 @@ describe('live fold inside the collector', () => {
     expect(h.journal.reserveSpareWrites(0, NOW)).toBe(false);
     const off = harness(); off.journal.setEnabled(false, NOW);
     expect(off.journal.reserveSpareWrites(1, NOW)).toBe(false);
+  });
+  it('statewide raw saving may use the lane every other optional use leaves free, never the normal polls (P0, Nov 26)', () => {
+    const h = harness();
+    const intervals = Math.ceil((Date.parse('2026-11-05T00:00:00Z') - NOW) / 30_000);
+    const room = DAILY_WRITE_BUDGET - h.journal.status(NOW).reservedWrites - (intervals * 24 + 16);
+    expect(h.journal.reserveSpareWrites(room - intervals * 6, NOW)).toBe(true);
+    expect(h.journal.reserveSpareWrites(1, NOW)).toBe(false);
+    expect(h.journal.reserveRawWrites(intervals * 6 + 1, NOW)).toBe(false);
+    expect(h.journal.reserveRawWrites(intervals * 6, NOW)).toBe(true);
+    expect(h.journal.reserveRawWrites(1, NOW)).toBe(false);
+    const off = harness(); off.journal.setEnabled(false, NOW);
+    expect(off.journal.reserveRawWrites(1, NOW)).toBe(false);
   });
 });
 
@@ -226,6 +240,14 @@ describe('archive backfill (manual, bounded, idempotent)', () => {
     expect(Number(ledger.a)).toBe(a.counts().lists);
     expect(Number(ledger.b)).toBeGreaterThanOrEqual(a.counts().gets);
   });
+  it('keeps backfilling once raw saving has used more than half of the Class A cap (Neon DEEP Nov 26, B1-4)', async () => {
+    const h = harness(), a = archive();
+    a.putBatch(at('20261109', '07:04'), [record('T1@20261109', at('20261109', '07:04'), [0, '1'])], 'ctx');
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `apply:${LATER + 24 * 3600_000 + 3}`);
+    h.db.prepare('INSERT INTO dale_archive_days(day,class_a,class_b) VALUES(?,?,?)').run(new Date(LATER).toISOString().slice(0, 10), A_LIMIT / 2 + 1000, 0);
+    await runToEnd(backfill, h.spare);
+    expect(a.counts().lists).toBeGreaterThan(0);
+  });
   it('a finished or expired lease never restarts; a lease beyond 48 hours or malformed never starts', async () => {
     const h = harness(), a = archive();
     a.putBatch(at('20261109', '07:04'), [record('T1@20261109', at('20261109', '07:04'), [0, '1'])], 'ctx');
@@ -290,6 +312,35 @@ describe('archive backfill (manual, bounded, idempotent)', () => {
     a.hooks.onList = undefined; hang = false;
     await runToEnd(backfill, h.spare, LATER + 61_000);
     expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 1, newArrivals: 1 });
+  });
+  it('running out of step time after some batches ends the step normally: no back-off, the next step resumes (Neon DEEP Nov 26, C1-1)', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    ['07:01', '07:02', '07:03'].forEach((t) => a.putBatch(at('20261109', t), [record('T1@20261109', at('20261109', t), [0, '1'])], old, 'older-version'));
+    let clock = 0, batchReads = 0;
+    a.hooks.onGet = (k) => { if (k.includes('/batches/') && ++batchReads === 2) clock += 5_000; return undefined; }; // the second batch read finds the step's time used up
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 24 * 3600_000}`, () => clock);
+    await backfill.step(LATER, h.spare); // 2026-11-08
+    await backfill.step(LATER + 1000, h.spare);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', batchesReplayed: 1, retries: 0, retryableFailures: 0 });
+    expect('retryAt' in backfill.status()).toBe(false);
+    await backfill.step(LATER + 2000, h.spare); // resumes right away, at the batch that ran out of time
+    expect(backfill.status()).toMatchObject({ batchesReplayed: 3, retries: 0 });
+    await runToEnd(backfill, h.spare, LATER + 3000);
+    expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 3, retryableFailures: 0 });
+  });
+  it('an R2 error after some batches still backs off: only running out of step time ends a step normally (Neon Nov26 h)', async () => {
+    const h = harness(), a = archive();
+    const old = a.putSchedule('older-version');
+    ['07:01', '07:02', '07:03'].forEach((t) => a.putBatch(at('20261109', t), [record('T1@20261109', at('20261109', t), [0, '1'])], old, 'older-version'));
+    let batchReads = 0;
+    a.hooks.onGet = (k) => k.includes('/batches/') && ++batchReads === 2 ? Promise.reject(new Error('backfill-timeout')) : undefined; // an R2 error, even one worded like a timeout
+    const backfill = new ArrivalBackfill(h.storage, h.confidence, a.reader, ds, 'ctx', `dry-run:${LATER + 24 * 3600_000}`);
+    await backfill.step(LATER, h.spare); // 2026-11-08
+    await backfill.step(LATER + 1000, h.spare);
+    expect(backfill.status()).toMatchObject({ day: '2026-11-09', batchesReplayed: 1, retries: 1, retryableFailures: 1, retryAt: LATER + 61_000 });
+    await runToEnd(backfill, h.spare, LATER + 61_000);
+    expect(backfill.status()).toMatchObject({ state: 'done', batchesReplayed: 3 });
   });
   it('reserves at least every row it writes, in the live fold and in both backfill modes', async () => {
     const h = harness(), a = archive();
