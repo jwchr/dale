@@ -4,7 +4,7 @@ import type { Dataset } from '../src/domain/types';
 import { isServiceActive } from '../src/domain/schedule';
 import { validServiceDate, validVehicleId, LIVE_SOURCE, type LiveBusSnapshot } from '../src/domain/liveBus';
 import { authenticate, njtRequest, NjtError, RAW_RESPONSE_MAX_BYTES, safeNjtFailure, type Credentials } from './njt-client';
-import { reserveRequests, type RequestBudget } from './request-budget';
+import { NJT_REQUEST_LIMIT, reserveRequests, type RequestBudget } from './request-budget';
 import { RailGtfsrt, newRailGtfsrtState, type RailGtfsrtState } from './rail-gtfsrt';
 import { RailDataArchive, newRailDataState, type RailDataState } from './raildata-archive';
 import { BusDvArchive, busDvCoverageStatus, newBusDvState, type BusDvState } from './busdv-archive';
@@ -58,6 +58,8 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
   return class Feed {
     private saved: Saved = { transportVersion: 2, feedVersion: ds.meta.feedVersion, authAt: 0, pollAt: 0 };
     private pending?: Promise<void>;
+    /** The halfway positions work in flight; a regular poll's archive capture waits for it (Codex and CodeRabbit on #327). */
+    private midWork?: Promise<void>;
     private ready: Promise<void>;
     private ctx: State;
     private env: Env;
@@ -219,7 +221,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // alarm is only ever the history alarm (arm moves a ride's leftover alarm when rides change), as before.
       // A halfway wake (no ride, the history run not yet due) only saves bus positions: no flush, prune or folds.
       const half = collecting && rideAt === null && this.midPositionsDue(clock());
-      const collect = !half && collecting && (rideAt === null || !this.journal || this.historyAt === null || this.historyAt <= clock());
+      // With no ride, a wake before the history run is due (a late halfway wake) runs no history work either
+      // (CodeRabbit on #327); arm only ever sets the history alarm at or after that due time.
+      const collect = !half && collecting && (rideAt === null ? !this.historyNotDue(clock()) : !this.journal || this.historyAt === null || this.historyAt <= clock());
       try {
         if (half) {
           // With no ride the history time is recomputed from the journal, so a restart that read this
@@ -312,41 +316,50 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       try { if (this.journal.intervalMs(now) !== POLL_MS) return null; } catch { return null; }
       return pollAt + MID_POSITIONS_MS;
     }
+    private historyNotDue(now: number): boolean {
+      if (!this.journal) return false;
+      try { const due = this.journal.status(now).nextAttemptAt; return due !== null && due > now; } catch { return false; }
+    }
     private midPositionsDue(now: number): boolean {
       const at = this.midPositionsAt(now);
-      if (at === null || at > now) return false;
-      try { const due = this.journal!.status(now).nextAttemptAt; return due !== null && due > now; } catch { return false; }
+      return at !== null && at <= now && this.historyNotDue(now);
     }
     /**
      * One extra bus positions answer, saved raw only. It never logs in, never changes live buses, the
      * journal or the live failure status, and is tried once per poll whatever happens, so it cannot loop.
      */
     private async midPositions(): Promise<void> {
-      const now = clock(), saving = this.rawArchive, token = this.saved.token;
+      const now = clock(), saving = this.rawArchive, token = this.saved.token, pollAt = this.saved.pollAt;
       if (!saving || !this.rawSaving) return;
-      this.saved.midPollAt = this.saved.pollAt;
+      this.saved.midPollAt = pollAt;
       // A poll already running brings its own positions; extra data yields first under the archive's
       // budget pause, and the regular bus answers keep priority.
-      const open = !this.pending && !rawBudgetPausesRail(this.saved.rawArchive, now) && !!token && token.expiresAt > now;
-      const allowed = open && reserveRequests(this.saved.busBudget ??= { hours: {} }, 1, now);
-      // Persist the once-per-poll mark and the request count before I/O.
+      const open = !this.pending && !this.midWork && !rawBudgetPausesRail(this.saved.rawArchive, now) && !!token && token.expiresAt > now;
+      // Leaves room for the next regular poll's largest reservation (login plus both feeds), so the extra
+      // answer can never push live buses over the ceiling (CodeRabbit on #327).
+      const allowed = open && reserveRequests(this.saved.busBudget ??= { hours: {} }, 1, now, NJT_REQUEST_LIMIT - 3);
+      if (open && !allowed) saving.recordFailure('getVehiclePositions', 'request-ceiling', now);
+      // Persist the once-per-poll mark, the request count and any refusal before I/O.
       await this.ctx.storage.put('state-v1', this.saved);
-      if (!allowed) {
-        if (open) saving.recordFailure('getVehiclePositions', 'request-ceiling', now);
-        return;
-      }
-      const raw: RawResponse[] = [];
-      try {
-        const bytes = await njtRequest('getVehiclePositions', { token: token!.value }, RAW_RESPONSE_MAX_BYTES, fetchImpl), receivedAt = clock();
-        if (!regionRoutes) raw.push({ feed: 'getVehiclePositions', bytes, receivedAt });
-        else {
-          try { raw.push(await filterRegionRaw({ feed: 'getVehiclePositions', bytes, receivedAt }, regionRoutes)); }
-          catch { saving.recordFailure('getVehiclePositions', 'invalid-response', receivedAt); }
-        }
-      } catch (error) { saving.recordFailure('getVehiclePositions', safeNjtFailure(error), clock()); }
-      try { await saving.capture(raw, clock(), [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD, token!.value]); }
-      catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
-      await this.ctx.storage.put('state-v1', this.saved);
+      if (!allowed) return;
+      const work = (async () => {
+        const raw: RawResponse[] = [];
+        try {
+          // Ends before the next regular poll is due, so a slow answer never delays it (CodeRabbit on #327).
+          const timeout = Math.max(1_000, Math.min(15_000, pollAt + MID_POSITIONS_LATEST_MS - clock()));
+          const bytes = await njtRequest('getVehiclePositions', { token: token!.value }, RAW_RESPONSE_MAX_BYTES, fetchImpl, timeout), receivedAt = clock();
+          if (!regionRoutes) raw.push({ feed: 'getVehiclePositions', bytes, receivedAt });
+          else {
+            try { raw.push(await filterRegionRaw({ feed: 'getVehiclePositions', bytes, receivedAt }, regionRoutes)); }
+            catch { saving.recordFailure('getVehiclePositions', 'invalid-response', receivedAt); }
+          }
+        } catch (error) { saving.recordFailure('getVehiclePositions', safeNjtFailure(error), clock()); }
+        try { await saving.capture(raw, clock(), [this.env.NJT_API_USERNAME, this.env.NJT_API_PASSWORD, token!.value]); }
+        catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
+        await this.ctx.storage.put('state-v1', this.saved);
+      })();
+      this.midWork = work.finally(() => { this.midWork = undefined; });
+      await this.midWork;
     }
     private async refresh(): Promise<void> {
       const now = clock(); this.saved.pollAt = now;
@@ -486,6 +499,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
         }
       }
       if (this.rawArchive) {
+        // One capture at a time: live buses above never wait, only this archive step does, so a receipt
+        // the halfway answer is still uploading is never recovered twice (Codex and CodeRabbit on #327).
+        if (this.midWork) await this.midWork.catch(() => undefined);
         // Raw writes cannot interrupt live buses or normalized corridor evidence.
         try { await this.rawArchive.capture(raw, clock(), rawSecrets); }
         catch { this.saved.rawArchive!.reason = 'archive-error'; this.saved.rawArchive!.failures++; }
