@@ -488,7 +488,7 @@ describe('raw collection through the bus Worker', () => {
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
     return { ...h, poll, saved, urls, env, malformed: (feed: string) => { malformed = feed; }, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; }, echoSecret: () => { echo = true; },
-      restart: () => { object = new Feed(ctx, env); }, feed: () => object as unknown as { journal: { pruneVerified(now: number): void }; rawArchive: { capture(...a: unknown[]): Promise<void> } }, hang: () => { hang = true; }, holdNextPut: (gate: Promise<void>) => { heldPut = gate; }, alarm: async () => { await (object as unknown as { ready: Promise<void> }).ready; alarmAt = null; return object.alarm(); }, get alarmAt() { return alarmAt; }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
+      restart: () => { object = new Feed(ctx, env); }, feed: () => object as unknown as { journal: { pruneVerified(now: number): void }; rawArchive: { capture(...a: unknown[]): Promise<void> } }, hang: () => { hang = true; }, holdNextPut: (gate: Promise<void>) => { heldPut = gate; }, alarm: async () => { await (object as unknown as { ready: Promise<void> }).ready; alarmAt = null; return object.alarm(); }, get alarmAt() { return alarmAt; }, moveAlarm: (at: number) => { alarmAt = at; }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
   }
 
   it.each(['vehicle', 'tripUpdate'] as const)('filters %s bus entities and records original provenance', async kind => {
@@ -946,6 +946,14 @@ describe('raw collection through the bus Worker', () => {
       const object = h.feed() as unknown as { ready: Promise<void>; historyAt: number | null };
       await object.ready;
       expect(object.historyAt).not.toBe(NOW + 15_000);
+    });
+    it('a restart reads a late or clamped halfway alarm as halfway too, not as the history time (Neon Nov27 c)', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      h.moveAlarm(NOW + 16_500); h.time(NOW + 15_500);
+      h.restart();
+      const object = h.feed() as unknown as { ready: Promise<void>; historyAt: number | null };
+      await object.ready;
+      expect(object.historyAt).toBe(NOW + 30_000);
     });
     it('a restart that reads the halfway alarm never moves the history run early', async () => {
       const h = await service(true, false, true, null); await h.alarm();
