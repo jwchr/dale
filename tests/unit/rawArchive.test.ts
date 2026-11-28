@@ -152,6 +152,10 @@ describe('private as-received raw archives', () => {
     // A later unreadable bundle is shown again, next to the last per-answer counts and their own times.
     await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW + 2, bytes: enc({ v: 2 }) }], NOW + 2, []);
     expect(h.raw.status().records['busdv-poll']).toEqual({ at: NOW + 2, records: null });
+    expect(h.raw.status().records['busdv-poll/getVehicleLocations:BUS']).toEqual({ at: NOW + 1, records: 1, answers: 1, failed: 0 });
+    // A readable empty bundle clears them, so its 0 never sits beside an old number (Neon Nov27 b).
+    await h.raw.capture([{ feed: 'busdv-poll', receivedAt: NOW + 3, bytes: enc({ v: 1, responses: [] }) }], NOW + 3, []);
+    expect(h.raw.status().records).toEqual({ 'busdv-poll': { at: NOW + 3, records: 0 } });
   });
   it('tells a daily answer it was taken only once capture has it: saved, waiting for upload, or seen before (CodeRabbit, #324)', async () => {
     const h = await harness(), taken: string[] = [];
@@ -433,9 +437,9 @@ describe('raw collection through the bus Worker', () => {
     const h = await harness(); let now = NOW, railCalls = 0, busFailure = false, railFailure = false, authFailure = false;
     let oversized = '', large = '', malformed = '', echo = false, hang = false;
     const urls: string[] = [];
-    const saved = new Map<string, unknown>(); let alarmAt: number | null = null;
+    const saved = new Map<string, unknown>(); let alarmAt: number | null = null, heldPut: Promise<void> | undefined;
     const storage = { ...h.storage, get: async <T,>(key: string) => structuredClone(saved.get(key)) as T | undefined,
-      put: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)); },
+      put: async (key: string, value: unknown) => { const copy = structuredClone(value), gate = heldPut; heldPut = undefined; if (gate) await gate; saved.set(key, copy); },
       getAlarm: async () => alarmAt, setAlarm: async (at: number) => { alarmAt = at; }, deleteAlarm: async () => { alarmAt = null; } };
     const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
       urls.push(String(url));
@@ -484,7 +488,7 @@ describe('raw collection through the bus Worker', () => {
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
     return { ...h, poll, saved, urls, env, malformed: (feed: string) => { malformed = feed; }, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; }, echoSecret: () => { echo = true; },
-      restart: () => { object = new Feed(ctx, env); }, feed: () => object as unknown as { journal: { pruneVerified(now: number): void }; rawArchive: { capture(...a: unknown[]): Promise<void> } }, hang: () => { hang = true; }, alarm: async () => { await (object as unknown as { ready: Promise<void> }).ready; alarmAt = null; return object.alarm(); }, get alarmAt() { return alarmAt; }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
+      restart: () => { object = new Feed(ctx, env); }, feed: () => object as unknown as { journal: { pruneVerified(now: number): void }; rawArchive: { capture(...a: unknown[]): Promise<void> } }, hang: () => { hang = true; }, holdNextPut: (gate: Promise<void>) => { heldPut = gate; }, alarm: async () => { await (object as unknown as { ready: Promise<void> }).ready; alarmAt = null; return object.alarm(); }, get alarmAt() { return alarmAt; }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
   }
 
   it.each(['vehicle', 'tripUpdate'] as const)('filters %s bus entities and records original provenance', async kind => {
@@ -915,6 +919,33 @@ describe('raw collection through the bus Worker', () => {
       await new Promise(r => setTimeout(r, 20));
       release(); await Promise.all([mid, demand]);
       expect(most).toBe(1); expect(bus(h, 'getVehiclePositions')).toBe(3);
+    });
+    it('a poll that starts while the halfway answer is still writing its mark waits for it (Neon Nov27 b)', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      const archive = h.feed().rawArchive, original = archive.capture.bind(archive);
+      let active = 0, most = 0, releaseCapture!: () => void, releasePut!: () => void;
+      const capture = new Promise<void>(r => { releaseCapture = r; }), put = new Promise<void>(r => { releasePut = r; });
+      let first = true;
+      archive.capture = async (...a: unknown[]) => {
+        active++; most = Math.max(most, active);
+        try { if (first) { first = false; await capture; } return await original(...a); } finally { active--; }
+      };
+      h.holdNextPut(put);
+      h.time(NOW + 15_000); const mid = h.alarm();
+      await new Promise(r => setTimeout(r, 20));
+      h.time(NOW + 30_000); const demand = h.poll();
+      await new Promise(r => setTimeout(r, 20));
+      releasePut(); await new Promise(r => setTimeout(r, 20));
+      releaseCapture(); await Promise.all([mid, demand]);
+      expect(most).toBe(1); expect(bus(h, 'getVehiclePositions')).toBe(3);
+    });
+    it('a restart never takes the halfway alarm for the history time, so a ride cannot start history early (Neon Nov27 b)', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      expect(h.alarmAt).toBe(NOW + 15_000);
+      h.restart();
+      const object = h.feed() as unknown as { ready: Promise<void>; historyAt: number | null };
+      await object.ready;
+      expect(object.historyAt).not.toBe(NOW + 15_000);
     });
     it('a restart that reads the halfway alarm never moves the history run early', async () => {
       const h = await service(true, false, true, null); await h.alarm();

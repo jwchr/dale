@@ -125,6 +125,18 @@ describe('verified permanent private archive', () => {
     h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
     expect(rows()).toEqual([first]); expect(second).toBeDefined();
   });
+  it('steps over a batch whose receipt reads as JSON null instead of stopping cleanup (Neon Nov27 b)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first, second] = rows();
+    h.db.prepare('UPDATE dale_history_batches SET archive_receipt=? WHERE attempt=?').run('null', first!);
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toEqual([first]); expect(second).toBeDefined();
+  });
   it('steps over a batch whose schedule context is missing and still cleans up the verified ones after it (Neon Nov26 h)', async () => {
     const h = await harness();
     await h.archive.flush(NOW);
