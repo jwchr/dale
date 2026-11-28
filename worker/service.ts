@@ -144,9 +144,9 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
             }
             if (env.HISTORY_COLLECTION === 'enabled') {
               // A halfway bus positions alarm is not the history time, so a ride starting after a restart cannot
-              // run history 15 seconds early (Neon Nov27 b).
+              // run history 15 seconds early (Neon Nov27 b), even when the alarm was set late or moved by a clamp (Neon Nov27 c).
               const alarm = this.rideWake() === null ? await ctx.storage.getAlarm() : null;
-              this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null : alarm !== null && alarm === this.midPositionsAt(clock()) ? null : alarm;
+              this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null : this.halfwayAlarm(alarm, clock()) ? null : alarm;
             }
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
@@ -321,6 +321,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       if (!pollAt || this.saved.midPollAt === pollAt || now >= pollAt + MID_POSITIONS_LATEST_MS) return null;
       try { if (this.journal.intervalMs(now) !== POLL_MS) return null; } catch { return null; }
       return pollAt + MID_POSITIONS_MS;
+    }
+    /** Whether a stored alarm is the halfway answer's wake: before the next poll, at the normal pace, for a poll that has not had it. */
+    private halfwayAlarm(alarm: number | null, now: number): boolean {
+      const pollAt = this.saved.pollAt;
+      if (alarm === null || !pollAt || this.saved.midPollAt === pollAt || alarm <= pollAt || alarm >= pollAt + POLL_MS) return false;
+      try { return this.journal?.intervalMs(now) === POLL_MS; } catch { return false; }
     }
     private historyNotDue(now: number): boolean {
       if (!this.journal) return false;

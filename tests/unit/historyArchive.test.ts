@@ -149,6 +149,23 @@ describe('verified permanent private archive', () => {
     h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
     expect(rows()).toEqual([first]); expect(second).toBeDefined();
   });
+  it('keeps a batch whose receipt and schedule context both lack a manifest key (Neon Nov27 c)', async () => {
+    const h = await harness();
+    await h.archive.flush(NOW);
+    const feed = createNormalizer(ds)(binaryFeed([{ id: 'v', vehicle: vehicle() }]), 'vehicles', NOW + 60_000);
+    h.journal.complete(h.journal.beginAttempt(NOW + 60_000)!, feed, NOW + 60_000);
+    await h.archive.flush(NOW + 60_000);
+    const rows = () => h.db.prepare('SELECT attempt FROM dale_history_batches ORDER BY attempt').all().map(r => Number(r.attempt));
+    const [first] = rows();
+    const manifest = h.db.prepare('SELECT feed_version, body FROM dale_history_schedules WHERE part=-1').get() as { feed_version: string; body: string };
+    const meta = JSON.parse(manifest.body); delete meta.archiveReceipt.manifestKey;
+    h.db.prepare('UPDATE dale_history_schedules SET body=? WHERE part=-1 AND feed_version=?').run(JSON.stringify(meta), manifest.feed_version);
+    const receipt = JSON.parse(String((h.db.prepare('SELECT archive_receipt FROM dale_history_batches WHERE attempt=?').get(first!) as { archive_receipt: string }).archive_receipt));
+    delete receipt.contextManifestKey;
+    h.db.prepare('UPDATE dale_history_batches SET archive_receipt=?').run(JSON.stringify(receipt));
+    h.journal.pruneVerified(NOW + 60_000 + HISTORY_HOT_MS + 1);
+    expect(rows()).toContain(first);
+  });
   it('keeps archiving corridor history inside the reserve that statewide raw saving cannot use', async () => {
     const h = await harness();
     h.db.prepare('INSERT INTO dale_archive_meta(id,body) VALUES(1,?)').run(JSON.stringify({ v: 1, reservedBytes: 499_000_000_000, verifiedObjects: 0, failures: 0, reason: 'ready' }));

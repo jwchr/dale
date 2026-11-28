@@ -368,7 +368,7 @@ export class HistoryJournal {
           receipt = JSON.parse(String(row.archive_receipt)) as ArchiveReceipt;
           context = this.scheduleContext(String(row.context_key ?? row.feed_version)).receipt;
         } catch { continue; }
-        if (!(context && receipt?.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(String(receipt.rawSHA256)))) continue;
+        if (!(typeof context?.manifestKey === 'string' && receipt?.contextManifestKey === context.manifestKey && /^[a-f0-9]{64}$/.test(String(receipt?.rawSHA256)))) continue;
         pruned++;
         this.storage.sql.exec('DELETE FROM dale_history_batches WHERE attempt=?', Number(row.attempt));
         state.bytes -= Number(row.bytes); state.batches--; state.reservedWrites += 4;
