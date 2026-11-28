@@ -37,11 +37,11 @@ describe('household code', () => {
 describe('which ride to register', () => {
   it('needs a boarded rider, an exact locked vehicle and a stop further along the trip', () => {
     const s = boardedSession('bus-A');
-    const alight = s.departure.stopIndex + 1;
+    const alight = s.departure.stopIndex! + 1;
     expect(wantedRide(s, alight, 'en')).toEqual({ key: `${s.id}|bus-A|${alight}|en`, sessionId: s.id, trip: s.departure.tripId, date: s.departure.serviceDate,
-      vehicle: 'bus-A', board: s.departure.stopIndex, alight, lang: 'en' });
+      vehicle: 'bus-A', board: s.departure.stopIndex!, alight, lang: 'en' });
     expect(wantedRide(boardedSession(), alight, 'en')).toBeUndefined(); // no vehicle yet
-    expect(wantedRide(s, s.departure.stopIndex, 'en')).toBeUndefined();
+    expect(wantedRide(s, s.departure.stopIndex!, 'en')).toBeUndefined();
     expect(wantedRide(s, s.departure.pattern.stopIds.length, 'en')).toBeUndefined();
     expect(wantedRide({ ...s, phase: 'waiting' }, alight, 'en')).toBeUndefined();
     expect(wantedRide({ ...s, lock: { ...s.lock, status: 'cancelled' } }, alight, 'en')).toBeUndefined();
@@ -52,7 +52,7 @@ describe('which ride to register', () => {
 
   it('treats a language change as a different ride, so the server and the service worker get the new language', () => {
     const s = boardedSession('bus-A');
-    const alight = s.departure.stopIndex + 1;
+    const alight = s.departure.stopIndex! + 1;
     const en = wantedRide(s, alight, 'en')!, es = wantedRide(s, alight, 'es')!;
     expect(es.key).not.toBe(en.key);
     expect(es.lang).toBe('es');

@@ -1,8 +1,8 @@
 import { CONFIDENCE_ROUTES } from './arrivalConfidence';
-import { isServiceActive, tripArrivalAt, tripTimeAt } from './schedule';
+import { isServiceActive, lockableTrips, tripArrivalAt, tripTimeAt } from './schedule';
 import { addDays, localYmd } from './time';
 import { validServiceDate, type LivePrediction } from './liveBus';
-import type { Dataset, Pattern, Trip } from './types';
+import type { Dataset, Departure, Pattern, Trip } from './types';
 import { boardIndex, placeIndex, samePlace } from './place';
 
 export interface EarlierQuery { route: string; stop: string; direction: 0 | 1 }
@@ -148,4 +148,15 @@ export function parseEarlierAnswer(raw: unknown, query: EarlierQuery): EarlierAn
     || typeof a.gap !== 'boolean' || !Array.isArray(a.items) || a.items.length > 5
     || !a.items.every(i => i && i.route === query.route && i.direction === query.direction && (i.order === undefined || at(i.order)) && time(i.stop) && (i.portAuthority === null || time(i.portAuthority)))) return;
   return a;
+}
+
+/** A public Earlier row has no identity. Only one exact scheduled instant can supply a trip lock. */
+export function earlierBusTrip(ds: Dataset, row: EarlierBus, stopId: string, now: number): Departure | undefined {
+  const at = row.stop.scheduledAt;
+  if (at === null || !Number.isSafeInteger(at) || at <= 0) return;
+  const routeIds = ds.routes.filter(r => r.shortName === row.route).map(r => r.id);
+  if (!routeIds.length) return;
+  const matches = lockableTrips(ds, { stopId, routeIds, directionId: row.direction }, now)
+    .filter((d): d is Departure => d.stopIndex !== null && !d.estimated && d.departs === at);
+  return matches.length === 1 ? matches[0] : undefined;
 }

@@ -30,7 +30,7 @@ export interface WantedRide { key: string; sessionId: string; trip: string; date
 export function wantedRide(session: BusSession | undefined, alightIndex: number, lang: 'en' | 'es'): WantedRide | undefined {
   if (!session || session.phase !== 'onboard') return undefined;
   const { lock, departure: dep } = session;
-  if (!lock.vehicleId || lock.status === 'cancelled' || lock.status === 'ended') return undefined;
+  if (dep.stopIndex === null || !lock.vehicleId || lock.status === 'cancelled' || lock.status === 'ended') return undefined;
   if (!Number.isInteger(alightIndex) || alightIndex <= dep.stopIndex || alightIndex >= dep.pattern.stopIds.length) return undefined;
   return {
     key: `${session.id}|${lock.vehicleId}|${alightIndex}|${lang}`, sessionId: session.id,

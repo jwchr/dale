@@ -152,3 +152,6 @@ export interface Departure {
   /** Scheduled arrival at the pattern's last stop (epoch ms). */
   arrivesEnd: number;
 }
+
+/** A trip to follow anywhere. Without a boarding stop, `departs` is a timetable reference, never a boarding promise. */
+export type LockableDeparture = Omit<Departure, 'stopIndex'> & { stopIndex: number | null };

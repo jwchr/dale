@@ -2,9 +2,9 @@
 // observations, and a rider's explicit reports. A timer or phone location never creates a report.
 import { validDestinationArrival, type DestinationArrival } from './destinationArrival';
 import { createLock, reduceLock, type TripLock, type VehicleObservation } from './lock';
-import type { Departure, TripInstanceId } from './types';
+import type { Departure, LockableDeparture, TripInstanceId } from './types';
 
-export type RiderPhase = 'viewing' | 'waiting' | 'arrived' | 'onboard' | 'left' | 'ended';
+export type RiderPhase = 'viewing' | 'following' | 'passed' | 'waiting' | 'arrived' | 'onboard' | 'left' | 'ended';
 export type RiderReportKind = 'no_bus' | 'arrived' | 'boarded' | 'left' | 'passed_without_stopping' | 'capacity';
 /** A rider's own look at how full the bus was (issue #33). Not an official occupancy reading. */
 export type CapacityLevel = 'seats' | 'standing' | 'full';
@@ -33,8 +33,8 @@ export interface RiderReport {
 
 export interface BusSession {
   id: string;
-  /** The originally selected departure stays fixed, including date, direction and boarding stop. */
-  departure: Departure;
+  /** The exact trip/date stay fixed. Only choose_stop or follow can change the boarding stop. */
+  departure: LockableDeparture;
   lock: TripLock;
   phase: RiderPhase;
   waitingSince?: number;
@@ -59,14 +59,14 @@ export const MAX_POSITION_HISTORY = 120;
 /** A provisional report lifetime, to be calibrated on real rides; not an operational guarantee. */
 export const REPORT_TTL_MS = 10 * 60_000;
 
-export function createBusSession(dep: Departure, now: number, sessionId?: string): BusSession {
+export function createBusSession(dep: LockableDeparture, now: number, sessionId?: string): BusSession {
   return {
     // A caller creating shared sessions must supply a server-validated random identifier.
     // The deterministic fallback is sufficient for this device-local, pure domain layer.
     id: sessionId ?? `${dep.tripInstanceId}/${dep.stopIndex}/${now}`,
     departure: { ...dep, route: { ...dep.route }, pattern: { ...dep.pattern, stopIds: [...dep.pattern.stopIds] } },
     lock: createLock(dep.tripInstanceId, now),
-    phase: 'viewing',
+    phase: dep.stopIndex === null ? 'following' : 'viewing',
     lastActionAt: now,
     reports: [],
     history: [],
@@ -74,6 +74,8 @@ export function createBusSession(dep: Departure, now: number, sessionId?: string
 }
 
 export type BusSessionEvent =
+  | { type: 'choose_stop'; departure: Departure; now: number }
+  | { type: 'follow'; now: number }
   | { type: 'destination_arrival'; arrival: DestinationArrival; now: number }
   | { type: 'start_waiting' | Exclude<RiderReportKind, 'capacity'> | 'end' | 'tick' | 'confirm_pending' | 'reject_pending'; now: number }
   | { type: 'capacity'; level: CapacityLevel; now: number }
@@ -99,6 +101,7 @@ function historyWith(history: PositionRecord[], record: PositionRecord): Positio
 }
 
 function riderReport(s: BusSession, kind: RiderReportKind, now: number, phase: RiderPhase = s.phase, capacity?: CapacityLevel): BusSession {
+  if (s.departure.stopIndex === null) return s;
   const stopId = s.departure.pattern.stopIds[s.departure.stopIndex];
   if (!stopId) return s;
   const report: RiderReport = {
@@ -117,16 +120,45 @@ function riderReport(s: BusSession, kind: RiderReportKind, now: number, phase: R
   return { ...s, phase, lastActionAt: now, reports: [...reports, report] };
 }
 
+/** Only accepted official stop-sequence evidence says a chosen stop is behind the bus. */
+function passedPhase(s: BusSession): BusSession {
+  const dep = s.departure, last = s.lock.last, call = last?.stopCall;
+  if (!['viewing', 'waiting', 'arrived'].includes(s.phase) || dep.stopIndex === null || !last || !call
+    || call.status !== 'stopped_at' || !Number.isInteger(call.stopIndex) || call.stopIndex <= dep.stopIndex
+    || call.stopIndex >= dep.pattern.stopIds.length || typeof call.stopId !== 'string'
+    || dep.pattern.stopIds[call.stopIndex] !== call.stopId || last.tripInstanceId !== dep.tripInstanceId
+    || ['needs_confirmation', 'cancelled', 'ended'].includes(s.lock.status)
+    || !s.history.some(p => p.source === 'official' && p.vehicleId === last.vehicleId
+      && p.tripInstanceId === dep.tripInstanceId && p.observedAt === last.observedAt)) return s;
+  return { ...s, phase: 'passed' };
+}
+
 export function reduceBusSession(session: BusSession, event: BusSessionEvent): BusSession {
   if (isClosed(session)) return session;
   const now = event.type === 'observation' ? event.receivedAt : event.now;
   if (!finiteTime(now) || now < session.lock.lockedAt) return session;
 
   switch (event.type) {
+    case 'follow':
+      return ['viewing', 'waiting', 'passed'].includes(session.phase) && now >= session.lastActionAt
+        ? { ...session, departure: { ...session.departure, stopIndex: null }, phase: 'following', waitingSince: undefined, lastActionAt: now } : session;
+    case 'choose_stop': {
+      const dep = event.departure, old = session.departure;
+      // Supply the scheduled departure at the new stop, not the old stop's clock time.
+      if (!['viewing', 'waiting', 'following', 'passed'].includes(session.phase) || now < session.lastActionAt
+        || dep.tripInstanceId !== old.tripInstanceId || dep.tripId !== old.tripId || dep.serviceDate !== old.serviceDate
+        || dep.pattern.id !== old.pattern.id || dep.pattern.routeId !== old.pattern.routeId || dep.route.id !== old.route.id
+        || dep.pattern.directionId !== old.pattern.directionId || dep.pattern.stopIds.join() !== old.pattern.stopIds.join()
+        || !Number.isInteger(dep.stopIndex) || dep.stopIndex <= (old.stopIndex ?? -1) || dep.stopIndex >= old.pattern.stopIds.length - 1
+        || old.pattern.noPickup?.includes(dep.stopIndex) || dep.pattern.noPickup?.includes(dep.stopIndex)
+        || session.stopChanges?.indices.includes(dep.stopIndex) || !finiteTime(dep.departs) || dep.arrivesEnd !== old.arrivesEnd) return session;
+      const next = { ...old, stopIndex: dep.stopIndex, departs: dep.departs, estimated: dep.estimated };
+      return passedPhase({ ...session, departure: next, phase: 'waiting', waitingSince: now, lastActionAt: now });
+    }
     case 'destination_arrival': {
       const a = event.arrival, dep = session.departure;
-      return !session.destinationArrival && validDestinationArrival(a) && a.tripInstanceId === dep.tripInstanceId
-        && a.stopIndex > dep.stopIndex && dep.pattern.stopIds[a.stopIndex] === a.stopId && !dep.pattern.noDropOff?.includes(a.stopIndex)
+      return session.phase !== 'following' && !session.destinationArrival && validDestinationArrival(a) && a.tripInstanceId === dep.tripInstanceId
+        && a.stopIndex > (dep.stopIndex ?? -1) && dep.pattern.stopIds[a.stopIndex] === a.stopId && !dep.pattern.noDropOff?.includes(a.stopIndex)
         && a.recordedAt === now && a.at >= session.lock.lockedAt && a.at <= now && session.lock.status !== 'needs_confirmation'
         && session.lock.status !== 'cancelled' && (a.source !== 'rider' || session.phase === 'onboard')
         ? { ...session, destinationArrival: { ...a } } : session;
@@ -154,11 +186,11 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
       if (session.officialFeed && session.officialFeed.state !== 'ok' && lock.last && lock.status === 'tracked') lock = { ...lock, status: 'stale' };
       const accepted = lock.last === o;
       const pending = lock.pending === o;
-      return {
+      return passedPhase({
         ...session, lock, lastReceivedAt: now,
         history: accepted ? historyWith(session.history, record) : session.history,
         pendingPosition: pending ? record : session.pendingPosition,
-      };
+      });
     }
     case 'official_skips': {
       if (event.tripInstanceId !== session.departure.tripInstanceId || !finiteTime(event.observedAt) || event.observedAt > now) return session;
@@ -191,10 +223,10 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
       lock = reduceLock(lock, { type: 'tick', now });
       if (session.officialFeed && session.officialFeed.state !== 'ok' && lock.last && lock.status === 'tracked') lock = { ...lock, status: 'stale' };
       const record = session.pendingPosition;
-      return {
+      return passedPhase({
         ...session, lock, pendingPosition: undefined,
         history: record && lock.last === pending ? historyWith(session.history, record) : session.history,
-      };
+      });
     }
     case 'reject_pending': {
       let lock = reduceLock(session.lock, { type: 'reject_pending' });
@@ -204,10 +236,10 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
     }
     case 'start_waiting':
       return session.phase === 'viewing' && now >= session.lastActionAt
-        ? { ...session, phase: 'waiting', waitingSince: now, lastActionAt: now } : session;
+        ? passedPhase({ ...session, phase: 'waiting', waitingSince: now, lastActionAt: now }) : session;
     case 'no_bus':
       return session.phase === 'waiting' && session.waitingSince !== undefined
-        && !session.reports.some((r) => r.kind === 'passed_without_stopping')
+        && !session.reports.some((r) => r.kind === 'passed_without_stopping' && r.stopIndex === session.departure.stopIndex)
         && now >= session.departure.departs && now >= session.lastActionAt
         ? riderReport(session, 'no_bus', now) : session;
     case 'passed_without_stopping':
@@ -219,7 +251,7 @@ export function reduceBusSession(session: BusSession, event: BusSessionEvent): B
     case 'capacity': {
       // Only someone who saw the bus can say how full it was: after it arrived, on board, or as it passed by.
       const sawIt = session.phase === 'arrived' || session.phase === 'onboard'
-        || (session.phase === 'waiting' && session.reports.some((r) => r.kind === 'passed_without_stopping'));
+        || (session.phase === 'waiting' && session.reports.some((r) => r.kind === 'passed_without_stopping' && r.stopIndex === session.departure.stopIndex));
       return sawIt && ['seats', 'standing', 'full'].includes(event.level) && now >= session.lastActionAt
         ? riderReport(session, 'capacity', now, session.phase, event.level) : session;
     }
@@ -292,8 +324,8 @@ export function activeDownstreamReports(reports: readonly RiderReport[], tripIns
   for (const report of candidates) {
     // A pass-up is an explicit sighting. This observer cannot subsequently claim this
     // same departure has never been seen; keep the pass-up instead of changing its meaning.
-    if (report.kind === 'no_bus' && relevant.some((other) => other.sessionId === report.sessionId
-      && other.kind === 'passed_without_stopping')) continue;
+    if (report.kind === 'no_bus' && relevant.some((other) => other.sessionId === report.sessionId && other.stopIndex === report.stopIndex
+      && other.stopId === report.stopId && other.kind === 'passed_without_stopping')) continue;
     if (report.kind === 'no_bus' && relevant.some((other) => other.stopId === report.stopId && other.stopIndex === report.stopIndex
       && (other.kind === 'arrived' || other.kind === 'boarded' || other.kind === 'passed_without_stopping') && other.reportedAt >= report.reportedAt)) continue;
     // The most recent check-in for a session is one report, regardless of repeated taps.

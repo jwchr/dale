@@ -61,7 +61,7 @@ export function RideMode({ routeDistance, ds, session, alightIndex, now, t, lang
   const bilingual = useBilingualButtons().enabled;
   const lockedAlerts = useLockedAlertsView().enabled;
   const r = t.ride;
-  const dep = session.departure;
+  const dep = { ...session.departure, stopIndex: session.departure.stopIndex ?? 0 };
   const stopName = (id: string) => ds.stops.find((s) => s.id === id)?.name ?? id;
   const clock = (at: number) => formatTime12(at, ds.meta.timezone, lang);
   const [prefs, setPrefs] = useState(readPrefs);

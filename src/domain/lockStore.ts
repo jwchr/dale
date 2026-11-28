@@ -77,10 +77,12 @@ function validFor<L>(ds: Dataset, s: SavedLock<L>, now: number): boolean {
   if (!optionalTime(session.waitingSince) || !optionalTime(session.lastReceivedAt)
     || (session.phase === 'waiting' && session.waitingSince === undefined)
     || !Number.isFinite(session.lock.lockedAt) || (session.lock.vehicleId !== undefined && typeof session.lock.vehicleId !== 'string')) return false;
+  // This commute-resume format requires a boarding stop; stop-less following has no commute leg.
+  // A passed lock keeps its original stop and can resume for comparisons.
   // Same trip, same pattern, same boarding stop as the schedule now loaded.
   if (!Array.isArray(dep.pattern?.stopIds) || !dep.pattern.stopIds.every((id) => typeof id === 'string')) return false;
   if (!Number.isInteger(dep.stopIndex) || !/^\d{8}$/.test(dep.serviceDate) || dep.tripInstanceId !== `${dep.tripId}@${dep.serviceDate}`) return false;
-  if (!['viewing', 'waiting', 'arrived', 'onboard'].includes(session.phase) || session.lock.tripInstanceId !== dep.tripInstanceId) return false;
+  if (!['viewing', 'waiting', 'passed', 'arrived', 'onboard'].includes(session.phase) || session.lock.tripInstanceId !== dep.tripInstanceId) return false;
   if (!['scheduled_only', 'tracked', 'stale', 'vanished', 'needs_confirmation', 'cancelled'].includes(session.lock.status)) return false;
   const position = (p: NonNullable<BusSession['lock']['last']>) => p && typeof p.vehicleId === 'string' && typeof p.tripInstanceId === 'string'
     && (p.stopCall === undefined || (p.stopCall.status === 'stopped_at' && Number.isInteger(p.stopCall.stopIndex) && p.stopCall.stopIndex >= 0 && typeof p.stopCall.stopId === 'string'))

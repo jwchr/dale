@@ -29,7 +29,7 @@ describe('Bus Lock waiting evidence', () => {
   it('keeps the exact scheduled instance and boarding stop, distinct from the next day', () => {
     const s = make();
     expect(s.departure.tripInstanceId).toBe(dep.tripInstanceId);
-    expect(s.departure.pattern.stopIds[s.departure.stopIndex]).toBe('B');
+    expect(s.departure.pattern.stopIds[s.departure.stopIndex!]).toBe('B');
     expect(position(s, obs(START, 'synthetic-bus-A', 'synthetic-trip@20261105'))).toBe(s);
     expect(s.history).toEqual([]);
   });
