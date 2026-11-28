@@ -220,7 +220,32 @@ describe('BUSDV2 private raw archive', () => {
     h.time(NOW + HOUR); const r = result(await h.run());
     expect(h.calls.filter(c => c.method === 'getLocations' && c.fields.mode === 'BUS')).toHaveLength(2);
     expect(h.state.locations).toEqual(['S001']);
-    expect(r.responses.filter(v => String(v.feed) === 'busdv-getLocations').map(v => v.label)).toEqual(['BUS']);
+    // An empty light rail list is malformed too, so those lines are asked again in an hour as well.
+    expect(r.responses.filter(v => String(v.feed) === 'busdv-getLocations').map(v => v.label)).toEqual(['BUS', 'NLR', 'HBLR', 'RL']);
+  });
+
+  // Jeff, Nov 28, 2026: "do the light rail boards". Synthetic station codes only.
+  it('adds each light rail line\'s stations to the boards, after the bus boards', async () => {
+    const h = harness();
+    h.answers.getLocations = c => Response.json(({ BUS: ['B2', 'B1'], NLR: ['N1', 'B1'], HBLR: ['H1'], RL: ['R1'] } as Record<string, string[]>)[String(c.fields.mode)]!
+      .map((code: string) => ({ bus_terminal_code: code })));
+    result(await h.run());
+    expect(h.state.locations).toEqual(['B1', 'B2']);
+    expect(h.state.railLocations).toEqual({ NLR: ['B1', 'N1'], HBLR: ['H1'], RL: ['R1'] });
+    // The first poll had only the default PABT board; from then on the lists drive the boards.
+    for (let n = 1; n <= 40; n++) { h.time(NOW + n * HISTORY_INTERVAL_MS); result(await h.run()); }
+    const asked = h.calls.filter(c => c.method === 'getBusDV' && c.at > NOW).map(c => c.fields.stop!);
+    expect(asked.slice(0, 5)).toEqual(['B1', 'B2', 'N1', 'H1', 'R1']);
+  });
+
+  it('keeps a light rail line\'s last good station list when its daily answer is bad', async () => {
+    const h = harness(); h.state.railLocations = { HBLR: ['H1', 'H2'] };
+    h.answers.getLocations = c => c.fields.mode === 'HBLR' ? Response.json([{ bus_terminal_code: 7 }]) : Response.json([{ bus_terminal_code: 'X1' }]);
+    const r = result(await h.run());
+    expect(h.state.railLocations).toEqual({ HBLR: ['H1', 'H2'], NLR: ['X1'], RL: ['X1'] });
+    expect(r.failures).toContainEqual(expect.objectContaining({ feed: 'busdv-getLocations', mode: 'HBLR', code: 'invalid-response' }));
+    expect(h.state.ok['getLocations:HBLR']).toBeUndefined();
+    expect(h.state.ok['getLocations:NLR']).toBe(NOW);
   });
 
   it.each([{ errorMessage: 'Authentication failed' }, { error: 'Invalid token' }, 'Invalid token'])('refuses a small JSON error envelope %j', async envelope => {

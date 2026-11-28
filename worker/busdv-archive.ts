@@ -33,6 +33,8 @@ const failureCode = (error: unknown): BusDvFailureCode => error instanceof NjtEr
 
 export interface BusDvState {
   budget: RequestBudget; cursor: number; locations?: string[];
+  /** Light rail stations from each mode's daily getLocations list (Jeff, Nov 28, 2026: "do the light rail boards"). */
+  railLocations?: Partial<Record<Exclude<Mode, 'BUS'>, string[]>>;
   tried: Partial<Record<DailyKey, number>>; ok: Partial<Record<DailyKey, number>>;
   lastPollAt?: number; boardFraction: number; mints: number[]; pauseUntil?: number;
   /** Private caller checkpoint only. Never pass this state to the raw archive or a public endpoint. */
@@ -274,7 +276,9 @@ export class BusDvArchive {
     const boardShare = Math.max(0, remaining - futureVehicles - futureDaily - futureTrips - 3);
     const spacing = Math.min(45_000, Math.max(HISTORY_INTERVAL_MS, now - (s.lastPollAt ?? now - HISTORY_INTERVAL_MS)));
     const credit = boardShare * spacing / horizon + s.boardFraction;
-    const locations = s.locations?.length ? s.locations : ['PABT'];
+    // Bus boards first, then each light rail line's stations; one mode's bad list keeps its last good one.
+    const locations = [...new Set([...(s.locations?.length ? s.locations : ['PABT']),
+      ...VEHICLE_MODES.flatMap(mode => mode === 'BUS' ? [] : s.railLocations?.[mode] ?? [])])];
     const boardCount = Math.min(locations.length, Math.ceil(locations.length * spacing / BOARD_TARGET_MS),
       Math.floor(credit), remaining - mandatory);
     const cursor = s.cursor % locations.length;
@@ -377,13 +381,13 @@ export class BusDvArchive {
             const response: LocalResponse = { feed: `busdv-${r.method}`, label: r.mode!, bytes, receivedAt };
             responses.push(response);
             let valid = true;
-            if (r.method === 'getLocations' && r.mode === 'BUS') {
-              const codes = busDvLocationCodes(bytes);
-              if (codes) s.locations = codes;
-              else {
+            if (r.method === 'getLocations') {
+              const codes = busDvLocationCodes(bytes), mode = r.mode!;
+              if (!codes) {
                 valid = false;
-                failures.push({ feed: 'busdv-getLocations', mode: 'BUS', code: 'invalid-response', at: receivedAt });
-              }
+                failures.push({ feed: 'busdv-getLocations', mode, code: 'invalid-response', at: receivedAt });
+              } else if (mode === 'BUS') s.locations = codes;
+              else (s.railLocations ??= {})[mode] = codes;
             }
             // Done only once the raw archive has the answer, so one it could not take is asked again in an
             // hour (CodeRabbit, #324; see RawResponse.onAccepted).
