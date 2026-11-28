@@ -5,11 +5,13 @@ import { tripInstanceId, type Dataset, type Pattern } from '../src/domain/types'
 import type { VehicleObservation } from '../src/domain/lock';
 import { resolveOmittedDate } from './service-date';
 type Descriptor = bindings.transit_realtime.ITripDescriptor;
-export interface NormalizedUpdate { tripInstanceId: string; observedAt: number; cancelled: boolean; predictions: LivePrediction[]; skippedStops: number[] }
+export interface NormalizedUpdate { tripInstanceId: string; observedAt: number; sourceAt?: number; cancelled: boolean; predictions: LivePrediction[]; skippedStops: number[] }
 export interface FeedDiagnostics { entities: number; knownTrips: number; corridorRoutes: number; missingServiceDates: number; missingObservationTimes: number }
 export interface VehiclePresence { vehicleId: string; tripId?: string; tripInstanceId?: string; routeId?: string; observedAt?: number; qualification: 'unmatched' | 'invalid-position-or-time' | 'unsupported-service' | 'stale' | 'matched' }
 export interface NormalizedFeed { presence?: VehiclePresence[]; unresolvedDateTrips?: string[]; diagnostics?: FeedDiagnostics; feed: LiveFeed; observations: VehicleObservation[]; updates: NormalizedUpdate[] }
 const seconds = (v: unknown) => { const n = Number(v), ms = n * 1000; return Number.isSafeInteger(n) && n > 0 && Number.isSafeInteger(ms) && Number.isFinite(new Date(ms).getTime()) ? ms : undefined; };
+/** How far ahead of this Worker's clock an NJ Transit time may be and still count (the rider app allows the same 30 s). */
+export const CLOCK_SKEW_MS = 30_000;
 
 export function createNormalizer(ds: Dataset) {
   const trips = new Map(ds.trips.map((t) => [t.id, t])), patterns = new Map(ds.patterns.map((p) => [p.id, p]));
@@ -33,11 +35,15 @@ export function createNormalizer(ds: Dataset) {
     // Ambiguous/malformed dates and added/duplicated/unscheduled trips remain unknown.
     return { id: tripInstanceId(trip.id, date), pattern, dated: explicit };
   }
+  /** A time a little ahead of this Worker's clock is clock skew, read as now; further ahead stays rejected
+   *  (Neon DEEP Nov 26: 1 ms ahead dropped the whole feed). Never later than now, so it never looks newer. */
+  const skewed = (at: number | undefined, now: number) => at !== undefined && at > now && at <= now + CLOCK_SKEW_MS ? now : at;
   return function normalize(bytes: Uint8Array, kind: 'vehicles' | 'updates', now: number): NormalizedFeed {
     const empty: NormalizedFeed = { feed: { state: 'invalid' }, observations: [], updates: [] };
     try {
-      const data = bindings.transit_realtime.FeedMessage.decode(bytes), at = seconds(data.header.timestamp);
-      if (!at || at > now || data.header.incrementality === 1) return empty;
+      const data = bindings.transit_realtime.FeedMessage.decode(bytes), sent = seconds(data.header.timestamp);
+      if (!sent || sent > now + CLOCK_SKEW_MS || data.header.incrementality === 1) return empty;
+      const at = Math.min(sent, now);
       const diagnostics: FeedDiagnostics = { entities: data.entity.length, knownTrips: 0, corridorRoutes: 0, missingServiceDates: 0, missingObservationTimes: 0 };
       const feedRoutes = new Set(ds.routes.map((r) => r.feedRouteId ?? r.id));
       const output: NormalizedFeed = { ...(kind === 'vehicles' ? { presence: [] } : {}), unresolvedDateTrips: [], diagnostics, feed: { state: now - at > LIVE_MAX_AGE_MS ? 'stale' : 'ok', timestamp: at }, observations: [], updates: [] };
@@ -48,13 +54,16 @@ export function createNormalizer(ds: Dataset) {
           if (feedRoutes.has(report.trip.routeId ?? '')) diagnostics.corridorRoutes++;
           if (trips.has(report.trip.tripId ?? '')) {
             diagnostics.knownTrips++;
-            if (!report.trip.startDate && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, seconds(report.timestamp)) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
+            const reportedAt = skewed(seconds(report.timestamp), now);
+            // A timestamped report too old to count as live says nothing about today's trip, so it never hides fresh GPS as date-unknown (CodeRabbit, #323).
+            const stale = reportedAt !== undefined && now - reportedAt > LIVE_MAX_AGE_MS;
+            if (!report.trip.startDate && !stale && !resolveOmittedDate(ds, trips.get(report.trip.tripId!)!, reportedAt) && !output.unresolvedDateTrips!.includes(report.trip.tripId!)) output.unresolvedDateTrips!.push(report.trip.tripId!);
             if (!report.trip.startDate) diagnostics.missingServiceDates++;
             if (!seconds(report.timestamp)) diagnostics.missingObservationTimes++;
           }
         }
         if (kind === 'vehicles' && entity.vehicle) {
-          const vehicle = entity.vehicle, observedAt = seconds(vehicle.timestamp), match = identify(vehicle.trip, observedAt), pos = vehicle.position;
+          const vehicle = entity.vehicle, sourceAt = seconds(vehicle.timestamp), observedAt = skewed(sourceAt, now), match = identify(vehicle.trip, observedAt), pos = vehicle.position;
           let presence: VehiclePresence | undefined;
           // Corridor-only timestamp census preserves unchanged/rejected presence
           // for cadence analysis, without storing any systemwide coordinates.
@@ -62,7 +71,8 @@ export function createNormalizer(ds: Dataset) {
             presence = { vehicleId: vehicle.vehicle.id, ...(vehicle.trip?.tripId && vehicle.trip.tripId.length <= 256 ? { tripId: vehicle.trip.tripId } : {}),
               ...(match ? { tripInstanceId: match.id } : {}),
               ...(feedRoutes.has(vehicle.trip?.routeId ?? '') ? { routeId: vehicle.trip!.routeId! } : {}),
-              ...(observedAt !== undefined ? { observedAt } : {}), qualification: match ? 'invalid-position-or-time' : 'unmatched' };
+              // The census keeps NJ Transit's own clock, so cadence counts an unchanged or early clock as it is (Codex, CodeRabbit #323).
+              ...(sourceAt !== undefined ? { observedAt: sourceAt } : {}), qualification: match ? 'invalid-position-or-time' : 'unmatched' };
             output.presence!.push(presence);
           }
           if (presence && (vehicle.trip?.scheduleRelationship ?? 0) !== 0) presence.qualification = 'unsupported-service';
@@ -76,17 +86,17 @@ export function createNormalizer(ds: Dataset) {
           const stopCall = Object.hasOwn(vehicle, 'currentStatus') && vehicle.currentStatus === 1 && index !== undefined
             && (!!vehicle.stopId || Object.hasOwn(vehicle, 'currentStopSequence'))
             ? { stopId: match.pattern.stopIds[index]!, stopIndex: index, status: 'stopped_at' as const } : undefined;
-          output.observations.push({ tripInstanceId: match.id, vehicleId: vehicle.vehicle.id, observedAt, lat: pos.latitude, lon: pos.longitude, ...(stopCall ? { stopCall } : {}) });
+          output.observations.push({ tripInstanceId: match.id, vehicleId: vehicle.vehicle.id, observedAt, ...(sourceAt !== observedAt ? { sourceAt } : {}), lat: pos.latitude, lon: pos.longitude, ...(stopCall ? { stopCall } : {}) });
         }
         if (kind === 'updates' && entity.tripUpdate) {
-          const update = entity.tripUpdate, observedAt = seconds(update.timestamp), match = identify(update.trip, observedAt);
+          const update = entity.tripUpdate, sourceAt = seconds(update.timestamp), observedAt = skewed(sourceAt, now), match = identify(update.trip, observedAt);
           if (!match || !observedAt || observedAt > now || ![0, 3].includes(update.trip.scheduleRelationship ?? 0)) continue;
           // A cancellation can be posted long before its trip, so its timestamp does not prove the day: only NJ Transit's own date counts.
           if (update.trip.scheduleRelationship === 3 && !match.dated) {
             if (!output.unresolvedDateTrips!.includes(update.trip.tripId!)) output.unresolvedDateTrips!.push(update.trip.tripId!);
             continue;
           }
-          const normalized: NormalizedUpdate = { tripInstanceId: match.id, observedAt, cancelled: update.trip.scheduleRelationship === 3, predictions: [], skippedStops: [] };
+          const normalized: NormalizedUpdate = { tripInstanceId: match.id, observedAt, ...(sourceAt !== observedAt ? { sourceAt } : {}), cancelled: update.trip.scheduleRelationship === 3, predictions: [], skippedStops: [] };
           for (const stop of update.stopTimeUpdate ?? []) {
             const candidates = match.pattern.stopIds.flatMap((id, i) => (!stop.stopId || stop.stopId === id)
               && (!Object.hasOwn(stop, 'stopSequence') || stop.stopSequence === match.pattern.stopSequences?.[i]) ? [i] : []);

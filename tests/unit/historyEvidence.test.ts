@@ -15,6 +15,37 @@ describe('private history evidence selection', () => {
     expect(result.records[0]!.observation.stopCall).toBeUndefined();
     expect(result.records[0]).not.toHaveProperty('arrival');
   });
+  it('saves a report stamped ahead of the clock once, at the clock time it was first seen (Codex, CodeRabbit #323)', () => {
+    const feedAt = (now: number) => normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 }), 'vehicles', now);
+    const first = select(feedAt(NOW), NOW);
+    expect(first.records.map(r => r.observation.observedAt)).toEqual([NOW]);
+    expect(first.early).toBe(1);
+    // NJ Transit's own time stays on the saved record, so a reader can tell it from the clock time (CodeRabbit #323).
+    expect(first.records[0]!.observation.sourceAt).toBe(NOW + 25_000);
+    const second = select(feedAt(NOW + 15_000), NOW + 15_000, JSON.parse(JSON.stringify(first.watermarks)));
+    // Counted only when saved: a report seen before is not early again (Neon Nov27 b).
+    expect(second).toMatchObject({ records: [], duplicates: 1, conflicts: 0, early: 0 });
+    expect(select(feedAt(NOW + 30_000), NOW + 30_000, second.watermarks)).toMatchObject({ records: [], duplicates: 1, conflicts: 0 });
+  });
+  it('saves two reports from one poll in NJ Transit time order, so the early one is not saved again (Neon Nov27 b)', () => {
+    const feed = normalize(binaryFeed([{ id: 'early', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }, { id: 'now', vehicle: vehicle({ timestamp: NOW / 1000 }) }],
+      { timestamp: NOW / 1000 }), 'vehicles', NOW);
+    const first = select(feed, NOW);
+    expect(first.records).toHaveLength(2); expect(first.early).toBe(1);
+    expect(Object.values(first.watermarks).map(mark => mark.observedAt)).toEqual([NOW + 25_000]);
+    const again = normalize(binaryFeed([{ id: 'early', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 + 15 }), 'vehicles', NOW + 15_000);
+    expect(select(again, NOW + 15_000, first.watermarks)).toMatchObject({ records: [], duplicates: 1 });
+  });
+  it('keeps every report from a bus whose clock runs steadily ahead (Neon Nov27 a)', () => {
+    // NJ Transit stamps each new position 20 seconds ahead of the Worker, and the bus moves on every 15 seconds.
+    let marks = {}; const saved: number[] = [];
+    for (const step of [0, 15_000, 30_000]) {
+      const feed = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: (NOW + step + 20_000) / 1000 }) }], { timestamp: (NOW + step) / 1000 }), 'vehicles', NOW + step);
+      const result = select(feed, NOW + step, marks);
+      saved.push(...result.records.map(r => r.observation.observedAt)); marks = result.watermarks;
+    }
+    expect(saved).toEqual([NOW, NOW + 15_000, NOW + 30_000]);
+  });
   it('deduplicates a repeated normalized report across a persisted checkpoint and records a later report', () => {
     const first = select(sample(), NOW);
     const again = select(sample(), NOW + 30_000, JSON.parse(JSON.stringify(first.watermarks)));
@@ -52,6 +83,13 @@ describe('private history evidence selection', () => {
       { tripInstanceId: 'T1@20261107' }, { lat: 91 }, { lon: undefined }]) {
       const feed = sample(); Object.assign(feed.observations[0]!, patch);
       const result = select(feed, NOW); expect(result.records).toEqual([]); expect(result.rejected).toBe(1);
+    }
+  });
+  it('rejects a report whose NJ Transit time is broken, not ahead of its clock time, or too far ahead (Neon Nov27 c)', () => {
+    for (const sourceAt of [NOW + 0.5, NOW - 1000, NOW + 31_000]) {
+      const feed = normalize(binaryFeed([{ id: 'v', vehicle: vehicle({ timestamp: NOW / 1000 + 25 }) }], { timestamp: NOW / 1000 }), 'vehicles', NOW);
+      feed.observations[0]!.sourceAt = sourceAt;
+      expect(select(feed, NOW)).toMatchObject({ records: [], rejected: 1 });
     }
   });
   it('rejects conflicting same-time bus positions rather than selecting whichever is last', () => {

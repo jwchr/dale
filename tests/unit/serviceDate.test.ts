@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createNormalizer } from '../../worker/normalize';
 import { resolveOmittedDate, OMITTED_DATE_MARGIN_MS } from '../../worker/service-date';
 import type { Dataset } from '../../src/domain/types';
-import { parseLiveSnapshot, LIVE_SOURCE } from '../../src/domain/liveBus';
+import { parseLiveSnapshot, LIVE_SOURCE, LIVE_MAX_AGE_MS } from '../../src/domain/liveBus';
 import { serviceTimeToInstant } from '../../src/domain/time';
 import { liveDataset, NOW, binaryFeed, descriptor, vehicle, update } from '../helpers/liveBus';
 
@@ -44,6 +44,13 @@ describe('omitted service date from the report timestamp', () => {
     expect(resolveOmittedDate(ds, trip, arrivalEnd + 1000)).toBeUndefined();
     trip.arrivals = [7 * 3600, 7 * 3600 + 1200, null];
     expect(resolveOmittedDate(ds, trip, at('20261104', 8 * 3600) + OMITTED_DATE_MARGIN_MS)).toBe('20261104');
+  });
+  it('a timestamped report too old to be live never marks the trip date-unknown (CodeRabbit, #323)', () => {
+    const outside = at('20261104', 7 * 3600) - OMITTED_DATE_MARGIN_MS - 1000;
+    const stale = createNormalizer(liveDataset)(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: undated, timestamp: outside / 1000 }) }], { timestamp: outside / 1000 + 5 }), 'vehicles', outside + LIVE_MAX_AGE_MS + 1000);
+    expect(stale.observations).toEqual([]);
+    expect(stale.unresolvedDateTrips).toEqual([]);
+    expect(reportAt(liveDataset, 'T1', outside).unresolvedDateTrips).toEqual(['T1']);
   });
   it('never uses receipt time, and a report without its own timestamp stays unknown', () => {
     const v = createNormalizer(liveDataset)(binaryFeed([{ id: 'v', vehicle: vehicle({ trip: undated, timestamp: undefined }) }]), 'vehicles', NOW);

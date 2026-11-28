@@ -9,6 +9,8 @@ export interface VehicleObservation {
   vehicleId: string;
   /** When the vehicle reported this position (not when we received it). */
   observedAt: number;
+  /** NJ Transit's own time, only when it was up to 30 s ahead of the Worker's clock and observedAt reads it as now. */
+  sourceAt?: number;
   lat: number;
   lon: number;
   /** Explicit official stop status, only when the stop selector is unambiguous. */

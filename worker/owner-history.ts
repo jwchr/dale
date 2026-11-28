@@ -45,7 +45,7 @@ export function corridorHistory(raw: unknown) {
     records: records.filter(r => ['163', '164', '165', '165T'].includes(String(object(r).route))).map(r => {
       const row = object(r), observation = object(row.observation);
       return { ...pick(row, ['source', 'feedVersion', 'generatedAt', 'receivedAt', 'route', 'direction', 'serviceDate']),
-        observation: { ...pick(observation, ['tripInstanceId', 'vehicleId', 'observedAt', 'lat', 'lon']),
+        observation: { ...pick(observation, ['tripInstanceId', 'vehicleId', 'observedAt', 'sourceAt', 'lat', 'lon']),
           ...(observation.stopCall ? { stopCall: pick(observation.stopCall, ['status', 'stopIndex', 'stopId']) } : {}) } };
     }) };
 }

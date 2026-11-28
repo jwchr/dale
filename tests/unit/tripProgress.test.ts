@@ -26,6 +26,15 @@ describe('trip progress while riding (owner request 2026-11-04)', () => {
     expect(p.alight.projected).toBeUndefined();
   });
 
+  it('an expired GPS stop never hides a rider tap that is still good (Neon DEEP Nov 26, C1-5)', () => {
+    // Tap at stop 2, then a bus GPS stop 3 a minute later; 5 minutes after the tap the GPS one is past its 2 minutes.
+    const now = T0 + 29 * MIN;
+    const p = tripProgress({ ...base, now, milestones: [{ index: 2, at: T0 + 24 * MIN, source: 'tap' }, { index: 3, at: T0 + 25 * MIN, source: 'bus_gps' }] });
+    expect(p).toMatchObject({ basis: 'tap', delayMin: 4, reachedIndex: 3 });
+    // The bus never shows behind stop 3, which GPS already confirmed (Neon Nov26 h).
+    expect(p.position).toBeGreaterThanOrEqual(3);
+    expect(p.position).toBeLessThan(4);
+  });
   it('a tap at a stop gives the delay and carries the bus forward at that pace', () => {
     // Reached stop 2 at 12:24, scheduled 12:20: 4 min behind.
     const now = T0 + 26 * MIN;

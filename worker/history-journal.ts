@@ -11,11 +11,11 @@ export const HISTORY_INTERVAL_MS = 30_000;
 const MAX_BATCH_BYTES = 128_000, MAX_JOURNAL_BYTES = 250_000_000, MAX_DATABASE_BYTES = 500_000_000;
 // Conservative per-attempt reservation covers journal insert/metadata,
 // existing relay cache writes, authentication rollover and one alarm reschedule.
-// 90,000 of Cloudflare Free's 100,000 SQL rows written a day: the last 10,000 cover writes this counter does
-// not see (alarms, small state saves). Statewide raw saving gets its own share of each interval, RAW_LANE, which
+// 1,000,000 SQL rows written a day on Workers Paid (D85; 31 days is 31 million, inside the 50 million included
+// a month). Writes this counter does not see (alarms, small state saves) also count toward the account. Statewide raw saving gets its own share of each interval, RAW_LANE, which
 // other optional work must leave free (Jeff, Nov 26, 2026, P0: "Nothing is more important than getting this data
 // saved"; raw saving had been squeezed out of the 75,000 cap from about 8:50 AM ET).
-const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6;
+const WRITE_RESERVATION = 12, DAILY_WRITE_BUDGET = 1_000_000, RAW_LANE = 6, ARCHIVE_PASS_WRITES = 8 + 8 + 2;
 export const HISTORY_HOT_MS = 6 * 3600_000;
 export interface ArchiveReceipt { key: string; manifestKey: string; rawSHA256: string; gzipSHA256: string; rawBytes: number; gzipBytes: number; contextManifestKey?: string }
 export async function historyContextKey(ds: Dataset) {
@@ -213,7 +213,7 @@ export class HistoryJournal {
       const tripChanges = updates?.feed.state === 'ok' && updates.feed.timestamp !== undefined
         && updates.feed.timestamp <= receivedAt && receivedAt - updates.feed.timestamp <= LIVE_MAX_AGE_MS
         ? updates.updates.filter(u => u.observedAt <= receivedAt && receivedAt - u.observedAt <= LIVE_MAX_AGE_MS)
-          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, cancelled: u.cancelled, skippedStops: [...u.skippedStops], ...(this.keepPredictions ? { predictions: u.predictions.map(p => ({ stopIndex: p.stopIndex, at: p.at, observedAt: p.observedAt, kind: p.kind })) } : {}) })) : [];
+          .map(u => ({ tripInstanceId: u.tripInstanceId, observedAt: u.observedAt, ...(u.sourceAt !== undefined ? { sourceAt: u.sourceAt } : {}), cancelled: u.cancelled, skippedStops: [...u.skippedStops], ...(this.keepPredictions ? { predictions: u.predictions.map(p => ({ stopIndex: p.stopIndex, at: p.at, observedAt: p.observedAt, kind: p.kind })) } : {}) })) : [];
       let records = selected.records;
       const census = (feed.presence ?? []).map(p => ({ vehicleId: p.vehicleId, tripId: p.tripId, tripInstanceId: p.tripInstanceId, routeId: p.routeId,
         observedAt: p.observedAt, qualification: p.qualification }));
@@ -292,12 +292,14 @@ export class HistoryJournal {
       state.reservedWrites += units; this.write(state); return true;
     });
   }
-  canCatchUpArchive(now: number) {
+  canCatchUpArchive(now: number, passWrites = ARCHIVE_PASS_WRITES) {
     const state = this.read(now), used = state.budgetDay === day(now) ? state.reservedWrites : 0;
     const untilMidnight = Date.parse(day(now) + 'T00:00:00Z') + 86400_000 - now;
-    // Keep the rest of today's normal collection/archive/prune reservations
-    // ahead of optional backlog catch-up work.
-    return DAILY_WRITE_BUDGET - used >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * 24 + 16;
+    // Keep the rest of today's normal collection/archive/prune reservations, and raw saving's own lane,
+    // ahead of optional backlog catch-up work (CodeRabbit, #324: the same reserve the catch-up step itself uses).
+    // The whole catch-up pass (a schedule context and a batch, 8 writes each, plus a 2-write failure record)
+    // must fit above that reserve, not just start above it (CodeRabbit, #323).
+    return DAILY_WRITE_BUDGET - used - passWrites >= Math.ceil(untilMidnight / HISTORY_INTERVAL_MS) * (24 + RAW_LANE) + 16;
   }
   storageWritesRemaining(now: number) {
     const state = this.read(now);

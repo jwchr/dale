@@ -23,7 +23,7 @@ function harness() {
   db.exec('CREATE TABLE dale_archive_days(day TEXT PRIMARY KEY, class_a INTEGER, class_b INTEGER)');
   return { db, storage };
 }
-const record = { route: '165', source: 'NJ Transit', observation: { tripInstanceId: 'SYNTHETIC@20261104', vehicleId: 'SYNTHETIC', observedAt: NOW, lat: 40, lon: -74,
+const record = { route: '165', source: 'NJ Transit', observation: { tripInstanceId: 'SYNTHETIC@20261104', vehicleId: 'SYNTHETIC', observedAt: NOW, sourceAt: NOW + 20_000, lat: 40, lon: -74,
   riderLocation: 'MUST-NOT-APPEAR', stopCall: { status: 'stopped_at', stopIndex: 0, stopId: '1', rider: 'MUST-NOT-APPEAR' } }, rider: 'MUST-NOT-APPEAR' };
 const batch = { v: 1, receivedAt: NOW, records: [record, { ...record, route: '999' }], rider: 'MUST-NOT-APPEAR', quality: { feedState: 'ok', rider: 'MUST-NOT-APPEAR' } };
 const request = (token?: string, query = '', method = 'GET') => new Request(`https://owner.test${OWNER_HISTORY_PATH}${query}`, { method, headers: token ? { authorization: `Bearer ${token}` } : {} });
@@ -111,7 +111,7 @@ it('authenticates at both boundaries: unset, missing and wrong never reach stora
   expect(forwarded).toBe(0);
   const result = await router.fetch(request(secret), env as never);
   expect(result.status).toBe(200);
-  const body = await result.text(); expect(body).toContain('SYNTHETIC@'); expect(body).not.toMatch(/MUST-NOT-APPEAR|999/);
+  const body = await result.text(); expect(body).toContain('SYNTHETIC@'); expect(body).toContain(`"sourceAt":${NOW + 20_000}`); expect(body).not.toMatch(/MUST-NOT-APPEAR|999/);
   expect(result.headers.get('cache-control')).toBe('private, no-store');
   expect(result.headers.has('access-control-allow-origin')).toBe(false);
   const before = db.prepare('SELECT * FROM dale_history_batches').all();

@@ -36,6 +36,12 @@ const day = (n: number) => `2026-10-${String(n).padStart(2, '0')}`;
 const sample = (n: number, delaySec: number, key = 'k'): DelaySample => ({ key, serviceDate: day(n), scheduledAt: 0, observedAt: delaySec * 1000 });
 
 describe('backtest', () => {
+  it('needs five earlier service days, not five samples from one day (Neon DEEP Nov 26, C1-10)', () => {
+    // Six trips a day under one key: day 2 has six earlier samples but only one earlier day.
+    const samples = [1, 2, 3, 4, 5, 6].flatMap(d => Array.from({ length: 6 }, () => sample(d, 60)));
+    const [, rolling] = backtest(samples);
+    expect(rolling).toMatchObject({ predicted: 6, abstained: 30 });
+  });
   it('uses only strictly earlier days and abstains without enough history', () => {
     // Steady 120 s late every day: history baselines learn it, schedule does not.
     const samples = Array.from({ length: 10 }, (_, i) => sample(i + 1, 120));

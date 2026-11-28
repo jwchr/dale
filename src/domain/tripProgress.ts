@@ -100,8 +100,11 @@ export function tripProgress(input: ProgressInput): TripProgress {
   const { stops, times, boardIndex, alightIndex, now, milestones } = input;
   const reachedIndex = Math.max(boardIndex, ...milestones.map((m) => m.index));
   const evidence: { position: number; at: number; source: EvidenceSource }[] = [];
-  const last = [...milestones].sort((a, b) => a.at - b.at || a.index - b.index).at(-1);
-  if (last && now - last.at <= (last.source === 'tap' ? TAP_MAX_AGE_MS : FIX_MAX_AGE_MS)) evidence.push({ position: last.index, at: last.at, source: last.source });
+  // Newest of the milestones still fresh for their own source, so an expired GPS stop never hides a
+  // rider's tap that is still good (Neon DEEP Nov 26, C1-5).
+  const last = milestones.filter((m) => now - m.at <= (m.source === 'tap' ? TAP_MAX_AGE_MS : FIX_MAX_AGE_MS))
+    .sort((a, b) => a.at - b.at || a.index - b.index).at(-1);
+  if (last) evidence.push({ position: last.index, at: last.at, source: last.source });
   for (const [fix, source] of [[input.bus, 'bus_gps'], [input.phone, 'phone_gps']] as const) {
     if (!fix) continue;
     const p = fixPosition(stops, boardIndex, fix, now);
@@ -117,13 +120,16 @@ export function tripProgress(input: ProgressInput): TripProgress {
     return { position: Math.max(boardIndex, reachedIndex, timetablePosition(times, now)), projected: false, basis: 'timetable', reachedIndex, alight: { scheduled: scheduledAlight } };
   }
   const delayMs = best.at - scheduledAt(times, best.position);
+  // Never behind a stop already confirmed: an older tap still in use after a newer GPS stop expired
+  // gives the delay, but the bus stays at or past that later stop (Neon Nov26 h, C1-5).
+  const anchor = Math.max(best.position, reachedIndex);
   // Between updates, carry the bus forward at the observed pace, but only up to just before the next
   // stop: reaching a stop takes evidence, never an estimate.
-  const nextStop = Math.min(times.length - 1, Math.floor(best.position + 1e-6) + 1);
+  const nextStop = Math.min(times.length - 1, Math.floor(anchor + 1e-6) + 1);
   const carried = Math.min(timetablePosition(times, now - delayMs), nextStop - 0.02);
-  const position = best.source === 'tap' ? Math.min(times.length - 1, Math.max(best.position, carried)) : best.position;
+  const position = best.source === 'tap' ? Math.min(times.length - 1, Math.max(anchor, carried)) : anchor;
   return {
-    position, projected: position > best.position + 0.01, basis: best.source, observedAt: best.at,
+    position, projected: position > anchor + 0.01, basis: best.source, observedAt: best.at,
     delayMin: Math.abs(delayMs) < 60_000 ? 0 : Math.round(delayMs / 60_000), reachedIndex,
     alight: { scheduled: scheduledAlight, projected: scheduledAlight + delayMs },
   };
