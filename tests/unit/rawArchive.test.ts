@@ -483,7 +483,7 @@ describe('raw collection through the bus Worker', () => {
     let object = new Feed(ctx, env);
     const poll = async () => { await object.fetch(new Request('https://test/v1/status')); };
     return { ...h, poll, saved, urls, env, malformed: (feed: string) => { malformed = feed; }, oversized: (feed: string) => { oversized = feed; }, large: (feed: string) => { large = feed; }, failAuth: () => { authFailure = true; }, get railCalls() { return railCalls; }, time: (at: number) => { now = at; }, failBus: () => { busFailure = true; }, failRail: () => { railFailure = true; }, echoSecret: () => { echo = true; },
-      restart: () => { object = new Feed(ctx, env); }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
+      restart: () => { object = new Feed(ctx, env); }, feed: () => object as unknown as { journal: { pruneVerified(now: number): void } }, alarm: async () => { await (object as unknown as { ready: Promise<void> }).ready; alarmAt = null; return object.alarm(); }, get alarmAt() { return alarmAt; }, health: async () => (await (await object.fetch(new Request('https://test/v1/collection'))).json()).collection };
   }
 
   it.each(['vehicle', 'tripUpdate'] as const)('filters %s bus entities and records original provenance', async kind => {
@@ -833,6 +833,71 @@ describe('raw collection through the bus Worker', () => {
       expect(ledger.events[feed]).toEqual({ 'request-ceiling': 1 });
     const feeds = ledger.feeds;
     expect(feeds[api === 'bus' ? 'rail-getVehiclePositions' : 'getVehiclePositions'].count).toBe(2);
+  });
+  describe('bus positions every 15 seconds (Jeff, Nov 27, 2026: "Yes, every 15 s")', () => {
+    const bus = (h: { urls: string[] }, feed: string) => h.urls.filter(url => url.includes('/GTFSG2/') && url.endsWith(`/${feed}`)).length;
+    it.each([['statewide', null], ['region file', regionAsset]])('saves one extra positions answer halfway between polls (%s)', async (_label, region) => {
+      const h = await service(true, false, true, region);
+      await h.alarm();
+      expect(bus(h, 'getVehiclePositions')).toBe(1); expect(h.alarmAt).toBe(NOW + 15_000);
+      const budget = () => Object.values((h.saved.get('state-v1') as { busBudget: { hours: Record<string, number> } }).busBudget.hours).reduce((a, b) => a + b, 0);
+      const before = budget();
+      h.time(NOW + 15_000); await h.alarm();
+      // Positions only, no login, counted against the bus request ceiling, and the history run keeps its time.
+      expect(bus(h, 'getVehiclePositions')).toBe(2); expect(bus(h, 'getTripUpdates')).toBe(1);
+      expect(bus(h, 'authenticateUser')).toBe(1); expect(budget()).toBe(before + 1);
+      expect(h.alarmAt).toBe(NOW + 30_000);
+      h.time(NOW + 30_000); await h.alarm();
+      expect(bus(h, 'getVehiclePositions')).toBe(3); expect(bus(h, 'getTripUpdates')).toBe(2); expect(h.alarmAt).toBe(NOW + 45_000);
+      const feeds = (await h.health()).rawArchive.hoursUTC[0].feeds;
+      expect(feeds.getVehiclePositions.count).toBe(3); expect(feeds.getTripUpdates.count).toBe(2);
+      expect(h.objects.size).toBeGreaterThan(0);
+    });
+    it('the halfway wake runs no history work: no poll attempt or cleanup', async () => {
+      const h = await service(true, false, true, null);
+      await h.alarm();
+      const attempt = (await h.health()).lastAttemptAt, prune = vi.spyOn(h.feed().journal, 'pruneVerified');
+      h.time(NOW + 15_000); await h.alarm();
+      expect(bus(h, 'getVehiclePositions')).toBe(2);
+      expect((await h.health()).lastAttemptAt).toBe(attempt); expect(prune).not.toHaveBeenCalled();
+      h.time(NOW + 30_000); await h.alarm();
+      expect(prune).toHaveBeenCalledTimes(1);
+    });
+    it('never logs in: with no token the halfway answer is skipped once', async () => {
+      const h = await service(true, false, true, null); h.failAuth();
+      await h.alarm(); const before = h.urls.length;
+      h.time(NOW + 15_000); await h.alarm();
+      expect(h.urls.length).toBe(before); expect(h.alarmAt).toBe(NOW + 30_000);
+    });
+    it('never uses an expired token: the halfway answer waits for the next poll to log in', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      (h.saved.get('state-v1') as { token: { expiresAt: number } }).token.expiresAt = NOW + 10_000;
+      h.restart(); const before = h.urls.length;
+      h.time(NOW + 15_000); await h.alarm();
+      expect(h.urls.length).toBe(before); expect(h.alarmAt).toBe(NOW + 30_000);
+    });
+    it('is refused and counted at the bus request ceiling, and tried only once', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      (h.saved.get('state-v1') as { busBudget: { hours: Record<string, number> } }).busBudget.hours = { [Math.floor(NOW / 3600_000)]: 40_000 };
+      h.restart(); const before = h.urls.length;
+      h.time(NOW + 15_000); await h.alarm();
+      expect(h.urls.length).toBe(before); expect(h.alarmAt).toBe(NOW + 30_000);
+      expect((await h.health()).rawArchive.hoursUTC[0].events.getVehiclePositions).toEqual({ 'request-ceiling': 1 });
+    });
+    it('a restart that reads the halfway alarm never moves the history run early', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      h.restart(); h.time(NOW + 15_000); await h.alarm();
+      expect(bus(h, 'getVehiclePositions')).toBe(2); expect(h.alarmAt).toBe(NOW + 30_000);
+    });
+    it('a late wake close to the next poll skips the halfway answer and leaves no alarm loop', async () => {
+      const h = await service(true, false, true, null); await h.alarm();
+      h.time(NOW + 28_500); await h.alarm();
+      expect(bus(h, 'getVehiclePositions')).toBe(1); expect(h.alarmAt).toBe(NOW + 30_000);
+    });
+    it('does nothing extra while raw saving is off', async () => {
+      const h = await service(true, false, false, null); await h.alarm();
+      expect(h.alarmAt).toBe(NOW + 30_000);
+    });
   });
   it('does not collect raw data or call rail when history collection is disabled', async () => {
     const h = await service(false); await h.poll();
