@@ -85,7 +85,7 @@ export function busDvCoverage(bytes: Uint8Array): Omit<BusDvCoverage, 'at'> | un
 /** Totals for the public status page: counts and reach only, never the private state (it holds the token)
  *  and no map box, since anything public shows totals only (AGENTS.md; CodeRabbit, #324). */
 export const busDvCoverageStatus = (state: BusDvState | undefined) => state?.coverage
-  ? Object.fromEntries(Object.entries(state.coverage).map(([mode, c]) => [mode, { at: c!.at, vehicles: c!.vehicles, maxMiles: c!.maxMiles }])) as Partial<Record<Mode, Pick<BusDvCoverage, 'at' | 'vehicles' | 'maxMiles'>>>
+  ? Object.fromEntries(Object.entries(state.coverage).filter(([, c]) => c).map(([mode, c]) => [mode, { at: c!.at, vehicles: c!.vehicles, maxMiles: c!.maxMiles }])) as Partial<Record<Mode, Pick<BusDvCoverage, 'at' | 'vehicles' | 'maxMiles'>>>
   : null;
 
 /** A bad or partially malformed list must not silently remove previously discovered boards. */

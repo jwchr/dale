@@ -464,6 +464,8 @@ describe('BUSDV2 private raw archive', () => {
         : c.fields.mode === 'RL' ? new Response('<html>maintenance</html>') : Response.json([]);
       result(await h.run());
       const first = busDvCoverageStatus(h.state)!;
+      // A mode stored without coverage is left out instead of breaking the status page (Neon Nov27 b).
+      expect(busDvCoverageStatus({ ...h.state, coverage: { ...h.state.coverage, RL: undefined } })!.RL).toBeUndefined();
       // Totals only in public (CodeRabbit, #324): the map box stays in the private state.
       expect(first.BUS).toEqual({ at: NOW, vehicles: 1, maxMiles: 53 });
       expect(first.NLR).toEqual({ at: NOW, vehicles: 0, maxMiles: null });

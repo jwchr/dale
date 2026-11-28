@@ -142,7 +142,12 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
               this.rawArchive = new RawArchive(this.saved.rawArchive, this.archive, env.HISTORY_ARCHIVE,
                 () => ctx.storage.put('state-v1', this.saved));
             }
-            if (env.HISTORY_COLLECTION === 'enabled') this.historyAt = this.rideWake() === null ? await ctx.storage.getAlarm() : this.saved.historyAt ?? null;
+            if (env.HISTORY_COLLECTION === 'enabled') {
+              // A halfway bus positions alarm is not the history time, so a ride starting after a restart cannot
+              // run history 15 seconds early (Neon Nov27 b).
+              const alarm = this.rideWake() === null ? await ctx.storage.getAlarm() : null;
+              this.historyAt = this.rideWake() !== null ? this.saved.historyAt ?? null : alarm !== null && alarm === this.midPositionsAt(clock()) ? null : alarm;
+            }
             // With collection off, an alarm runs only while a ride needs checking.
             if (env.HISTORY_COLLECTION !== 'enabled' && this.rideWake() === null) {
               if (await ctx.storage.getAlarm() !== null) await ctx.storage.deleteAlarm();
@@ -340,10 +345,11 @@ export function createFeedClass(ds: Dataset, fetchImpl: typeof fetch = fetch, cl
       // answer can never push live buses over the ceiling (CodeRabbit on #327).
       const allowed = open && reserveRequests(this.saved.busBudget ??= { hours: {} }, 1, now, NJT_REQUEST_LIMIT - 3);
       if (open && !allowed) saving.recordFailure('getVehiclePositions', 'request-ceiling', now);
-      // Persist the once-per-poll mark, the request count and any refusal before I/O.
-      await this.ctx.storage.put('state-v1', this.saved);
-      if (!allowed) return;
+      // Marked as running before the first wait, so a poll that starts meanwhile never captures alongside it (Neon Nov27 b).
       const work = (async () => {
+        // Persist the once-per-poll mark, the request count and any refusal before I/O.
+        await this.ctx.storage.put('state-v1', this.saved);
+        if (!allowed) return;
         const raw: RawResponse[] = [];
         try {
           // Ends before the next regular poll is due, so a slow answer never delays it (CodeRabbit on #327).

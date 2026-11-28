@@ -218,8 +218,11 @@ export class RawArchive {
           ...(response.label ? { label: response.label } : {}) };
         last[stream] = sha256; lastAt[stream] = response.receivedAt;
         const counted = feedInfo ? { [stream]: { at: response.receivedAt, records: feedInfo.entities } } : countJson(stream, response.bytes, response.receivedAt);
-        // A readable bundle's per-answer counts replace an older whole-bundle count (Neon Nov27 a).
+        // A readable bundle's per-answer counts replace an older whole-bundle count (Neon Nov27 a). A readable
+        // empty bundle also clears older per-answer counts, so no old number stays beside its 0; an unreadable
+        // one keeps them, with their own times, since it says nothing about its parts (Neon Nov27 b).
         if (!(stream in counted)) delete records[stream];
+        else if (counted[stream]!.records === 0) for (const key of Object.keys(records)) if (key.startsWith(`${stream}/`)) delete records[key];
         Object.assign(records, counted);
         prepared.push({ gzipSum, item: { key: `raw/v1/${new Date(response.receivedAt).toISOString().slice(0, 10)}/${response.feed}/${response.receivedAt}-${response.label ? `${response.label}-` : ''}${sha256}.${isJson(response.feed) ? 'json' : 'pb'}.gz`, manifest }, gzip, response });
       } catch { this.state.failures++; }

@@ -13,8 +13,9 @@ export interface RecordCount {
 }
 
 /** Counting decodes and parses the answer in Worker memory, so larger answers are not counted
- *  (Neon Nov27 a). The largest real JSON answers average about 2 MiB (hour ledgers, Nov 26 to 27). */
-export const COUNT_MAX_BYTES = 16 * 1024 * 1024;
+ *  (Neon Nov27 a). The largest real JSON answers average about 2 MiB (hour ledgers, Nov 26 to 27); 6 MiB
+ *  leaves room for those while the decoded text and parsed objects stay far under the 128 MB isolate (Neon Nov27 b). */
+export const COUNT_MAX_BYTES = 6 * 1024 * 1024;
 
 /** A list's length, or the summed lengths of an object's top-level lists ('@' keys such as JSON-LD
  *  @context left out). An object with no list is one record; an empty object, null or a bare value none. */
@@ -49,10 +50,11 @@ export function countJson(stream: string, bytes: Uint8Array, at: number): Record
     ? (bundle as { responses: BundleEntry[] }).responses : undefined;
   if (!entries) return { [stream]: { at, records: null } };
   const out: Record<string, RecordCount> = {};
+  let unnamed = false;
   for (const entry of entries) {
-    if (!entry || typeof entry !== 'object') continue;
+    if (!entry || typeof entry !== 'object') { unnamed = true; continue; }
     const name = [entry.method ?? entry.source ?? entry.kind, entry.mode].filter(part => typeof part === 'string' && part).join(':');
-    if (!name) continue;
+    if (!name) { unnamed = true; continue; }
     const count = out[`${stream}/${name}`] ??= { at, records: null, answers: 0, failed: 0 };
     count.answers!++;
     if (entry.status !== 'ok') { count.failed!++; continue; }
@@ -60,6 +62,7 @@ export function countJson(stream: string, bytes: Uint8Array, at: number): Record
     const records = typeof entry.text === 'string' ? textRecords(entry.text) : null;
     if (records !== null) count.records = (count.records ?? 0) + records;
   }
-  // An empty bundle still replaces the last count, so the status page shows 0, not an old number.
-  return Object.keys(out).length ? out : { [stream]: { at, records: 0 } };
+  // An empty bundle still replaces the last count, so the status page shows 0, not an old number; answers
+  // that name no kind cannot be counted, so they show unknown, not 0 (Neon Nov27 b).
+  return Object.keys(out).length ? out : { [stream]: { at, records: unnamed ? null : 0 } };
 }
