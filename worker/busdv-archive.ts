@@ -16,8 +16,12 @@ export const BUSDV_FEEDS = ['busdv-poll', 'busdv-getLocations', 'busdv-getBusRou
 const BOARD_TARGET_MS = 15 * 60_000, TOKEN_AGE_MS = 23 * HOUR;
 const BOARD_MAX_BYTES = 2 * 1024 * 1024, OTHER_MAX_BYTES = 8 * 1024 * 1024;
 const ERROR_MAX_BYTES = 16 * 1024;
+// Jeff, Nov 28, 2026: "just the 165 to the port authority route". A few of its trips an hour get their stop list
+// (getTripStops), to see what the list adds to the board, such as ManLaneGate (meaning not checked).
+export const TRIP_STOPS_ROUTE = '165', TRIP_STOPS_PER_HOUR = 4;
+const TRIP_QUEUE_MAX = 20, TRIP_FIELD_MAX = 64, TRIP_QUEUE_MS = 2 * HOUR;
 type Mode = typeof VEHICLE_MODES[number];
-type Method = 'authenticateUser' | 'getVehicleLocations' | 'getBusDV' | 'getLocations' | 'getBusRoutes';
+type Method = 'authenticateUser' | 'getVehicleLocations' | 'getBusDV' | 'getLocations' | 'getBusRoutes' | 'getTripStops';
 type DailyMethod = 'getLocations' | 'getBusRoutes';
 type DailyKey = `${DailyMethod}:${Mode}`;
 export type BusDvFailureCode = 'configuration-missing' | 'token-limit' | 'access-denied' | 'rate-limited'
@@ -29,6 +33,8 @@ const failureCode = (error: unknown): BusDvFailureCode => error instanceof NjtEr
 
 export interface BusDvState {
   budget: RequestBudget; cursor: number; locations?: string[];
+  /** Light rail stations from each mode's daily getLocations list (Jeff, Nov 28, 2026: "do the light rail boards"). */
+  railLocations?: Partial<Record<Exclude<Mode, 'BUS'>, string[]>>;
   tried: Partial<Record<DailyKey, number>>; ok: Partial<Record<DailyKey, number>>;
   lastPollAt?: number; boardFraction: number; mints: number[]; pauseUntil?: number;
   /** Private caller checkpoint only. Never pass this state to the raw archive or a public endpoint. */
@@ -36,7 +42,12 @@ export interface BusDvState {
   sequence: number; pending?: number; reason?: string;
   /** Aggregate counts only (no vehicle IDs or exact positions), safe for the public status page. */
   coverage?: Partial<Record<Mode, BusDvCoverage>>;
+  /** Route 165 trips seen on boards and waiting for their stop list; `seen` keeps each trip to one ask a day. */
+  trips?: { queue: (TripRef & { at: number })[]; seen: Record<string, number>; hour?: number; count?: number };
 }
+/** The three DVTrip fields getTripStops takes, copied exactly as the board sent them. */
+export interface TripRef { timing_point_id: string; sched_dep_time: string; internal_trip_number: string }
+const tripKey = (t: TripRef) => `${t.timing_point_id}|${t.sched_dep_time}|${t.internal_trip_number}`;
 /** How far one mode's last good vehicle answer reached: shows whether the statewide radius covers the state. */
 export interface BusDvCoverage {
   at: number; vehicles: number; maxMiles: number | null;
@@ -45,7 +56,7 @@ export interface BusDvCoverage {
 }
 export const newBusDvState = (): BusDvState => ({ budget: { hours: {} }, cursor: 0,
   tried: {}, ok: {}, boardFraction: 0, mints: [], sequence: 0 });
-interface Request { method: Exclude<Method, 'authenticateUser'>; mode?: Mode; stop?: string }
+interface Request { method: Exclude<Method, 'authenticateUser'>; mode?: Mode; stop?: string; trip?: TripRef }
 export interface BusDvPlan { id: number; at: number; mint: boolean; requests: Request[]; refusal?: BusDvFailureCode }
 export interface BusDvFailure {
   feed: `busdv-${Method}` | 'busdv-poll'; code: BusDvFailureCode; at: number; mode?: Mode; stop?: string;
@@ -103,6 +114,27 @@ export function busDvLocationCodes(bytes: Uint8Array): string[] | undefined {
     }
     return [...new Set(codes)].sort();
   } catch { return; }
+}
+
+/** Route 165 trips on a getBusDV board. A row missing a field, or with an odd one, is skipped, never guessed. */
+export function busDvTripRefs(bytes: Uint8Array, route = TRIP_STOPS_ROUTE): TripRef[] {
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\ufeff/, '')); } catch { return []; }
+  // The swagger answer is one object with a DVTrip list; an array of such objects is read the same way.
+  const boards = Array.isArray(value) ? value : [value], refs: TripRef[] = [];
+  const field = (v: unknown) => typeof v === 'string' && v.trim() && v.length <= TRIP_FIELD_MAX && /^[\x20-\x7e]+$/.test(v) ? v : undefined;
+  for (const board of boards) {
+    const rows = board && typeof board === 'object' ? (board as { DVTrip?: unknown }).DVTrip : undefined;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+      const r = row as Record<string, unknown>;
+      if (typeof r.public_route !== 'string' || r.public_route.trim() !== route) continue;
+      const t = field(r.timing_point_id), d = field(r.sched_dep_time), n = field(r.internal_trip_number);
+      if (t && d && n) refs.push({ timing_point_id: t, sched_dep_time: d, internal_trip_number: n });
+    }
+  }
+  return refs;
 }
 
 function preserve(bytes: Uint8Array): Pick<Entry, 'text' | 'base64'> {
@@ -240,22 +272,54 @@ export class BusDvArchive {
     const horizon = Math.max(HISTORY_INTERVAL_MS, (firstHour + 25) * HOUR - now);
     const futureVehicles = VEHICLE_MODES.length * Math.ceil(horizon / HISTORY_INTERVAL_MS);
     const futureDaily = 2 * VEHICLE_MODES.length * Math.ceil(horizon / HOUR);
-    const boardShare = Math.max(0, remaining - futureVehicles - futureDaily - 3);
+    const futureTrips = TRIP_STOPS_PER_HOUR * Math.ceil(horizon / HOUR);
+    const boardShare = Math.max(0, remaining - futureVehicles - futureDaily - futureTrips - 3);
     const spacing = Math.min(45_000, Math.max(HISTORY_INTERVAL_MS, now - (s.lastPollAt ?? now - HISTORY_INTERVAL_MS)));
     const credit = boardShare * spacing / horizon + s.boardFraction;
-    const locations = s.locations?.length ? s.locations : ['PABT'];
+    // Bus boards first, then each light rail line's stations; one mode's bad list keeps its last good one.
+    const locations = [...new Set([...(s.locations?.length ? s.locations : ['PABT']),
+      ...VEHICLE_MODES.flatMap(mode => mode === 'BUS' ? [] : s.railLocations?.[mode] ?? [])])];
     const boardCount = Math.min(locations.length, Math.ceil(locations.length * spacing / BOARD_TARGET_MS),
       Math.floor(credit), remaining - mandatory);
     const cursor = s.cursor % locations.length;
     for (let n = 0; n < boardCount; n++) requests.push({ method: 'getBusDV', stop: locations[(cursor + n) % locations.length]! });
+    // One route 165 stop list a poll, at most four an hour, only in room left after vehicles, daily calls and boards,
+    // both this poll's and the ones reserved until the budget horizon (Neon Nov28 d).
+    const trips = s.trips ??= { queue: [], seen: {} };
+    trips.queue = trips.queue.filter(q => q.at <= now && now - q.at < TRIP_QUEUE_MS);
+    for (const [key, at] of Object.entries(trips.seen)) if (!(at <= now && now - at < DAY)) delete trips.seen[key];
+    if (trips.hour !== hour) { trips.hour = hour; trips.count = 0; }
+    const trip = trips.queue[0];
+    if (trip && (trips.count ?? 0) < TRIP_STOPS_PER_HOUR && remaining - mandatory - boardCount >= 1
+      && remaining - futureVehicles - futureDaily - 3 - boardCount >= 1) {
+      requests.push({ method: 'getTripStops', trip: { timing_point_id: trip.timing_point_id,
+        sched_dep_time: trip.sched_dep_time, internal_trip_number: trip.internal_trip_number } });
+    }
     // The existing helper has a fixed 40,000 ceiling; the stricter check above is local.
     if (!reserveRequests(s.budget, requests.length + Number(mint), now)) return s.reason = 'request-ceiling';
     s.boardFraction = credit - Math.floor(credit);
     s.cursor = (cursor + boardCount) % locations.length;
     s.lastPollAt = now;
+    if (requests.at(-1)?.method === 'getTripStops') {
+      // Spent before I/O like every other request: a trip is asked once, even if the answer fails.
+      const ref = trips.queue.shift()!;
+      trips.seen[tripKey(ref)] = now;
+      trips.count = (trips.count ?? 0) + 1;
+    }
     if (mint) s.mints.push(now);
     for (const r of requests) if (r.method === 'getLocations' || r.method === 'getBusRoutes') s.tried[`${r.method}:${r.mode!}`] = now;
     return { id: s.pending = ++s.sequence, at: now, mint, requests };
+  }
+
+  /** New route 165 trips wait for a stop list ask; one already asked today, or a full queue, adds nothing. */
+  private queueTrips(refs: TripRef[], at: number) {
+    const trips = this.state.trips ??= { queue: [], seen: {} };
+    const known = new Set([...Object.keys(trips.seen), ...trips.queue.map(tripKey)]);
+    for (const ref of refs) {
+      if (trips.queue.length >= TRIP_QUEUE_MAX) return;
+      const key = tripKey(ref);
+      if (!known.has(key)) { known.add(key); trips.queue.push({ ...ref, at }); }
+    }
   }
 
   async collect(plan: BusDvPlan): Promise<{ responses: BusDvResponse[]; failures: BusDvFailure[]; secrets: string[] }> {
@@ -309,8 +373,9 @@ export class BusDvArchive {
         if (r.method === 'getVehicleLocations') Object.assign(fields, { lat: '40.2', lon: '-74.6', radius: STATEWIDE_RADIUS });
         // Blank means all; not checked against a live answer.
         if (r.method === 'getBusDV') Object.assign(fields, { stop: r.stop!, direction: '', route: '', IP: '', minutesRequested: '', maxVariants: '', sortMode: '' });
+        if (r.method === 'getTripStops') Object.assign(fields, r.trip!);
         try {
-          const bytes = await request(r.method, fields, r.method === 'getBusDV' ? BOARD_MAX_BYTES : OTHER_MAX_BYTES,
+          const bytes = await request(r.method, fields, r.method === 'getBusDV' || r.method === 'getTripStops' ? BOARD_MAX_BYTES : OTHER_MAX_BYTES,
             this.fetchImpl, Math.min(this.timeoutMs, ARCHIVE_TURN_MS - elapsed));
           if (containsSecret(bytes, [...secrets])) throw new NjtError('invalid-response');
           const receivedAt = this.clock();
@@ -318,13 +383,13 @@ export class BusDvArchive {
             const response: LocalResponse = { feed: `busdv-${r.method}`, label: r.mode!, bytes, receivedAt };
             responses.push(response);
             let valid = true;
-            if (r.method === 'getLocations' && r.mode === 'BUS') {
-              const codes = busDvLocationCodes(bytes);
-              if (codes) s.locations = codes;
-              else {
+            if (r.method === 'getLocations') {
+              const codes = busDvLocationCodes(bytes), mode = r.mode!;
+              if (!codes) {
                 valid = false;
-                failures.push({ feed: 'busdv-getLocations', mode: 'BUS', code: 'invalid-response', at: receivedAt });
-              }
+                failures.push({ feed: 'busdv-getLocations', mode, code: 'invalid-response', at: receivedAt });
+              } else if (mode === 'BUS') s.locations = codes;
+              else (s.railLocations ??= {})[mode] = codes;
             }
             // Done only once the raw archive has the answer, so one it could not take is asked again in an
             // hour (CodeRabbit, #324; see RawResponse.onAccepted).
@@ -332,13 +397,15 @@ export class BusDvArchive {
             if (valid) response.onAccepted = () => { s.ok[step] = receivedAt; };
           } else {
             entries.push({ ...r, receivedAt, status: 'ok', ...preserve(bytes) });
+            if (r.method === 'getBusDV') this.queueTrips(busDvTripRefs(bytes), receivedAt);
             const coverage = r.method === 'getVehicleLocations' ? busDvCoverage(bytes) : undefined;
             if (coverage) (s.coverage ??= {})[r.mode!] = { at: receivedAt, ...coverage };
           }
         } catch (error) { fail(r, failureCode(error)); }
       });
       if (entries.length) {
-        entries.sort((a, b) => a.method.localeCompare(b.method) || (a.mode ?? a.stop ?? '').localeCompare(b.mode ?? b.stop ?? ''));
+        const order = (e: Entry) => e.mode ?? e.stop ?? (e.trip ? tripKey(e.trip) : '');
+        entries.sort((a, b) => a.method.localeCompare(b.method) || order(a).localeCompare(order(b)));
         const bytes = encode(JSON.stringify({ v: 1, source: 'NJ Transit BUSDV2', responses: entries }));
         if (containsSecret(bytes, [...secrets])) fail(undefined, 'invalid-response');
         else responses.push({ feed: 'busdv-poll', receivedAt: Math.max(...entries.map(e => e.receivedAt)), bytes });
