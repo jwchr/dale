@@ -1,6 +1,6 @@
 import { addDays, localYmd, serviceTimeToInstant, type TimeBase, weekdayIndex } from './time';
 import { boardIndex, dropIndex } from './place';
-import { type Dataset, type Departure, type Pattern, type ServiceCalendar, type Trip, tripInstanceId } from './types';
+import { type Dataset, type Departure, type LockableDeparture, type Pattern, type Route, type ServiceCalendar, type Trip, tripInstanceId } from './types';
 
 export function isServiceActive(cal: ServiceCalendar | undefined, ymd: string): boolean {
   if (!cal) return false;
@@ -67,27 +67,22 @@ export function departuresOn(ds: Dataset, q: DepartureQuery): Departure[] {
       if (!pattern || !matchesPattern(ds, pattern, q)) continue;
       const stopIndex = boardIndex(ds, pattern, q.stopId);
       if (stopIndex < 0 || stopIndex === pattern.stopIds.length - 1 || pattern.noPickup?.includes(stopIndex)) continue;
-      const secs = trip.times[stopIndex];
-      const endSecs = trip.times[trip.times.length - 1];
-      if (secs === undefined || endSecs === undefined) continue;
-      const departs = tripTimeAt(ds, trip, serviceDate, stopIndex);
-      if (localYmd(departs, tz) !== q.date) continue;
       const route = routes.get(pattern.routeId);
-      if (!route) continue;
-      out.push({
-        tripInstanceId: tripInstanceId(trip.id, serviceDate),
-        tripId: trip.id,
-        serviceDate,
-        route,
-        pattern,
-        stopIndex,
-        departs,
-        estimated: trip.estimated?.includes(stopIndex) ?? false,
-        arrivesEnd: tripTimeAt(ds, trip, serviceDate, trip.times.length - 1),
-      });
+      const dep = route && scheduledDeparture(ds, trip, pattern, route, serviceDate, stopIndex);
+      if (dep && localYmd(dep.departs, tz) === q.date) out.push(dep);
     }
   }
   return out.sort((a, b) => a.departs - b.departs || a.route.shortName.localeCompare(b.route.shortName));
+}
+
+/** One construction path for a dated scheduled row, including missing-time checks. */
+function scheduledDeparture(ds: Dataset, trip: Trip, pattern: Pattern, route: Route, serviceDate: string, stopIndex: number): Departure | undefined {
+  if (trip.times[stopIndex] === undefined || trip.times[trip.times.length - 1] === undefined) return;
+  return {
+    tripInstanceId: tripInstanceId(trip.id, serviceDate), tripId: trip.id, serviceDate, route, pattern, stopIndex,
+    departs: tripTimeAt(ds, trip, serviceDate, stopIndex), estimated: trip.estimated?.includes(stopIndex) ?? false,
+    arrivesEnd: tripTimeAt(ds, trip, serviceDate, trip.times.length - 1),
+  };
 }
 
 function matchesPattern(ds: Dataset, p: Pattern, q: DepartureQuery): boolean {
@@ -109,7 +104,7 @@ export function nextDepartures(ds: Dataset, q: Omit<DepartureQuery, 'date'>, now
 }
 
 /** Scheduled time (epoch ms) at every stop of a departure's trip, for the stop list. `estimated` marks Dale's filled-in times. */
-export function tripStopTimes(ds: Dataset, d: Departure): { stopId: string; at: number; estimated: boolean }[] {
+export function tripStopTimes(ds: Dataset, d: Pick<Departure, 'tripId' | 'serviceDate' | 'pattern'>): { stopId: string; at: number; estimated: boolean }[] {
   const trip = ds.trips.find((t) => t.id === d.tripId);
   if (!trip) return [];
   const first = trip.times[0] ?? 0;
@@ -119,4 +114,29 @@ export function tripStopTimes(ds: Dataset, d: Departure): { stopId: string; at: 
     at: start + ((trip.times[i] ?? 0) - first) * 1000,
     estimated: trip.estimated?.includes(i) ?? false,
   }));
+}
+
+/** Today's service and yesterday's trips whose scheduled end reaches today, including already-left rows.
+ * Each row retains its own service date. No live/history evidence or current-location guess is used. */
+export function lockableTrips(ds: Dataset, q: { stopId?: string; routeIds?: string[]; directionId?: 0 | 1 }, now: number): LockableDeparture[] {
+  if (!Number.isFinite(now)) return [];
+  const today = localYmd(now, ds.meta.timezone), yesterday = addDays(today, -1);
+  const inPool = (d: LockableDeparture) => d.serviceDate === today
+    || (d.serviceDate === yesterday && localYmd(d.arrivesEnd, ds.meta.timezone) >= today);
+  const patterns = new Map(ds.patterns.map(p => [p.id, p])), routes = new Map(ds.routes.map(r => [r.id, r]));
+  const rows: LockableDeparture[] = [];
+  for (const serviceDate of [yesterday, today]) for (const trip of ds.trips) {
+    if (!isServiceActive(ds.calendars[trip.serviceId], serviceDate)) continue;
+    const pattern = patterns.get(trip.patternId), route = pattern && routes.get(pattern.routeId);
+    if (!pattern || !route || !trip.times.length || trip.times.length !== pattern.stopIds.length
+      || (q.routeIds?.length && !q.routeIds.includes(route.id))
+      || (q.directionId !== undefined && pattern.directionId !== q.directionId)) continue;
+    const stopIndex = q.stopId === undefined ? 0 : boardIndex(ds, pattern, q.stopId);
+    if (stopIndex < 0 || (q.stopId !== undefined && (stopIndex === pattern.stopIds.length - 1 || pattern.noPickup?.includes(stopIndex)))) continue;
+    const scheduled = scheduledDeparture(ds, trip, pattern, route, serviceDate, stopIndex);
+    if (!scheduled) continue;
+    const row: LockableDeparture = { ...scheduled, stopIndex: q.stopId === undefined ? null : stopIndex };
+    if (inPool(row)) rows.push(row);
+  }
+  return rows.sort((a, b) => a.departs - b.departs || a.tripInstanceId.localeCompare(b.tripInstanceId));
 }

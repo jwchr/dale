@@ -3,9 +3,10 @@
 // Past personal observations only: never shared, never official, never about today's bus, and never
 // from the invented demo. No position is stored, only the stop and times the rider already chose.
 import type { BusSession, CapacityLevel, RiderReportKind } from './busLock';
-import type { Dataset, Departure } from './types';
+import type { Dataset, Departure, LockableDeparture } from './types';
 import { isNjtHoliday } from './holidays';
 import { weekdayIndex } from './time';
+import { tripTimeAt } from './schedule';
 
 export type DayType = 'weekday' | 'saturday' | 'sunday';
 
@@ -36,7 +37,8 @@ const LEVELS = new Set(['seats', 'standing', 'full']);
 const dayTypeOf = (date: string): DayType => { const w = weekdayIndex(date); return w === 5 ? 'saturday' : w === 6 ? 'sunday' : 'weekday'; };
 
 /** The scheduled slot of a departure: its stop time in the trip, in minutes of the service day. */
-export function slotOf(ds: Dataset, dep: Departure): number | undefined {
+export function slotOf(ds: Dataset, dep: LockableDeparture): number | undefined {
+  if (dep.stopIndex === null) return;
   const seconds = ds.trips.find((t) => t.id === dep.tripId)?.times[dep.stopIndex];
   return typeof seconds === 'number' ? Math.round(seconds / 60) : undefined;
 }
@@ -83,13 +85,18 @@ export function toPastReports(ds: Dataset, session: BusSession): PastReport[] {
   const dep = session.departure;
   // A printed timetable has no holiday schedules: a holiday's bus is not the usual weekday bus.
   if (ds.meta.transcribed && isNjtHoliday(dep.serviceDate)) return [];
-  const slot = slotOf(ds, dep);
-  if (slot === undefined) return [];
-  return session.reports.filter((r) => KINDS.has(r.kind)).map((r) => ({
-    session: session.id.slice(0, 80), routeId: dep.route.id, stopId: r.stopId, slot, dayType: dayTypeOf(dep.serviceDate), date: dep.serviceDate,
-    kind: r.kind as PastReport['kind'], atMin: Math.floor((r.reportedAt - dep.departs) / 60_000),
-    ...(r.capacity ? { capacity: r.capacity } : {}), reportedAt: r.reportedAt,
-  }));
+  const trip = ds.trips.find(t => t.id === dep.tripId);
+  if (!trip) return [];
+  return session.reports.filter(r => KINDS.has(r.kind)).flatMap(r => {
+    // An explicit later-stop choice does not move older reports to the new stop's time slot.
+    const slot = slotOf(ds, { ...dep, stopIndex: r.stopIndex });
+    if (slot === undefined) return [];
+    return [{
+      session: session.id.slice(0, 80), routeId: dep.route.id, stopId: r.stopId, slot, dayType: dayTypeOf(dep.serviceDate), date: dep.serviceDate,
+      kind: r.kind as PastReport['kind'], atMin: Math.floor((r.reportedAt - tripTimeAt(ds, trip, dep.serviceDate, r.stopIndex)) / 60_000),
+      ...(r.capacity ? { capacity: r.capacity } : {}), reportedAt: r.reportedAt,
+    }];
+  });
 }
 
 /** Adds the session's new reports to the phone's history (each once). Returns the stored list. */

@@ -19,7 +19,7 @@ export function ArrivalResult({ value, t, lang, tz }: { value: Arrival; t: Strin
 }
 export function DestinationArrival({ ds, session, index, now, t, lang, onEvent }: { ds: Dataset; session: BusSession; index: number; now: number; t: Strings; lang: Lang; onEvent: (event: BusSessionEvent) => void }) {
   const dep = session.departure, stop = ds.stops.find(x => x.id === dep.pattern.stopIds[index]), trip = ds.trips.find(x => x.id === dep.tripId);
-  if (!stop || !trip || index <= dep.stopIndex) return null;
+  if (dep.stopIndex === null || !stop || !trip || index <= dep.stopIndex) return null;
   const value = session.destinationArrival, scheduled = tripArrivalAt(ds, trip, dep.serviceDate, index), a = t.arrival;
   const report = reportedDestinationArrival(ds, session, index, now);
   return <section className="destination-arrival" aria-label={a.title}>

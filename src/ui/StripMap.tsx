@@ -44,10 +44,10 @@ export function stripTimes(stop: { at: number; estimated: boolean }, shift: numb
 
 export function StripMap({ ds, session, alightIndex, now, t, lang }: { ds: Dataset; session: BusSession; alightIndex: number; now: number; t: Strings; lang: Lang }) {
   const p = t.progress;
-  const dep = session.departure;
+  const dep = { ...session.departure, stopIndex: session.departure.stopIndex ?? 0 };
   const ids = dep.pattern.stopIds;
   const stops = useMemo(() => ids.map((id) => ds.stops.find((s) => s.id === id)), [ds, ids]);
-  const stopTimes = useMemo(() => tripStopTimes(ds, dep), [ds, dep]);
+  const stopTimes = useMemo(() => tripStopTimes(ds, session.departure), [ds, session.departure]);
   const times = stopTimes.map((x) => x.at);
   const located = hasLocations(stops);
   const clock = (at: number, estimated = false) => `${estimated ? '~' : ''}${formatTime12(at, ds.meta.timezone, lang)}`;

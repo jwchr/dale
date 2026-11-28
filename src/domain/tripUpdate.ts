@@ -31,10 +31,10 @@ export interface TripUpdateText {
 
 export function tripUpdate(ds: Dataset, session: BusSession, alightIndex: number, now: number): TripUpdateText {
   const dep = session.departure;
-  const base = { route: dep.route.shortName, stopId: dep.pattern.stopIds[dep.stopIndex]!, departs: dep.departs, estimated: dep.estimated, demo: !!ds.meta.demo };
-  const passed = session.reports.some((r) => r.kind === 'passed_without_stopping');
+  const base = { route: dep.route.shortName, stopId: dep.stopIndex === null ? '' : dep.pattern.stopIds[dep.stopIndex]!, departs: dep.departs, estimated: dep.estimated, demo: !!ds.meta.demo };
+  const passed = session.reports.some((r) => r.kind === 'passed_without_stopping' && r.stopIndex === dep.stopIndex);
   const update: TripUpdate = session.lock.status === 'cancelled' ? { kind: 'cancelled' }
-    : session.phase === 'viewing' ? { kind: 'planning' }
+    : ['viewing', 'following', 'passed'].includes(session.phase) ? { kind: 'planning' }
       : session.phase === 'waiting'
         ? passed ? { kind: 'passed' } : now >= dep.departs ? { kind: 'not_here', lateMin: Math.floor((now - dep.departs) / 60_000) } : { kind: 'waiting' }
         : session.phase === 'arrived' ? { kind: 'arrived' }
@@ -43,7 +43,7 @@ export function tripUpdate(ds: Dataset, session: BusSession, alightIndex: number
   return { ...base, update };
 
   function onboard(): TripUpdate {
-    if (!(alightIndex > dep.stopIndex)) return { kind: 'onboard' };
+    if (!(alightIndex > (dep.stopIndex ?? -1))) return { kind: 'onboard' };
     const at = tripStopTimes(ds, dep)[alightIndex];
     return at ? { kind: 'onboard', to: { stopId: at.stopId, at: at.at, estimated: at.estimated } } : { kind: 'onboard' };
   }

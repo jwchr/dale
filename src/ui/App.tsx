@@ -1444,7 +1444,7 @@ function DepartureDetail({ ctx, dep, leg, pastReports, busSession, anotherLock, 
         gateText={(o) => { const g = departureGate(ds, o.dep); return g && gateLine(t, g); }}
         badge={(routeId) => <RouteBadge ds={ds} routeId={routeId} />} onOpenBackup={onOpenBackup} onAlternatives={onRescue} onPenn={onPenn} />}
       <EarlierBuses ds={ds} stop={dep.pattern.stopIds[dep.stopIndex]!} direction={dep.pattern.directionId} routeIds={[dep.route.id]} lang={ctx.lang} now={ctx.now} api={LIVE_API} />
-      {busSession && <HowSure ds={ds} dep={busSession.departure} lang={ctx.lang} api={LIVE_API} />}
+      {busSession && busSession.departure.stopIndex !== null && <HowSure ds={ds} dep={{ ...busSession.departure, stopIndex: busSession.departure.stopIndex }} lang={ctx.lang} api={LIVE_API} />}
       <button className="boarding-open" onClick={onBoarding}>{t.boarding.open}</button>
       <div className="card trip-ticket">
         <p className="trip-ticket-label">{t.tripCard}</p>

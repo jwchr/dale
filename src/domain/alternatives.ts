@@ -8,6 +8,7 @@ export function gpsLost(session: BusSession, now: number): boolean {
     && !['cancelled', 'ended', 'needs_confirmation'].includes(session.lock.status);
 }
 export function offerAlternatives(session: BusSession, now: number): boolean {
+  if (session.phase === 'passed') return true;
   if (!['viewing', 'waiting'].includes(session.phase)) return false;
   return gpsLost(session, now) || session.lock.status === 'cancelled'
     || (session.phase === 'waiting' && (now >= session.departure.departs

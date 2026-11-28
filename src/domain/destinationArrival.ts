@@ -22,7 +22,7 @@ export function validDestinationArrival(v: unknown): v is DestinationArrival {
 function base(ds: Dataset, s: BusSession, index: number, now: number) {
   const dep = s.departure, stop = ds.stops.find(x => x.id === dep.pattern.stopIds[index]);
   const trip = ds.trips.find(t => t.id === dep.tripId);
-  if (!stop || !trip || index <= dep.stopIndex || dep.pattern.noDropOff?.includes(index) || !time(now) || now < s.lastActionAt) return;
+  if (!stop || !trip || index <= (dep.stopIndex ?? -1) || dep.pattern.noDropOff?.includes(index) || !time(now) || now < s.lastActionAt) return;
   const scheduledAt = tripArrivalAt(ds, trip, dep.serviceDate, index);
   return { tripInstanceId: dep.tripInstanceId, stopId: stop.id, stopIndex: index, destination: stop.name, route: dep.route.shortName,
     recordedAt: now, ...(scheduledAt === undefined ? {} : { scheduledAt }) };
@@ -34,7 +34,7 @@ export function reportedDestinationArrival(ds: Dataset, s: BusSession, index: nu
 }
 /** First fresh official STOPPED_AT sample at the exact selected drop-off, not an exact arrival instant. */
 export function observedDestinationArrival(ds: Dataset, s: BusSession, index: number, now: number): DestinationArrival | undefined {
-  if (ds.meta.demo || s.destinationArrival || ['left', 'ended'].includes(s.phase) || s.lock.status !== 'tracked'
+  if (s.phase === 'following' || ds.meta.demo || s.destinationArrival || ['left', 'ended'].includes(s.phase) || s.lock.status !== 'tracked'
     || s.officialFeed?.state !== 'ok' || s.stopChanges?.indices.includes(index)) return;
   const value = base(ds, s, index, now), last = s.lock.last;
   const record = [...s.history].reverse().find(p => p.source === 'official' && p.tripInstanceId === s.departure.tripInstanceId

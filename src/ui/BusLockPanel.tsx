@@ -64,7 +64,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
   const last = lock.last;
   const lastRecord = session.history.slice().reverse().find((p) => p.vehicleId === last?.vehicleId && p.observedAt === last?.observedAt);
   const geometry = useRouteGeometry(ds, liveApiUrl(import.meta.env.VITE_LIVE_API_URL));
-  const routeDistance = lastRecord?.source === 'official' && !session.stopChanges?.indices.length && !terminalLock(session) ? reportedRouteDistance(ds, geometry, dep.tripId, dep.serviceDate,
+  const routeDistance = dep.stopIndex !== null && lastRecord?.source === 'official' && !session.stopChanges?.indices.length && !terminalLock(session) ? reportedRouteDistance(ds, geometry, dep.tripId, dep.serviceDate,
     session.phase === 'onboard' ? alightIndex : dep.stopIndex, last, now, lastRecord.receivedAt, lock.vehicleId) : undefined;
   if (routeDistance && lock.status !== 'tracked') routeDistance.stale = true;
   const date = dep.serviceDate;
@@ -89,10 +89,11 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
 
   // These controls exist only on the explicit, banner-marked invented dataset.
   function simulateGps(replacement = false) {
-    if (!ds.meta.demo) return;
-    const upstream = Math.max(0, dep.stopIndex - 1);
+    if (!ds.meta.demo || dep.stopIndex === null) return;
+    const board = dep.stopIndex;
+    const upstream = Math.max(0, board - 1);
     const a = ds.stops.find((s) => s.id === dep.pattern.stopIds[upstream]);
-    const z = ds.stops.find((s) => s.id === dep.pattern.stopIds[dep.stopIndex]);
+    const z = ds.stops.find((s) => s.id === dep.pattern.stopIds[board]);
     if (a?.lat === undefined || a.lon === undefined || z?.lat === undefined || z.lon === undefined) return;
     const vehicleId = replacement ? 'DEMO-REPLACEMENT' : lock.vehicleId ?? 'DEMO-BUS';
     const observations = replacement
@@ -114,7 +115,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
         <button className="ghost" onClick={onUnlock}><ButtonLabel translate={other => other.unlockBus}>{t.unlockBus}</ButtonLabel></button>
       </div>
       <p className="lock-route">{routeHeadsign(dep.pattern.headsign, dep.route.shortName, t.gateTurnpikeExpress)}</p>
-      <p className="small">{b.schedule(dateText, `${dep.estimated ? '~' : ''}${clock(dep.departs)}`, stopName(dep.pattern.stopIds[dep.stopIndex]!))}</p>
+      <p className="small">{b.schedule(dateText, `${dep.estimated ? '~' : ''}${clock(dep.departs)}`, dep.stopIndex === null ? '' : stopName(dep.pattern.stopIds[dep.stopIndex]!))}</p>
       {dep.estimated && <p className="muted small">{t.estimatedNote}</p>}
       <p className={`lock-status ${lock.status === 'tracked' && lastRecord?.source === 'official' ? 'live-glow' : ''}`} data-status={lock.status}>
         {lastRecord?.source !== 'demo' && !terminal && <LiveIndicator live={lock.status === 'tracked' && lastRecord?.source === 'official'} />}
@@ -128,7 +129,7 @@ export function BusLockPanel({ ds, session, alightIndex, now, t, lang, keepAwake
       {(!ds.meta.realtime || ds.meta.demo) && <SignalWarning session={session} now={now} t={t} estimated={!terminal && !passed && ['scheduled_only', 'stale', 'vanished'].includes(lock.status) && showScheduleMarker} />}
       {offerAlternatives(session, now) && <Alternatives t={t} onBuses={onAlternatives} onGuide={onPenn} />}
       <div className="lock-waiting">
-        <p className="lock-phase" role="status">{b.phase[session.phase]}</p>
+        <p className="lock-phase" role="status">{b.phase[session.phase === 'following' || session.phase === 'passed' ? 'viewing' : session.phase]}</p>
         {session.waitingSince !== undefined && <p className="small">{b.waitSince(clock(session.waitingSince))}</p>}
         {waiting && !passed && now >= dep.departs && <p className="warn small">{b.due(minutesPast)}</p>}
         {waiting && session.waitingSince !== undefined && session.waitingSince > dep.departs && <p className="small">{b.lateStart}</p>}

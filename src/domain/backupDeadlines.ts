@@ -30,9 +30,9 @@ export type BackupState =
  */
 export function backupDeadlines(ds: Dataset, session: BusSession, alightIndex: number, now: number, lateAfterMin: number): BackupState {
   const dep = session.departure;
-  if (session.phase !== 'waiting' || session.lock.status === 'ended') return { show: false };
+  if (dep.stopIndex === null || !['waiting', 'passed'].includes(session.phase) || session.lock.status === 'ended') return { show: false };
   if (!(alightIndex > dep.stopIndex) || alightIndex >= dep.pattern.stopIds.length) return { show: false };
-  const passed = session.reports.some((r) => r.kind === 'passed_without_stopping');
+  const passed = session.phase === 'passed' || session.reports.some((r) => r.kind === 'passed_without_stopping' && r.stopIndex === dep.stopIndex);
   // Only NJ Transit's own cancellation counts; a bus that stops reporting is just late (never "cancelled").
   const cancelled = session.lock.status === 'cancelled';
   const lateMin = Math.max(0, Math.floor((now - dep.departs) / 60_000));
