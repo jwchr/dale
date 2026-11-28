@@ -1,0 +1,94 @@
+name: GTFS validator (informational)
+on:
+  schedule:
+    - cron: '23 10 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/gtfs-validator.yml
+      - scripts/gtfs-validator-summary.mjs
+      - tests/unit/gtfsValidatorSummary.test.ts
+permissions:
+  contents: read
+concurrency:
+  group: dale-gtfs-validator
+  cancel-in-progress: false
+jobs:
+  validate-gtfs:
+    # Informational only: never make this a required check or a deploy dependency (D81).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GTFS_VALIDATOR_VERSION: '8.0.1'
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download and verify the pinned validator
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error --connect-timeout 30 --max-time 300 \
+            --output "$RUNNER_TEMP/gtfs-validator.jar" \
+            https://github.com/MobilityData/gtfs-validator/releases/download/v8.0.1/gtfs-validator-8.0.1-cli.jar
+          echo "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2  $RUNNER_TEMP/gtfs-validator.jar" | sha256sum --check --status || {
+            echo '::error::Validator SHA-256 mismatch; refusing to run it.'
+            exit 1
+          }
+      - name: Download the public NJ Transit bus schedule
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error --connect-timeout 30 --max-time 300 \
+            --max-filesize 201326592 --output "$RUNNER_TEMP/bus_data.zip" \
+            https://www.njtransit.com/bus_data.zip
+          # --max-filesize trusts Content-Length; a chunked answer can pass it, so check the saved size too (Neon Nov28 d).
+          bytes=$(stat --format=%s "$RUNNER_TEMP/bus_data.zip")
+          if [ "$bytes" -le 0 ] || [ "$bytes" -gt 201326592 ]; then
+            echo "::error::Downloaded schedule is $bytes bytes, outside 1 to 201326592; refusing to validate it."
+            exit 1
+          fi
+          echo "GTFS_FEED_SHA256=$(sha256sum "$RUNNER_TEMP/bus_data.zip" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+          echo "GTFS_FEED_BYTES=$(stat --format=%s "$RUNNER_TEMP/bus_data.zip")" >> "$GITHUB_ENV"
+      - name: Validate the schedule (feed notices are informational)
+        id: validator
+        shell: bash
+        run: |
+          # v8 returns success for feed notices, including ERROR; a nonzero exit is a tool failure.
+          # Keep upstream row details out of the public log; retain only the requested reports.
+          if ! java -Duser.timezone=America/New_York -jar "$RUNNER_TEMP/gtfs-validator.jar" \
+            --input "$RUNNER_TEMP/bus_data.zip" --output_base "$RUNNER_TEMP/gtfs-validation" \
+            --country_code us --skip_validator_update > "$RUNNER_TEMP/gtfs-validator.log" 2>&1; then
+            # Show only the tool's own error lines (Java exception or bad option), never feed rows.
+            grep -E -m 5 '(Exception|Error|ParameterException|Was passed main parameter|Usage:)' "$RUNNER_TEMP/gtfs-validator.log" | cut -c1-200 || true
+            echo '::error::GTFS validator could not finish (see the tool error lines above); fix it or retry the check.'
+            exit 1
+          fi
+          test -s "$RUNNER_TEMP/gtfs-validation/report.json" || {
+            echo '::error::GTFS validator did not produce report.json; retry the check.'
+            exit 1
+          }
+          test -s "$RUNNER_TEMP/gtfs-validation/report.html" || {
+            echo '::error::GTFS validator did not produce report.html; retry the check.'
+            exit 1
+          }
+      - name: Summarize notice counts
+        run: node scripts/gtfs-validator-summary.mjs "$RUNNER_TEMP/gtfs-validation/report.json"
+      - name: Save the validation reports
+        if: always() && steps.validator.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gtfs-validator-reports
+          path: |
+            ${{ runner.temp }}/gtfs-validation/report.json
+            ${{ runner.temp }}/gtfs-validation/report.html
+          if-no-files-found: error
+          retention-days: 30
