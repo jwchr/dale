@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BusDvArchive, BUSDV_FEEDS, BUSDV_REQUEST_LIMIT, STATEWIDE_RADIUS, VEHICLE_MODES,
-  busDvCoverage, busDvCoverageStatus, busDvLocationCodes, newBusDvState, type BusDvPlan, type BusDvState } from '../../worker/busdv-archive';
+  TRIP_STOPS_PER_HOUR, busDvCoverage, busDvCoverageStatus, busDvLocationCodes, busDvTripRefs, newBusDvState,
+  type BusDvPlan, type BusDvState } from '../../worker/busdv-archive';
 import { HISTORY_INTERVAL_MS } from '../../worker/history-journal';
 
 // Acceptance evidence: the day simulations check every mode, board gap (including the start/end
@@ -482,6 +483,75 @@ describe('BUSDV2 private raw archive', () => {
       busDvCoverageStatus(h.state)!.BUS!.vehicles = 99;
       expect(h.state.coverage!.BUS!.vehicles).toBe(1);
       expect(busDvCoverageStatus(newBusDvState())).toBeNull();
+    });
+  });
+
+  // Jeff, Nov 28, 2026: "just the 165 to the port authority route". Synthetic board rows only.
+  describe('route 165 trip stop lists', () => {
+    const trip = (n: number, route = '165') => ({ public_route: route, header: 'SYNTHETIC', lanegate: '1',
+      timing_point_id: 'TPSYN', sched_dep_time: `11/26/2026 12:${String(n).padStart(2, '0')}:00 PM`, internal_trip_number: `9${n}` });
+    function board(rows: unknown[]) {
+      const h = harness();
+      h.answers.getLocations = () => Response.json([{ bus_terminal_code: 'PABT' }]);
+      h.answers.getBusDV = () => Response.json({ message: [], DVTrip: rows });
+      h.answers.getTripStops = call => Response.json([{ synthetic: call.fields.internal_trip_number, SchedLaneGate: '1', ManLaneGate: '' }]);
+      return h;
+    }
+    const asked = (h: ReturnType<typeof harness>) => h.calls.filter(c => c.method === 'getTripStops');
+
+    it('reads only route 165 rows with all three fields, exactly as sent', () => {
+      const bytes = encode(JSON.stringify({ DVTrip: [trip(1), trip(2, '166'), trip(3, '165T'), { ...trip(4), internal_trip_number: '' },
+        { ...trip(5), sched_dep_time: 'x'.repeat(65) }, { ...trip(6), timing_point_id: 'TP\u0000' }, { ...trip(7), public_route: ' 165 ' }] }));
+      expect(busDvTripRefs(bytes).map(r => r.internal_trip_number)).toEqual(['91', '97']);
+      expect(busDvTripRefs(bytes)[0]).toEqual({ timing_point_id: 'TPSYN', sched_dep_time: '11/26/2026 12:01:00 PM', internal_trip_number: '91' });
+      expect(busDvTripRefs(encode(JSON.stringify([{ DVTrip: [trip(8)] }])))).toHaveLength(1);
+      for (const bad of ['not json', '{}', '{"DVTrip":{}}', '[1,null]']) expect(busDvTripRefs(encode(bad))).toEqual([]);
+    });
+
+    it('asks the next poll for a board trip\'s stop list with the token and saves the answer in the private bundle', async () => {
+      const h = board([trip(1), trip(2, '166')]);
+      result(await h.run());
+      expect(asked(h)).toEqual([]);
+      h.time(NOW + HISTORY_INTERVAL_MS);
+      const r = result(await h.run());
+      expect(asked(h).map(c => c.fields)).toEqual([{ token: TOKEN, timing_point_id: 'TPSYN', sched_dep_time: '11/26/2026 12:01:00 PM', internal_trip_number: '91' }]);
+      const saved = entries(r).find(e => e.method === 'getTripStops')!;
+      expect(saved.status).toBe('ok');
+      expect(JSON.parse(saved.text!)).toEqual([{ synthetic: '91', SchedLaneGate: '1', ManLaneGate: '' }]);
+      expect(JSON.stringify(entries(r))).not.toContain(PASSWORD);
+    });
+
+    it(`asks at most ${TRIP_STOPS_PER_HOUR} an hour, each trip once a day, and never takes a vehicle call`, async () => {
+      const h = board(Array.from({ length: 30 }, (_, n) => trip(n)));
+      for (let n = 0; n < 2 * 120; n++) { h.time(NOW + n * HISTORY_INTERVAL_MS); result(await h.run()); }
+      const byHour = new Map<number, number>();
+      for (const c of asked(h)) byHour.set(Math.floor(c.at / HOUR), (byHour.get(Math.floor(c.at / HOUR)) ?? 0) + 1);
+      expect([...byHour.values()]).toEqual([TRIP_STOPS_PER_HOUR, TRIP_STOPS_PER_HOUR]);
+      const keys = asked(h).map(c => c.fields.internal_trip_number);
+      expect(new Set(keys).size).toBe(keys.length);
+      const polls = h.calls.filter(c => c.method === 'getVehicleLocations').length;
+      expect(polls).toBe(4 * 2 * 120);
+    });
+
+    it('counts a failed ask, saves the failure, and does not ask that trip again', async () => {
+      const h = board([trip(1)]);
+      h.answers.getTripStops = () => new Response('upstream details', { status: 503 });
+      result(await h.run());
+      h.time(NOW + HISTORY_INTERVAL_MS);
+      const r = result(await h.run());
+      expect(r.failures).toContainEqual(expect.objectContaining({ feed: 'busdv-getTripStops', code: 'http-error' }));
+      for (let n = 2; n < 10; n++) { h.time(NOW + n * HISTORY_INTERVAL_MS); result(await h.run()); }
+      expect(asked(h)).toHaveLength(1);
+    });
+
+    it('sends no stop list ask when only the required calls fit', async () => {
+      const h = board([trip(1)]);
+      result(await h.run());
+      h.time(NOW + HISTORY_INTERVAL_MS);
+      h.state.budget.hours[Math.floor(NOW / HOUR)] = BUSDV_REQUEST_LIMIT - 4 - (h.state.token ? 0 : 1);
+      result(await h.run());
+      expect(asked(h)).toEqual([]);
+      expect(h.state.trips!.queue).toHaveLength(1);
     });
   });
 });

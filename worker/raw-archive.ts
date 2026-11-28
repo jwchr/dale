@@ -10,7 +10,7 @@ export type RawFeed = 'getVehiclePositions' | 'getTripUpdates' | 'getAlerts' | '
   | 'raildata-poll' | 'raildata-getStationList' | 'raildata-getStationSchedule'
   | 'raildata-getVehicleData' | 'raildata-getTrainSchedule' | 'raildata-getStationMSG'
   | 'busdv-poll' | 'busdv-getLocations' | 'busdv-getBusRoutes'
-  | 'busdv-authenticateUser' | 'busdv-getVehicleLocations' | 'busdv-getBusDV'
+  | 'busdv-authenticateUser' | 'busdv-getVehicleLocations' | 'busdv-getBusDV' | 'busdv-getTripStops'
   // Crossings and incidents: one JSON bundle a minute, and per-source names for failures only.
   | 'traffic-poll' | 'panynj-crossingTimes' | 'panynj-crossingAlerts' | '511nj-events' | 'panynj-incidents' | 'panynj-path' | 'njt-rss'
   | 'weather-poll' | 'nws-alerts' | 'nws-observation' | 'nws-forecast';
