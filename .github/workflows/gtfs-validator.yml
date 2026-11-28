@@ -61,7 +61,9 @@ jobs:
           if ! java -Duser.timezone=America/New_York -jar "$RUNNER_TEMP/gtfs-validator.jar" \
             --input "$RUNNER_TEMP/bus_data.zip" --output_base "$RUNNER_TEMP/gtfs-validation" \
             --country_code us --skip_validator_update > "$RUNNER_TEMP/gtfs-validator.log" 2>&1; then
-            echo '::error::GTFS validator could not finish; check the report artifact if available, then retry.'
+            # Show only the tool's own error lines (Java exception or bad option), never feed rows.
+            grep -E -m 5 '(Exception|Error|ParameterException|Was passed main parameter|Usage:)' "$RUNNER_TEMP/gtfs-validator.log" | cut -c1-200 || true
+            echo '::error::GTFS validator could not finish (see the tool error lines above); fix it or retry the check.'
             exit 1
           fi
           test -s "$RUNNER_TEMP/gtfs-validation/report.json" || {
@@ -75,7 +77,7 @@ jobs:
       - name: Summarize notice counts
         run: node scripts/gtfs-validator-summary.mjs "$RUNNER_TEMP/gtfs-validation/report.json"
       - name: Save the validation reports
-        if: always() && steps.validator.outcome != 'skipped'
+        if: always() && steps.validator.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gtfs-validator-reports
