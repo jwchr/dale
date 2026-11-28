@@ -50,6 +50,12 @@ jobs:
           curl --fail --location --silent --show-error --connect-timeout 30 --max-time 300 \
             --max-filesize 201326592 --output "$RUNNER_TEMP/bus_data.zip" \
             https://www.njtransit.com/bus_data.zip
+          # --max-filesize trusts Content-Length; a chunked answer can pass it, so check the saved size too (Neon Nov28 d).
+          bytes=$(stat --format=%s "$RUNNER_TEMP/bus_data.zip")
+          if [ "$bytes" -le 0 ] || [ "$bytes" -gt 201326592 ]; then
+            echo "::error::Downloaded schedule is $bytes bytes, outside 1 to 201326592; refusing to validate it."
+            exit 1
+          fi
           echo "GTFS_FEED_SHA256=$(sha256sum "$RUNNER_TEMP/bus_data.zip" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
           echo "GTFS_FEED_BYTES=$(stat --format=%s "$RUNNER_TEMP/bus_data.zip")" >> "$GITHUB_ENV"
       - name: Validate the schedule (feed notices are informational)
